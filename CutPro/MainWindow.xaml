@@ -1,0 +1,441 @@
+<Window x:Class="CutPro.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:CutPro"
+        Title="CutPro" Icon="Assets/CutPro.ico" Width="1560" Height="940" MinWidth="1000" MinHeight="650"
+        Background="{DynamicResource B.Surf.Win}" Foreground="{DynamicResource B.Fg}" FontFamily="Segoe UI" FontSize="12.5"
+        AllowDrop="True" UseLayoutRounding="True"
+        PreviewKeyDown="Window_PreviewKeyDown" PreviewKeyUp="Window_PreviewKeyUp" Closing="Window_Closing" StateChanged="Window_StateChanged">
+    <!-- VS Code-style custom chrome: our own title bar, native resize/snap -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="36" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <Grid x:Name="RootGrid" Background="{DynamicResource B.Surf.Win}">
+      <Grid x:Name="Frame" Margin="{DynamicResource Th.RootPad}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="{DynamicResource Th.TitleH}"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="{DynamicResource Th.StatusH}"/>
+        </Grid.RowDefinitions>
+
+        <!-- ================= TITLE BAR ================= -->
+        <local:Card x:Name="TitleCard" Grid.Row="0" Region="Title" Surface="B.Surf.Title"><Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Grid.ColumnSpan="3" BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,0,0,1"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Stretch">
+                <Image x:Name="TitleLogo" Width="20" Height="20" Margin="10,0,6,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                <TextBlock Text="CutPro" FontWeight="SemiBold" Foreground="{DynamicResource B.TitleBar.Fg}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <Button Style="{StaticResource MenuBtn}" Content="File" Tag="File" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Edit" Tag="Edit" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="View" Tag="View" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Sequence" Tag="Sequence" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Publish" Tag="Publish" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Window" Tag="Window" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Help" Tag="Help" Click="Menu_Click"/>
+            </StackPanel>
+            <!-- command center: opens the command palette -->
+            <Button Grid.Column="1" Style="{StaticResource CommandCenter}" Width="440" Height="24" Click="CommandCenter_Click" ToolTip="Command Palette (Ctrl+Shift+P)">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE721;" Style="{StaticResource IconText}" FontSize="12" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="CommandCenterText" Text="CutPro — Untitled"/>
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource Primary}" Click="Export_Click" ToolTip="Export MP4 (Ctrl+E)" Margin="0,6,10,6" Padding="12,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE898;" Style="{StaticResource IconText}" Margin="0,0,6,0"/>
+                        <TextBlock Text="Export" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource ChromeBtn}" Content="&#xE921;" Click="Min_Click" ToolTip="Minimize"/>
+                <Button x:Name="MaxBtn" Style="{StaticResource ChromeBtn}" Content="&#xE922;" Click="Max_Click" ToolTip="Maximize"/>
+                <Button Style="{StaticResource ChromeClose}" Content="&#xE8BB;" Click="Close_Click" ToolTip="Close"/>
+            </StackPanel>
+        </Grid></local:Card>
+
+        <!-- ================= BODY ================= -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{DynamicResource Th.ActivityW}"/>
+                <ColumnDefinition x:Name="SideCol" Width="280"/>
+                <ColumnDefinition Width="*" MinWidth="400"/>
+                <ColumnDefinition x:Name="InspCol" Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- activity bar -->
+            <local:Card x:Name="ActivityCard" Grid.Column="0" Region="Activity" Surface="B.Surf.Activity"><DockPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <RadioButton x:Name="ActSettings" Style="{StaticResource Activity}" GroupName="act" Tag="Settings" Content="&#xE713;" Click="Activity_Click" ToolTip="Settings · Color Theme"/>
+                </StackPanel>
+                <StackPanel>
+                    <RadioButton x:Name="ActProject" Style="{StaticResource Activity}" GroupName="act" Tag="Project" Content="&#xE8B7;" Click="Activity_Click" ToolTip="Project (Ctrl+B toggles the side bar)" IsChecked="True"/>
+                    <RadioButton x:Name="ActTitles" Style="{StaticResource Activity}" GroupName="act" Tag="Titles" Content="&#xE8D2;" Click="Activity_Click" ToolTip="Titles · styles &amp; title themes"/>
+                    <RadioButton x:Name="ActEffects" Style="{StaticResource Activity}" GroupName="act" Tag="Effects" Content="&#xE8AB;" Click="Activity_Click" ToolTip="Effects · video and audio transitions (drag onto a cut)"/>
+                    <RadioButton x:Name="ActMixer" Style="{StaticResource Activity}" GroupName="act" Tag="Mixer" Content="&#xE9E9;" Click="Activity_Click" ToolTip="Audio Track Mixer · volume, pan, mute, solo, meters, loudness"/>
+                    <RadioButton x:Name="ActScopes" Style="{StaticResource Activity}" GroupName="act" Tag="Scopes" Content="&#xE9D2;" Click="Activity_Click" ToolTip="Lumetri Scopes · waveform, RGB parade, vectorscope, histogram"/>
+                    <RadioButton x:Name="ActCaptions" Style="{StaticResource Activity}" GroupName="act" Tag="Captions" Content="&#xE7F0;" Click="Activity_Click" ToolTip="Captions · from speech, edit, SRT / VTT"/>
+                    <RadioButton x:Name="ActInspector" Style="{StaticResource Activity}" GroupName="act" Tag="Inspector" Content="&#xE70F;" Click="Activity_Click" ToolTip="Effect Controls" Visibility="Collapsed"/>
+                    <RadioButton x:Name="ActSource" Style="{StaticResource Activity}" GroupName="act" Tag="Source" Content="&#xE7F4;" Click="Activity_Click" ToolTip="Source monitor" Visibility="Collapsed"/>
+                </StackPanel>
+            </DockPanel></local:Card>
+
+            <!-- side bar -->
+            <local:Card x:Name="SideCard" Grid.Column="1" Region="Side" Surface="B.Surf.Side"><Border BorderBrush="{DynamicResource B.Divider}" BorderThickness="1,0,1,0" ClipToBounds="True">
+                <Grid x:Name="LeftHost">
+                    <!-- PROJECT -->
+                    <DockPanel x:Name="ProjectView">
+                        <Grid DockPanel.Dock="Top" Height="35">
+                            <TextBlock Text="PROJECT" Style="{StaticResource PaneHeader}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,6,0">
+                                <Button Style="{StaticResource Icon}" Content="&#xE710;" Click="Import_Click" ToolTip="Import media (Ctrl+I)"/>
+                                <Button x:Name="TitleBtn" Style="{StaticResource Icon}" Content="&#xE8D2;" Click="Title_Click" ToolTip="Add a title, subtitle, lower third or caption"/>
+                                <Button Style="{StaticResource Icon}" Content="&#xE8E5;" Click="Open_Click" ToolTip="Open project (Ctrl+O)"/>
+                                <Button Style="{StaticResource Icon}" Content="&#xE74E;" Click="Save_Click" ToolTip="Save project (Ctrl+S)"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid>
+                            <ListBox x:Name="BinList" AllowDrop="True" Drop="Bin_Drop" DragOver="Bin_DragOver"
+                                     PreviewMouseLeftButtonDown="Bin_MouseDown" PreviewMouseMove="Bin_MouseMove" MouseDoubleClick="Bin_DoubleClick"
+                                     HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="88"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Border Background="{DynamicResource B.Thumb.Bg}" Width="84" Height="48" CornerRadius="4" ClipToBounds="True">
+                                                <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Margin="8,3,0,0">
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Info}" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <!-- empty state (VS Code welcome-view style) -->
+                            <StackPanel x:Name="BinEmpty" VerticalAlignment="Top" Margin="20,16,20,0" IsHitTestVisible="True">
+                                <TextBlock Text="No media yet. Drop video, audio or images here, or:" TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}"/>
+                                <Button Style="{StaticResource Primary}" Content="Import Media" Click="Import_Click" Margin="0,12,0,0" Padding="10,6"/>
+                                <Button Content="Open Project…" Click="Open_Click" Margin="0,6,0,0" Padding="10,6"/>
+                                <TextBlock Text="Tip: Ctrl+Shift+P opens the command palette." TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" Margin="0,14,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </DockPanel>
+
+                    <!-- TITLES -->
+                    <DockPanel x:Name="TitlesView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="TITLES" Style="{StaticResource PaneHeader}"/></Grid>
+                        <StackPanel DockPanel.Dock="Top" Margin="20,0,14,6">
+                            <TextBlock Text="Add" Foreground="{DynamicResource B.Fg.Dim}" Margin="0,0,0,4"/>
+                            <UniformGrid Columns="2">
+                                <Button Content="Title" Tag="Title" Click="AddRole_Click"/>
+                                <Button Content="Subtitle" Tag="Subtitle" Click="AddRole_Click"/>
+                                <Button Content="Lower third" Tag="LowerThird" Click="AddRole_Click"/>
+                                <Button Content="Caption" Tag="Caption" Click="AddRole_Click"/>
+                            </UniformGrid>
+                            <TextBlock Text="Title theme" Foreground="{DynamicResource B.Fg.Dim}" Margin="0,12,0,4"/>
+                            <ComboBox x:Name="ThemeCombo" SelectionChanged="Theme_Changed" ToolTip="Restyles every title by its role (Ctrl+Z to undo); new titles use it too"/>
+                            <TextBlock Text="Styles — click to apply to the selected titles (or add a new title)" TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" Margin="0,12,0,0"/>
+                        </StackPanel>
+                        <ListBox x:Name="StyleGallery" SelectionChanged="StyleGallery_Changed" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="10,0,4,6"/>
+                    </DockPanel>
+
+                    <!-- CAPTIONS: speech to text, edit, SRT / VTT (built in CaptionsUi.cs) -->
+                    <DockPanel x:Name="CaptionsView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="CAPTIONS" Style="{StaticResource PaneHeader}"/></Grid>
+                        <StackPanel x:Name="CaptionsTop" DockPanel.Dock="Top" Margin="20,0,14,6"/>
+                        <StackPanel x:Name="CaptionsBottom" DockPanel.Dock="Bottom" Margin="20,6,14,12"/>
+                        <ListBox x:Name="CaptionList" Margin="10,0,4,0" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <Button Content="{Binding Time}" Tag="{Binding}" Click="CaptionTime_Click" Style="{StaticResource Flat}" Padding="2,1" FontFamily="Consolas" FontSize="11"
+                                                VerticalAlignment="Top" HorizontalAlignment="Left" ToolTip="Go there"/>
+                                        <TextBox Grid.Column="1" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" Tag="{Binding}"
+                                                 GotKeyboardFocus="CaptionText_Focus" ToolTip="Edit the caption (Enter = new line)"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+
+                    <!-- EFFECTS: transitions -->
+                    <DockPanel x:Name="EffectsView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="EFFECTS" Style="{StaticResource PaneHeader}"/></Grid>
+                        <TextBlock DockPanel.Dock="Top" Text="Drag a transition onto a cut (or a clip's start / end). Double-click: apply at the cut nearest the playhead. Ctrl+D video · Ctrl+Shift+D audio · Shift+D both." TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" Margin="20,0,14,8"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="EffectsList" Margin="12,0,10,12"/>
+                        </ScrollViewer>
+                    </DockPanel>
+
+                    <!-- AUDIO TRACK MIXER -->
+                    <DockPanel x:Name="MixerView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="AUDIO TRACK MIXER" Style="{StaticResource PaneHeader}"/>
+                            <Button x:Name="AddSubBtn" Style="{StaticResource Flat}" Content="+ Submix" HorizontalAlignment="Right" Margin="0,0,86,0" Padding="8,0" Click="AddSubmix_Click"
+                                    ToolTip="Add a submix bus: send tracks to it (→ menu under their strips), give it its own effects, fader and automation"/>
+                            <ToggleButton x:Name="AutoWrite" Style="{StaticResource Tool}" Content="● Write" HorizontalAlignment="Right" Margin="0,0,10,0" Padding="8,0"
+                                          ToolTip="Write automation: while playing, moving a fader or a pan knob records keyframes on its track (they show on the timeline: track header ▸ Track volume / Track pan)"/></Grid>
+                        <StackPanel x:Name="LoudnessPanel" DockPanel.Dock="Bottom" Margin="16,8,12,12"/>
+                        <UniformGrid x:Name="MixerStrips" Rows="1" Margin="8,0,8,4"/>
+                    </DockPanel>
+
+                    <!-- LUMETRI SCOPES -->
+                    <DockPanel x:Name="ScopesView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="LUMETRI SCOPES" Style="{StaticResource PaneHeader}"/></Grid>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="ScopesList" Margin="12,0,10,12"/>
+                        </ScrollViewer>
+                    </DockPanel>
+
+                    <!-- SETTINGS -->
+                    <DockPanel x:Name="SettingsView" Visibility="Collapsed">
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="SETTINGS" Style="{StaticResource PaneHeader}"/></Grid>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="20,0,14,12">
+                                <TextBlock Text="Color Theme" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                                <TextBlock Text="The look of the editor. Also: View menu, status bar, or Ctrl+Shift+P → Color Theme." TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" Margin="0,0,0,8"/>
+                                <StackPanel x:Name="ThemeCards"/>
+                                <CheckBox x:Name="AmbienceChk" Content="Theme animations — wind, creatures, glints, sparkles" Margin="2,2,0,4" Click="Ambience_Click" ToolTip="Moving details of the Frosted Glass, Stone, Metals and Nature themes"/>
+                                <TextBlock Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,16,0,6"/>
+                                <StackPanel x:Name="ShortcutList"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Grid>
+            </Border></local:Card>
+            <!-- sashes overlay the panel edges (no layout space), like VS Code -->
+            <GridSplitter x:Name="SideSash" Grid.Column="1" Width="4" Style="{StaticResource Sash}" HorizontalAlignment="Right" ResizeBehavior="CurrentAndNext" DragCompleted="Sash_DragCompleted" Panel.ZIndex="5"/>
+
+            <!-- editor + bottom panel -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="EditorRow" Height="*" MinHeight="200"/>
+                    <RowDefinition x:Name="PanelRow" Height="300" MinHeight="160"/>
+                </Grid.RowDefinitions>
+
+                <!-- editor: Program monitor as a tab -->
+                <local:Card x:Name="EditorCard" Region="Editor" Surface="B.Surf.Editor"><Grid x:Name="EditorGrid" SizeChanged="EditorGrid_SizeChanged">
+                    <Grid.RowDefinitions><RowDefinition Height="35"/><RowDefinition Height="*"/><RowDefinition Height="44"/></Grid.RowDefinitions>
+                    <Border Background="{DynamicResource B.Strip}" BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,0,0,1">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="ProgramTab" Background="{DynamicResource B.Tab.Active}" BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,0,1,0" Margin="0,0,0,-1">
+                                <Grid>
+                                    <Border Height="2" VerticalAlignment="Top" Background="{DynamicResource B.Tab.Border}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="14,0,16,0">
+                                        <TextBlock Text="&#xE714;" Style="{StaticResource IconText}" Foreground="{DynamicResource B.Accent2}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Program" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="ProgramTabSub" Text="  Sequence 01" Foreground="{DynamicResource B.Fg.Dim}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                    <!-- object selection tools (editor actions, like VS Code's editor title bar) -->
+                    <StackPanel x:Name="EditorTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <TextBlock x:Name="FmtLabel" Text="Format" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ToggleButton x:Name="Fmt169" Style="{StaticResource Tool}" Tag="16:9" Click="Format_Click" Content="16:9" ToolTip="Landscape — YouTube, Facebook, LinkedIn, Vimeo, X"/>
+                        <ToggleButton x:Name="Fmt916" Style="{StaticResource Tool}" Tag="9:16" Click="Format_Click" ToolTip="Shorts — vertical 9:16 for YouTube Shorts, TikTok, Instagram and Facebook Reels">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8EA;" Style="{StaticResource IconText}" Margin="0,0,5,0"/><TextBlock Text="Shorts"/></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton x:Name="Fmt11" Style="{StaticResource Tool}" Tag="1:1" Click="Format_Click" Content="1:1" ToolTip="Square — feed posts"/>
+                        <ToggleButton x:Name="Fmt45" Style="{StaticResource Tool}" Tag="4:5" Click="Format_Click" Content="4:5" ToolTip="Portrait 4:5 — Instagram / Facebook feed"/>
+                        <ComboBox x:Name="LayoutBox" Width="104" Margin="4,0,0,0" SelectionChanged="Layout_Changed" Visibility="Collapsed"
+                                  ToolTip="How footage of another shape fills the frame (V1 clips)">
+                            <ComboBoxItem Content="Fill (crop)" ToolTip="Crop to fill the frame; Reframe pan / Auto reframe pick the part that shows"/>
+                            <ComboBoxItem Content="Fit + blur" ToolTip="Whole picture over a blurred copy of itself (the classic landscape-to-Shorts look)"/>
+                            <ComboBoxItem Content="Fit (bars)" ToolTip="Whole picture with black bars"/>
+                        </ComboBox>
+                        <Button x:Name="AutoReframeBtn" Style="{StaticResource Flat}" Content="Auto reframe" Click="AutoReframe_Click" Visibility="Collapsed"
+                                ToolTip="Pan every V1 clip to keep the subject in frame (follows a tracked object mask when there is one)"/>
+                        <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="8,6"/>
+                        <TextBlock x:Name="ObjLabel" Text="Objects" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ToggleButton x:Name="ToolAI" Style="{StaticResource Tool}" Tag="AI" Click="ObjTool_Click"
+                                      ToolTip="AI select: click a person or object (Shift+click adds, Alt+click / right-click removes, Esc finishes)">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="✦" Margin="0,0,5,0" Foreground="{DynamicResource B.Accent2}"/><TextBlock x:Name="AiLabel" Text="Select object"/></StackPanel>
+                        </ToggleButton>
+                        <ToggleButton x:Name="ToolEllipse" Style="{StaticResource Tool}" Tag="Ellipse" Click="ObjTool_Click" Content="◯" ToolTip="Draw an ellipse mask"/>
+                        <ToggleButton x:Name="ToolRect" Style="{StaticResource Tool}" Tag="Rectangle" Click="ObjTool_Click" Content="▭" ToolTip="Draw a rectangle mask"/>
+                        <ToggleButton x:Name="ToolFree" Style="{StaticResource Tool}" Tag="Freehand" Click="ObjTool_Click" Content="✎" ToolTip="Draw a freehand mask (lasso)"/>
+                        <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                        <Button Style="{StaticResource Flat}" Content="◀ Track" Tag="-1" Click="TrackBtn_Click" ToolTip="Track the active mask backwards from the playhead"/>
+                        <Button Style="{StaticResource Flat}" Content="Track ▶" Tag="1" Click="TrackBtn_Click" ToolTip="Track the active mask forwards from the playhead"/>
+                        <Button Style="{StaticResource Flat}" Content="◀ Both ▶" Tag="0" Click="TrackBtn_Click" ToolTip="Track the active mask in both directions"/>
+                    </StackPanel>
+                    <Viewbox x:Name="MonitorBox" Grid.Row="1" Margin="12" Stretch="Uniform">
+                        <Border Background="{DynamicResource B.Monitor.Bg}" BorderBrush="{DynamicResource B.Border}" BorderThickness="1">
+                            <Grid>
+                                <local:Preview x:Name="Pv" Width="1280" Height="720" ClipToBounds="True" Background="Black"/>
+                                <local:MaskOverlay x:Name="Mo"/>
+                                <local:PinOverlay x:Name="Po"/>
+                            </Grid>
+                        </Border>
+                    </Viewbox>
+                    <!-- transport -->
+                    <Grid Grid.Row="2" Margin="12,0">
+                        <TextBlock x:Name="TimeText" Text="00:00:00:00" FontFamily="Consolas" FontSize="18" Foreground="{DynamicResource B.Timecode}" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Button Style="{StaticResource Icon}" Content="&#xE892;" Click="ToStart_Click" ToolTip="Go to start (Home)"/>
+                            <Button Style="{StaticResource Icon}" Content="&#xE76B;" Click="StepBack_Click" ToolTip="Previous frame (←)"/>
+                            <Button x:Name="PlayBtn" Style="{StaticResource Primary}" Content="&#xE768;" FontFamily="{StaticResource IconFont}" FontSize="14"
+                                    Width="40" Height="30" Padding="0" Margin="6,0" Click="Play_Click" ToolTip="Play / Pause (Space)"/>
+                            <Button Style="{StaticResource Icon}" Content="&#xE76C;" Click="StepFwd_Click" ToolTip="Next frame (→)"/>
+                            <Button Style="{StaticResource Icon}" Content="&#xE893;" Click="ToEnd_Click" ToolTip="Go to end (End)"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock x:Name="DurText" Text="00:00:00:00" FontFamily="Consolas" FontSize="13" Foreground="{DynamicResource B.Fg.Dim}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="ResCombo" Width="72" SelectedIndex="0" SelectionChanged="Res_Changed" ToolTip="Playback resolution">
+                                <ComboBoxItem Content="Full"/><ComboBoxItem Content="1/2"/><ComboBoxItem Content="1/4"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                </Grid></local:Card>
+
+                <GridSplitter x:Name="PanelSash" Grid.Row="1" Height="4" Style="{StaticResource Sash}" HorizontalAlignment="Stretch" VerticalAlignment="Top" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" DragCompleted="Sash_DragCompleted" Panel.ZIndex="5"/>
+
+                <!-- bottom panel: TIMELINE -->
+                <local:Card x:Name="PanelCard" Grid.Row="1" Region="Panel" Surface="B.Surf.Panel" SizeChanged="PanelCard_SizeChanged"><Grid x:Name="PanelGrid">
+                    <Grid.RowDefinitions><RowDefinition Height="35"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,1,0,0" Grid.RowSpan="3"/>
+                    <Grid>
+                        <StackPanel x:Name="PanelTabs" Orientation="Horizontal" HorizontalAlignment="Left" Margin="8,0,0,0">
+                            <Button x:Name="TabTimeline" Style="{StaticResource Flat}" Tag="Timeline" Click="PanelTab_Click" ToolTip="Timeline" Padding="6,0">
+                                <Grid Height="35">
+                                    <TextBlock x:Name="TabTimelineText" Text="TIMELINE" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0"/>
+                                    <Border x:Name="TabTimelineLine" Height="1.5" VerticalAlignment="Bottom" Margin="0,0,0,4" Background="{DynamicResource B.Tab.Border}"/>
+                                </Grid>
+                            </Button>
+                            <Button x:Name="TabKeys" Style="{StaticResource Flat}" Tag="Keys" Click="PanelTab_Click" ToolTip="Keyframes of the selected clip: dope sheet and graph editor" Padding="6,0">
+                                <Grid Height="35">
+                                    <TextBlock x:Name="TabKeysText" Text="KEYFRAMES" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0" Foreground="{DynamicResource B.Fg.Dim}"/>
+                                    <Border x:Name="TabKeysLine" Height="1.5" VerticalAlignment="Bottom" Margin="0,0,0,4" Background="{DynamicResource B.Tab.Border}" Visibility="Hidden"/>
+                                </Grid>
+                            </Button>
+                            <!-- panels docked into the bottom panel (DockUi) -->
+                            <StackPanel x:Name="DockTabs" Orientation="Horizontal" VerticalAlignment="Stretch"/>
+                            <!-- open sequences (click = edit it, ✕ = close the tab, right-click = rename / duplicate / settings / delete) -->
+                            <Rectangle x:Name="SeqTabsSep" Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="8,9,4,9"/>
+                            <StackPanel x:Name="SeqTabs" Orientation="Horizontal" VerticalAlignment="Stretch"/>
+                            <Button x:Name="SeqNewBtn" Style="{StaticResource Icon}" Content="&#xE710;" FontSize="11" Click="SeqNew_Click" ToolTip="New sequence (Ctrl+N)" Margin="2,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel x:Name="KeyBar" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0" VerticalAlignment="Center" Visibility="Collapsed">
+                            <ToggleButton x:Name="KfDope" Style="{StaticResource Tool}" Content="Dope sheet" IsChecked="True" Click="KfMode_Click" Tag="Dope" ToolTip="Keyframes of every property on rows"/>
+                            <ToggleButton x:Name="KfGraph" Style="{StaticResource Tool}" Content="Graph" Click="KfMode_Click" Tag="Graph" ToolTip="Value curve of one property with Bézier handles"/>
+                            <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                            <Button Style="{StaticResource Flat}" Content="Linear" Tag="Linear" Click="KfInterp_Click" ToolTip="Straight lines between keyframes"/>
+                            <Button Style="{StaticResource Flat}" Content="Easy Ease" Tag="Easy Ease" Click="KfInterp_Click" ToolTip="Slow in and out (F9 in After Effects)"/>
+                            <Button Style="{StaticResource Flat}" Content="Ease In" Tag="Ease In" Click="KfInterp_Click"/>
+                            <Button Style="{StaticResource Flat}" Content="Ease Out" Tag="Ease Out" Click="KfInterp_Click"/>
+                            <Button Style="{StaticResource Flat}" Content="Auto" Tag="Auto Bezier" Click="KfInterp_Click" ToolTip="Smooth curve through the keyframes (Auto Bézier)"/>
+                            <Button Style="{StaticResource Flat}" Content="Hold" Tag="Hold" Click="KfInterp_Click" ToolTip="Jump at the next keyframe"/>
+                            <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                            <Button Style="{StaticResource Icon}" Content="&#xE74D;" Click="KfDelete_Click" ToolTip="Delete selected keyframes (Del)"/>
+                            <Button Style="{StaticResource Flat}" Content="Fit" Click="KfFit_Click" ToolTip="Show the whole clip (F)"/>
+                        </StackPanel>
+                        <StackPanel x:Name="TlBar" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <ToggleButton x:Name="ToolSelect" Style="{StaticResource Tool}" Click="ToolSelect_Click" IsChecked="True" ToolTip="Selection tool (V)">
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE7C9;" Style="{StaticResource IconText}" Margin="0,0,5,0"/><TextBlock x:Name="SelectLabel" Text="Select"/></StackPanel>
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolRazor" Style="{StaticResource Tool}" Click="ToolRazor_Click" ToolTip="Razor tool (C)">
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8C6;" Style="{StaticResource IconText}" Margin="0,0,5,0"/><TextBlock x:Name="RazorLabel" Text="Razor"/></StackPanel>
+                            </ToggleButton>
+                            <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                            <Button Style="{StaticResource Flat}" Content="Add Edit" Click="Split_Click" ToolTip="Cut selected clips (or all tracks) at the playhead (Ctrl+K; Ctrl+Shift+K = all tracks)"/>
+                            <Button Style="{StaticResource Icon}" Content="&#xE74D;" Click="Delete_Click" ToolTip="Delete (Del)"/>
+                            <Button Style="{StaticResource Flat}" Content="Ripple Delete" Click="Ripple_Click" ToolTip="Shift+Del"/>
+                            <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                            <Button Style="{StaticResource Flat}" Content="In" Click="MarkIn_Click" ToolTip="Mark In (I)"/>
+                            <Button Style="{StaticResource Flat}" Content="Out" Click="MarkOut_Click" ToolTip="Mark Out (O)"/>
+                            <Button Style="{StaticResource Flat}" Content="Lift" Click="Lift_Click" ToolTip="Remove In..Out, leave a gap (;)"/>
+                            <Button Style="{StaticResource Flat}" Content="Extract" Click="Extract_Click" ToolTip="Remove In..Out and close the gap (')"/>
+                            <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
+                            <CheckBox x:Name="SnapChk" Content="Snap" IsChecked="True" VerticalAlignment="Center" Margin="6,0,10,0" Checked="Snap_Changed" Unchecked="Snap_Changed" ToolTip="Snapping (S)"/>
+                            <TextBlock Text="&#xE71F;" Style="{StaticResource IconText}" Foreground="{DynamicResource B.Fg.Dim}" Margin="4,0,4,0"/>
+                            <Slider x:Name="ZoomSlider" Width="140" Minimum="8" Maximum="400" Value="80" VerticalAlignment="Center" ValueChanged="Zoom_Changed" ToolTip="Zoom (Ctrl+wheel)"/>
+                            <TextBlock Text="&#xE8A3;" Style="{StaticResource IconText}" Foreground="{DynamicResource B.Fg.Dim}" Margin="4,0,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <local:TimelineView x:Name="Tl" Grid.Row="1"/>
+                    <local:PlayheadOverlay x:Name="Ph" Grid.Row="1"/>
+                    <ScrollBar x:Name="HScroll" Grid.Row="2" Orientation="Horizontal" Scroll="HScroll_Scroll" Margin="92,0,0,0"/>
+                    <local:KeyframeEditor x:Name="Kfe" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed"/>
+                    <Grid x:Name="BottomHost" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed"/>
+                </Grid></local:Card>
+            </Grid>
+
+            <GridSplitter x:Name="InspSash" Grid.Column="3" Width="4" Style="{StaticResource Sash}" HorizontalAlignment="Left" ResizeBehavior="PreviousAndCurrent" DragCompleted="Sash_DragCompleted" Panel.ZIndex="5"/>
+
+            <!-- secondary side bar: EFFECT CONTROLS -->
+            <local:Card x:Name="InspCard" Grid.Column="3" Region="Insp" Surface="B.Surf.Insp"><Border BorderBrush="{DynamicResource B.Divider}" BorderThickness="1,0,0,0" ClipToBounds="True">
+                <DockPanel>
+                    <!-- panels docked here (tabs when more than one: DockUi) -->
+                    <Border x:Name="RightTabsBar" DockPanel.Dock="Top" Height="30" Background="{DynamicResource B.Strip}" BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,0,0,1" Visibility="Collapsed">
+                        <StackPanel x:Name="RightTabs" Orientation="Horizontal" Margin="4,0,0,0"/>
+                    </Border>
+                    <Grid x:Name="RightHost">
+                        <DockPanel x:Name="InspectorView">
+                            <Grid DockPanel.Dock="Top" Height="35">
+                                <TextBlock Text="EFFECT CONTROLS" Style="{StaticResource PaneHeader}"/>
+                                <Button Style="{StaticResource Icon}" Content="&#xE8BB;" FontSize="10" HorizontalAlignment="Right" Margin="0,0,6,0" Click="HideInspector_Click" ToolTip="Hide (Ctrl+Alt+B)"/>
+                            </Grid>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="Inspector" Margin="16,4,12,12"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
+            </Border></local:Card>
+        </Grid>
+
+        <!-- ================= STATUS BAR ================= -->
+        <local:Card x:Name="StatusCard" Grid.Row="2" Region="Status" Surface="B.Surf.Status"><Grid>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button x:Name="StatusTask" Style="{StaticResource StatusItem}" Visibility="Collapsed" Click="StatusTask_Click" ToolTip="Click to stop">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" Style="{StaticResource IconText}" FontSize="11" Margin="0,0,6,0"/><TextBlock x:Name="StatusTaskText"/></StackPanel>
+                </Button>
+                <Button x:Name="StatusProject" Style="{StaticResource StatusItem}" Click="CommandCenter_Click" ToolTip="Command Palette">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE714;" Style="{StaticResource IconText}" FontSize="11" Margin="0,0,6,0"/><TextBlock x:Name="StatusProjectText" Text="Untitled"/></StackPanel>
+                </Button>
+                <Button Style="{StaticResource StatusItem}" Click="StatusSel_Click"><TextBlock x:Name="StatusSelText" Text="No selection"/></Button>
+                <Button Style="{StaticResource StatusItem}" Click="StatusSnap_Click" ToolTip="Toggle snapping (S)"><TextBlock x:Name="StatusSnapText" Text="Snap: On"/></Button>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource StatusItem}" ToolTip="Playhead / duration"><TextBlock x:Name="StatusTimeText" Text="00:00:00:00 / 00:00:00:00" FontFamily="Consolas"/></Button>
+                <Button Style="{StaticResource StatusItem}" Click="StatusRes_Click" ToolTip="Playback resolution"><TextBlock x:Name="StatusResText" Text="Playback: Full"/></Button>
+                <Button Style="{StaticResource StatusItem}" Click="StatusSeq_Click" ToolTip="Sequence settings: resolution, frame rate, layout"><TextBlock x:Name="StatusSeqText" Text="1280×720 · 30 fps"/></Button>
+                <Button Style="{StaticResource StatusItem}" Click="StatusTheme_Click" ToolTip="Color Theme">
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE790;" Style="{StaticResource IconText}" FontSize="11" Margin="0,0,6,0"/><TextBlock x:Name="StatusThemeText" Text="Dark Theme"/></StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid></local:Card>
+
+        </Grid>
+
+        <!-- theme ambience (wind, creatures, glints, sparkles): click-through, above the panels -->
+        <Canvas x:Name="AmbientLayer" IsHitTestVisible="False"/>
+
+        <!-- ================= OVERLAYS ================= -->
+        <Grid x:Name="Overlay" Grid.RowSpan="3" IsHitTestVisible="False">
+            <!-- command palette -->
+            <Border x:Name="Palette" Visibility="Collapsed" IsHitTestVisible="True" VerticalAlignment="Top" HorizontalAlignment="Center" Width="600" Margin="0,40,0,0"
+                    Background="{DynamicResource B.Popup.Bg}" BorderBrush="{DynamicResource B.Popup.Border}" BorderThickness="1" CornerRadius="8" Padding="6">
+                <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.4" Color="{DynamicResource C.Shadow}"/></Border.Effect>
+                <Border.RenderTransform><TranslateTransform x:Name="PaletteShift"/></Border.RenderTransform>
+                <DockPanel>
+                    <TextBlock x:Name="PaletteHint" DockPanel.Dock="Top" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11.5" Margin="4,0,0,6" Visibility="Collapsed"/>
+                    <TextBox x:Name="PaletteBox" DockPanel.Dock="Top" FontSize="13.5" Padding="6,5" TextChanged="PaletteBox_TextChanged" PreviewKeyDown="PaletteBox_PreviewKeyDown" LostKeyboardFocus="PaletteBox_LostFocus"/>
+                    <ListBox x:Name="PaletteList" MaxHeight="380" Margin="0,6,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             PreviewMouseLeftButtonUp="PaletteList_Click" SelectionChanged="PaletteList_SelectionChanged" Focusable="False"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+        <!-- theme-switch crossfade snapshot goes here -->
+        <Grid x:Name="FadeHost" Grid.RowSpan="3" IsHitTestVisible="False"/>
+    </Grid>
+</Window>

@@ -1,0 +1,13 @@
+# build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+*.swp
+
+# local test / export output
+*.cutpro.bak
+out.mp4*
+TestResults/
