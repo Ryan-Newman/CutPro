@@ -114,10 +114,10 @@ public partial class MainWindow
             ed.Undo();
             Check(JsonSerializer.Serialize(ed.Clips) == before, "Overwrite: one undo");
             // into V2 (the V toggle's track)
-            srcVTrack = 1; SrcPatchLabels(); ed.Seek(2.0); SourceEdit(false);
+            srcVNum = 2; SrcPatchLabels(); ed.Seek(2.0); SourceEdit(false);
             Check(ed.Clips.Any(c => c.Track == 1 && Near(c.Start, 2.0) && Near(c.Dur, dur)) && JsonSerializer.Serialize(ed.Clips.Where(c => c.Track != 1)) == JsonSerializer.Serialize(JsonSerializer.Deserialize<List<Clip>>(before)!.Where(c => c.Track != 1)),
                   "Overwrite into V2 (right-click V): only V2 gets the clip");
-            ed.Undo(); srcVTrack = 2; SrcPatchLabels(); srcA.IsChecked = true;
+            ed.Undo(); srcVNum = 1; SrcPatchLabels(); srcA.IsChecked = true;
 
             // drags: video only / audio only (what the timeline's drop does with the source monitor's parts)
             int n0 = ed.Clips.Count; double tEnd = ed.End + 1;

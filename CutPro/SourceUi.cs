@@ -23,7 +23,11 @@ public partial class MainWindow
     SourceBar srcBar = null!; TextBlock srcTime = null!, srcDur = null!, srcHint = null!;
     Button srcPlayBtn = null!; ToggleButton srcV = null!, srcA = null!; ComboBox srcPick = null!;
     Grid srcStage = null!; Viewbox srcBox = null!;
-    int srcVTrack = 2, srcATrack = 3;
+    /// <summary>Source patching: which video / audio track (number: 1 = V1 / A1) the source's parts go to — numbers, so they stay put when tracks
+    /// are added or removed (a number past the last track means the last one).</summary>
+    int srcVNum = 1, srcANum = 1;
+    int SrcVRow => Tracks.V(Math.Clamp(srcVNum, 1, Tracks.Video));
+    int SrcARow => Tracks.A(Math.Clamp(srcANum, 1, Tracks.Audio));
     bool srcPlaying, srcClock, srcFocus, srcPickBusy;
     long srcPlayWall; double srcT0, srcDrawnT = double.NaN; readonly Stopwatch srcSw = new();
     readonly List<string> srcRecent = new();
@@ -72,10 +76,11 @@ public partial class MainWindow
             tb.ContextMenuOpening += (_, _) =>
             {
                 tb.ContextMenu.Items.Clear();
-                foreach (int tr in video ? new[] { 2, 1, 0 } : new[] { 3, 4 })
+                foreach (int tr in video ? Tracks.VideoRows : Tracks.AudioRows)
                 {
-                    var mi = new MenuItem { Header = $"Into {Tracks.Names[tr]}", IsCheckable = true, IsChecked = (video ? srcVTrack : srcATrack) == tr };
-                    int t2 = tr; mi.Click += (_, _) => { if (video) srcVTrack = t2; else srcATrack = t2; tb.IsChecked = true; SrcPatchLabels(); };
+                    var mi = new MenuItem { Header = $"Into {Tracks.Name(tr)}", IsCheckable = true, IsChecked = (video ? SrcVRow : SrcARow) == tr, IsEnabled = !ed.Locked(tr),
+                                            ToolTip = ed.Locked(tr) ? "The track is locked" : null };
+                    int n = Tracks.Number(tr); mi.Click += (_, _) => { if (video) srcVNum = n; else srcANum = n; tb.IsChecked = true; SrcPatchLabels(); };
                     tb.ContextMenu.Items.Add(mi);
                 }
             };
@@ -144,9 +149,9 @@ public partial class MainWindow
     }
 
     string SrcParts() => (srcV.IsChecked == true ? "v" : "") + (srcA.IsChecked == true ? "a" : "");
-    void SrcPatchLabels() { srcV.Content = Tracks.Names[srcVTrack]; srcA.Content = Tracks.Names[srcATrack];
-                            srcV.ToolTip = $"Video goes to {Tracks.Names[srcVTrack]} (click: include / leave out; right-click: track)";
-                            srcA.ToolTip = $"Audio goes to {Tracks.Names[srcATrack]} (click: include / leave out; right-click: track)"; }
+    void SrcPatchLabels() { srcV.Content = Tracks.Label(SrcVRow); srcA.Content = Tracks.Label(SrcARow);
+                            srcV.ToolTip = $"Video goes to {Tracks.Name(SrcVRow)} (click: include / leave out; right-click: track)";
+                            srcA.ToolTip = $"Audio goes to {Tracks.Name(SrcARow)} (click: include / leave out; right-click: track)"; }
 
     void SrcDragMove(MouseEventArgs e, string parts)
     {
@@ -178,13 +183,8 @@ public partial class MainWindow
             srcPv = new Preview { Ed = srcEd, Audio = srcAudio, Width = Editor.W, Height = Editor.H, ClipToBounds = true, Background = Brushes.Black, ResDiv = 2 };
             srcStage.Children.Add(srcPv);
         }
-        // the one-clip editor: the whole media, picture on V1 and sound on A1 (linked), like a clip dropped on an empty timeline
-        srcEd.Media.Clear(); srcEd.Media.Add(m); srcEd.Clips.Clear();
-        double len = SrcLen; var link = Guid.NewGuid().ToString("N");
-        bool pic = m.Type is ClipKind.Video or ClipKind.Image, snd = m.Type == ClipKind.Audio || m.Type == ClipKind.Video && m.HasAudio;
-        if (pic) srcEd.Clips.Add(new Clip { MediaId = m.Id, Kind = m.Type, Track = 2, Start = 0, Dur = len, LinkId = snd ? link : null, NoAudio = snd });
-        if (snd) srcEd.Clips.Add(new Clip { MediaId = m.Id, Kind = ClipKind.Audio, Track = 3, Start = 0, Dur = len, LinkId = pic ? link : null });
-        if (snd) AudioCache.Ensure(m);
+        SrcClips(m);
+        if (m.Type == ClipKind.Audio || m.Type == ClipKind.Video && m.HasAudio) AudioCache.Ensure(m);
         srcEd.Time = Math.Clamp(Math.Round((t ?? m.SrcTime) * TimeUtil.Fps) / TimeUtil.Fps, 0, SrcLast);
         srcRecent.Remove(m.Id); srcRecent.Insert(0, m.Id);
         if (srcRecent.Count > 10) srcRecent.RemoveRange(10, srcRecent.Count - 10);
@@ -193,6 +193,22 @@ public partial class MainWindow
         ShowDock("Source");
         srcFocus = true;
     }
+
+    /// <summary>The one-clip editor: the whole media, picture on V1 and sound on A1 (linked), like a clip dropped on an empty timeline. Its rows
+    /// are the active sequence's (the track statics are shared), so its sequence takes that layout's counts — never its names (it is not
+    /// made the active layout) — and the clips are rebuilt when the layout changes (<see cref="SourceTick"/>).</summary>
+    void SrcClips(MediaItem m)
+    {
+        var s = srcEd!.Seq;
+        s.VideoTracks = Tracks.Video; s.AudioTracks = Tracks.Audio; s.TrackInfo = null; s.Fix();
+        srcEd.Media.Clear(); srcEd.Media.Add(m); srcEd.Clips.Clear();
+        double len = SrcLen; var link = Guid.NewGuid().ToString("N");
+        bool pic = m.Type is ClipKind.Video or ClipKind.Image, snd = m.Type == ClipKind.Audio || m.Type == ClipKind.Video && m.HasAudio;
+        if (pic) srcEd.Clips.Add(new Clip { MediaId = m.Id, Kind = m.Type, Track = Tracks.V1, Start = 0, Dur = len, LinkId = snd ? link : null, NoAudio = snd });
+        if (snd) srcEd.Clips.Add(new Clip { MediaId = m.Id, Kind = ClipKind.Audio, Track = Tracks.A1, Start = 0, Dur = len, LinkId = pic ? link : null });
+        srcLayout = (Tracks.Video, Tracks.Audio);
+    }
+    (int v, int a) srcLayout;
 
     void CloseSource()
     {
@@ -239,6 +255,7 @@ public partial class MainWindow
             if (srcPv.ResDiv != div) srcPv.ResDiv = div;
         }
         if (srcItem == null) return;
+        if (srcLayout != (Tracks.Video, Tracks.Audio)) { SrcPause(); double keep = srcEd.Time; SrcClips(srcItem); srcEd.Time = keep; SrcPatchLabels(); }   // (the active sequence's tracks changed: the rows moved)
         if (srcPlaying)
         {
             if (!srcClock)
@@ -317,7 +334,8 @@ public partial class MainWindow
         if (srcItem == null) { SetTask("Open a clip in the Source monitor first (double-click it in the Project panel)", 3000); return; }
         if (!ed.CanAdd(srcItem)) return;
         SrcPause(); Pause();
-        int? vt = srcV.IsChecked == true && srcV.IsEnabled ? srcVTrack : null, at = srcA.IsChecked == true && srcA.IsEnabled ? srcATrack : null;
+        int? vt = srcV.IsChecked == true && srcV.IsEnabled ? SrcVRow : null, at = srcA.IsChecked == true && srcA.IsEnabled ? SrcARow : null;
+        if (vt is int lv && ed.Locked(lv) || at is int la && ed.Locked(la)) { SetTask($"{Tracks.Name(vt is int l2 && ed.Locked(l2) ? l2 : at!.Value)} is locked — unlock it or patch the source to another track (right-click V / A)", 3500); return; }
         var made = ed.PlaceSource(srcItem, ed.Time, vt, at, insert);
         if (made.Count == 0) { SetTask("Nothing to place: switch on V or A", 2500); return; }
         SetTask($"{(insert ? "Inserted" : "Overwrote")} {TimeUtil.Format(made[0].Dur)} of “{srcItem.Name}”", 2500);

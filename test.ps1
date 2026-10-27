@@ -54,8 +54,9 @@ if (Test-Path $fmt) {
 #    composite = the basic session with a blended (Screen), cropped, flipped, keyed clip on V2 and a blended title
 #    nest = the basic session with its first clips nested: plays the nested render (BGRA, its own frame grid) then the media after it
 #    float = the basic session with the Program monitor in its own window (the "Second screen" workspace: on the other screen if there is one)
+#    tracks = the basic session in a 12 + 4 track sequence with a picture-in-picture clip on each of V3 … V12 (ten decoders, 12 track canvases)
 if ($args -contains '-play') {
-  foreach ($run in 'basic', 'edits', 'scrub', 'speed', 'looks', 'composite', 'nest', 'float') {
+  foreach ($run in 'basic', 'edits', 'scrub', 'speed', 'looks', 'composite', 'nest', 'float', 'tracks') {
     $sc = if ($run -eq 'float') { 'basic' } else { $run }
     $env:CUTPRO_WORKSPACE = if ($run -eq 'float') { 'Second screen' } else { $null }
     $env:CUTPRO_SIDEVIEW = if ($sc -eq 'looks') { 'Scopes' } else { $null }
@@ -174,3 +175,13 @@ $env:CUTPRO_WORKSPACE = $null
 $sr = "$env:TEMP\cutpro_srctest.txt"; Remove-Item $sr -ErrorAction SilentlyContinue
 $p = Start-Process $exe -ArgumentList '--srctest', $sr -PassThru
 if (-not $p.WaitForExit(240000)) { $p.Kill(); "SRCTEST TIMEOUT" } else { Get-Content $sr | ? { $_ -notmatch '^PASS' } }
+# 23. more tracks: the layout model (add / delete / undo, locks, project file, sequences, 40 tracks in the mixer), preview vs export with 7 video
+#     tracks (stacking, adjustment layer, blend, matte, dissolve), 4 audio tracks, a 7-track sequence nested in a 3 + 2 one
+$tt = Join-Path $env:TEMP 'cutpro_tracks'
+$p = Start-Process $exe -ArgumentList '--tracktest', $tt -PassThru
+if (-not $p.WaitForExit(600000)) { $p.Kill(); "TRACKTEST TIMEOUT" } else { Get-Content "$tt\tracktest.txt" | ? { $_ -notmatch '^PASS' } }
+# 24. tracks through the real window: scrolling, the preview's canvases, mixer strips, the source monitor and band modes follow the layout,
+#     locks, heights, playing 10 picture-in-picture tracks, undo
+$tu = "$env:TEMP\cutpro_trackui.txt"; Remove-Item $tu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--trackui', $tu -PassThru
+if (-not $p.WaitForExit(240000)) { $p.Kill(); "TRACKUI TIMEOUT" } else { Get-Content $tu | ? { $_ -notmatch '^PASS' } }

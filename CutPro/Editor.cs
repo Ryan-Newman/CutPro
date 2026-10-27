@@ -3,8 +3,9 @@ using System.Windows.Threading;
 
 namespace CutPro;
 
-/// <summary>A sequence format: output size (even, 16 … 16384), frame rate (exact NTSC fractions), how pictures of another shape fill the frame.</summary>
-public sealed record SeqFormat(int OutW, int OutH, double Fps, ReframeMode Reframe)
+/// <summary>A sequence format: output size (even, 16 … 16384), frame rate (exact NTSC fractions), how pictures of another shape fill the frame —
+/// and its track counts (what a clip's row means: <see cref="Tracks"/>; a render thread's <see cref="SeqScope"/> carries them too).</summary>
+public sealed record SeqFormat(int OutW, int OutH, double Fps, ReframeMode Reframe, int Video = Tracks.DefaultVideo, int Audio = Tracks.DefaultAudio)
 {
     /// <summary>Logical canvas width (the height is always <see cref="Editor.H"/>).</summary>
     public int W => Math.Max(2, (int)Math.Round(Editor.H * OutW / (double)OutH));
@@ -25,7 +26,7 @@ public static class SeqScope
 }
 
 /// <summary>Project state + editing operations + undo/redo. UI-agnostic.</summary>
-public class Editor
+public partial class Editor
 {
     /// <summary>The working canvas: always H = 720 logical lines tall, W follows the sequence aspect (1280 for 16:9, 405 for
     /// 9:16, 720 for 1:1). Preview, titles, masks, blur and positions live here; the export renders the same picture at
@@ -71,8 +72,8 @@ public class Editor
     /// <summary>Mixer and track mute / hide state from a project file (defaults for older projects).</summary>
     public void UseMix(MixState? mix, bool[]? off)
     {
-        Mix = (mix ?? new MixState()).Fixed();
-        TrackOff = off is { Length: 5 } ? off : new bool[5];
+        Mix = (mix ?? new MixState()).Fixed(seq.TrackCount);
+        TrackOff = off != null && off.Length == seq.TrackCount ? off : new bool[seq.TrackCount];
         Raise(MixChanged);
     }
     public double Time { get => seq.Time; set => seq.Time = value; }
@@ -95,6 +96,7 @@ public class Editor
     public Editor(bool timers = true)
     {
         seq = new Sequence { SeqW = OutW, SeqH = OutH, SeqFps = TimeUtil.Fps, Reframe = Reframe };
+        if (timers) Tracks.Use(seq);                                      // (a UI editor: its sequence's tracks are the active ones; side editors keep theirs)
         Sequences.Add(seq);
         if (!timers) return;
         debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -134,23 +136,25 @@ public class Editor
     // ---- selection ----
     public void Select(Clip? c, bool additive = false, bool withLinks = true)
     {
+        if (c != null && !Editable(c)) return;                           // (a locked track's clips can't be selected)
         Gap = null; SelTrans = null;
         if (!additive) Sel.Clear();
-        if (c != null) { foreach (var x in withLinks ? Linked(c) : new[] { c }) Sel.Add(x.Id); SelectedId = c.Id; }
+        if (c != null) { foreach (var x in (withLinks ? Linked(c) : new[] { c }).Where(Editable)) Sel.Add(x.Id); SelectedId = c.Id; }
         else SelectedId = null;
         Raise(Changed);
     }
     public void ToggleSelect(Clip c, bool withLinks)
     {
+        if (!Editable(c)) return;
         Gap = null; SelTrans = null;
-        var group = (withLinks ? Linked(c) : new[] { c }).ToList();
+        var group = (withLinks ? Linked(c) : new[] { c }).Where(Editable).ToList();
         if (IsSel(c)) { foreach (var x in group) Sel.Remove(x.Id); if (SelectedId == c.Id) SelectedId = Sel.FirstOrDefault(); }
         else { foreach (var x in group) Sel.Add(x.Id); SelectedId = c.Id; }
         Raise(Changed);
     }
     public void SetSelection(IEnumerable<Clip> clips)
     {
-        Gap = null; SelTrans = null; Sel = clips.SelectMany(Linked).Select(c => c.Id).ToHashSet();
+        Gap = null; SelTrans = null; Sel = clips.SelectMany(Linked).Where(Editable).Select(c => c.Id).ToHashSet();
         if (SelectedId == null || !Sel.Contains(SelectedId)) SelectedId = Sel.FirstOrDefault();
         Raise(Changed);
     }
@@ -311,7 +315,7 @@ public class Editor
     public event Action? SequencesChanged;
 
     /// <summary>A sequence's format: the active one's lives in the statics (<see cref="SetSequence"/>), the others' in their fields.</summary>
-    public SeqFormat FormatOf(Sequence s) => s == seq ? new SeqFormat(OutW, OutH, TimeUtil.Fps, Reframe) : SeqFormat.Of(s.SeqW, s.SeqH, s.SeqFps, s.Reframe);
+    public SeqFormat FormatOf(Sequence s) => (s == seq ? new SeqFormat(OutW, OutH, TimeUtil.Fps, Reframe) : SeqFormat.Of(s.SeqW, s.SeqH, s.SeqFps, s.Reframe)) with { Video = s.VideoTracks, Audio = s.AudioTracks };
     /// <summary>Copies the active format into the active sequence's fields (before switching, saving, snapshots).</summary>
     public void CaptureFormat() { seq.SeqW = OutW; seq.SeqH = OutH; seq.SeqFps = TimeUtil.Fps; seq.Reframe = Reframe; }
 
@@ -322,10 +326,10 @@ public class Editor
         Commit(); MixEnd(); MaskEnd();
         CaptureFormat();
         seq = s;
-        SetSequence(s.SeqW, s.SeqH, s.SeqFps, s.Reframe);
+        SetSequence(s.SeqW, s.SeqH, s.SeqFps, s.Reframe); Tracks.Use(s);
         Sel.Clear(); SelectedId = null; Gap = null; SelTrans = null;
         RefreshSeqItems();
-        Raise(Switched); Raise(MixChanged); Raise(Changed);
+        Raise(Switched); Raise(TracksChanged); Raise(MixChanged); Raise(Changed);
     }
 
     /// <summary>A project's sequences (on open): the active one becomes the editor's.</summary>
@@ -333,10 +337,10 @@ public class Editor
     {
         Sequences.Clear(); Sequences.AddRange(list);
         seq = Sequences.FirstOrDefault(s => s.Id == active) ?? Sequences[0];
-        SetSequence(seq.SeqW, seq.SeqH, seq.SeqFps, seq.Reframe);
+        SetSequence(seq.SeqW, seq.SeqH, seq.SeqFps, seq.Reframe); Tracks.Use(seq);
         Sel.Clear(); SelectedId = null; Gap = null; SelTrans = null;
         RefreshSeqItems();
-        Raise(SequencesChanged); Raise(Switched); Raise(MixChanged);
+        Raise(SequencesChanged); Raise(Switched); Raise(TracksChanged); Raise(MixChanged);
     }
 
     string SnapProj() { CaptureFormat(); return JsonSerializer.Serialize(new ProjState(Sequences, seq.Id)); }
@@ -346,11 +350,11 @@ public class Editor
         var was = seq.Id;
         Sequences.Clear(); Sequences.AddRange(st.Seqs);
         seq = Sequences.FirstOrDefault(s => s.Id == st.Active) ?? Sequences[0];
-        SetSequence(seq.SeqW, seq.SeqH, seq.SeqFps, seq.Reframe);
+        SetSequence(seq.SeqW, seq.SeqH, seq.SeqFps, seq.Reframe); Tracks.Use(seq);
         PruneSelection(); RefreshSeqItems();
         Raise(SequencesChanged);
         if (seq.Id != was) Raise(Switched);
-        Raise(MixChanged); Raise(Changed);
+        Raise(TracksChanged); Raise(MixChanged); Raise(Changed);
     }
     /// <summary>One undo step for a change to the project's sequences (new / duplicate / rename / delete / nest).</summary>
     public void ProjEdit(Action a)
@@ -385,6 +389,7 @@ public class Editor
         var s = new Sequence { Name = FreeName(src.Name.TrimEnd(' ', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9') is { Length: > 0 } stem ? stem : "Sequence"),
                                SeqW = src.SeqW, SeqH = src.SeqH, SeqFps = src.SeqFps, Reframe = src.Reframe, Mix = src.Mix.Clone(), TrackOff = (bool[])src.TrackOff.Clone(),
                                Clips = JsonSerializer.Deserialize<List<Clip>>(JsonSerializer.Serialize(src.Clips))! };
+        src.CopyLayout(s);                                                // (its clips keep their rows)
         var links = new Dictionary<string, string>();
         foreach (var c in s.Clips)
         {
@@ -472,6 +477,7 @@ public class Editor
         var kset = K.Select(c => c.Id).ToHashSet();
         var f = FormatOf(seq);
         var S = new Sequence { Name = name ?? FreeName("Nested Sequence"), SeqW = f.OutW, SeqH = f.OutH, SeqFps = f.Fps, Reframe = f.Reframe };
+        seq.CopyLayout(S);                                                // (the nested clips keep their rows)
         var links = new Dictionary<string, string>();
         foreach (var c in K.OrderBy(c => c.Track).ThenBy(c => c.Start))
         {
@@ -482,12 +488,12 @@ public class Editor
             S.Clips.Add(x);
         }
         bool sound = S.Clips.Any(Mixer.HasSound);
-        // where the nested clip goes: the lowest video track the clips used (V1 is row 2), else the first free one; the sound likewise
-        bool Free(int tr) => !Clips.Any(c => !kset.Contains(c.Id) && c.Track == tr && c.Start < t1 - Eps && c.End > t0 + Eps);
+        // where the nested clip goes: the lowest video track the clips used, else the first free one from V1 up; the sound likewise (from A1 down)
+        bool Free(int tr) => !Locked(tr) && !Clips.Any(c => !kset.Contains(c.Id) && c.Track == tr && c.Start < t1 - Eps && c.End > t0 + Eps);
         var vRows = K.Where(c => c.Kind != ClipKind.Audio).Select(c => c.Track).Distinct().OrderByDescending(r => r).ToList();
         var aRows = K.Where(c => c.Kind == ClipKind.Audio).Select(c => c.Track).Distinct().OrderBy(r => r).ToList();
-        int vt = vRows.Concat(new[] { 2, 1, 0 }).FirstOrDefault(Free, -1);
-        int at = !sound ? -1 : aRows.Concat(new[] { 3, 4 }).FirstOrDefault(Free, -1);
+        int vt = vRows.Concat(Tracks.VideoRows).FirstOrDefault(Free, -1);
+        int at = !sound ? -1 : aRows.Concat(Tracks.AudioRows).FirstOrDefault(Free, -1);
         if (vt < 0) return (null, "There is no free video track for the nested sequence over that time.");
         if (sound && at < 0) return (null, "There is no free audio track for the nested sequence's sound over that time.");
         var link = sound ? NewId() : null;
@@ -534,11 +540,14 @@ public class Editor
         double inPt = m.Type == ClipKind.Image ? 0 : s0;
         if (dur <= 0) return;
         start = Frame(start);
+        // the track asked for (of the right kind, unlocked), else the first unlocked one from V1 up / from A1 down
+        int VTrack(int? want) => want is int r && Tracks.IsVideo(r) && !Locked(r) ? r : Tracks.VideoRows.FirstOrDefault(x => !Locked(x), -1);
+        int ATrack(int? want) => want is int r && !Tracks.IsVideo(r) && r < Tracks.Count && !Locked(r) ? r : Tracks.AudioRows.FirstOrDefault(x => !Locked(x), -1);
         var made = new List<Clip>();
         if (m.Type == ClipKind.Video && m.HasAudio && video && audio)
         {
-            int vt = track is int r1 && Tracks.IsVideo(r1) ? r1 : 2;
-            int at = track is int r2 && !Tracks.IsVideo(r2) ? r2 : 3;
+            int vt = VTrack(track), at = ATrack(track);
+            if (vt < 0 || at < 0) return;
             double s = start;
             for (int g = 0; g < 500; g++)
             {
@@ -551,14 +560,15 @@ public class Editor
         }
         else if (m.Type == ClipKind.Video && m.HasAudio && !video)
         {
-            if (!audio) return;
-            int at = track is int r2 && !Tracks.IsVideo(r2) ? r2 : 3;
+            int at = ATrack(track);
+            if (!audio || at < 0) return;
             made.Add(new Clip { MediaId = m.Id, Kind = ClipKind.Audio, Track = at, Start = FreeStart(at, start, dur), Dur = dur, In = inPt });
         }
         else
         {
             if (m.Type == ClipKind.Audio ? !audio : !video) return;
-            int tr = track ?? (m.Type == ClipKind.Audio ? 3 : 2);
+            int tr = m.Type == ClipKind.Audio ? ATrack(track) : VTrack(track);
+            if (tr < 0) return;
             made.Add(new Clip { MediaId = m.Id, Kind = m.Type, Track = tr, Dur = dur, In = inPt, Start = FreeStart(tr, start, dur), NoAudio = m.Type == ClipKind.Video && m.HasAudio });
         }
         Edit(() => Clips.AddRange(made));
@@ -585,7 +595,7 @@ public class Editor
         var made = new List<Clip>();
         if (!CanAdd(m) || m.Seq != null) return made;
         bool pic = m.Type is ClipKind.Video or ClipKind.Image, snd = m.Type == ClipKind.Audio || m.Type == ClipKind.Video && m.HasAudio;
-        int? vt = pic && vTrack is int v && Tracks.IsVideo(v) ? v : null, at = snd && aTrack is int a && !Tracks.IsVideo(a) ? a : null;
+        int? vt = pic && vTrack is int v && Tracks.IsVideo(v) && !Locked(v) ? v : null, at = snd && aTrack is int a && !Tracks.IsVideo(a) && a < Tracks.Count && !Locked(a) ? a : null;   // (nothing goes onto a locked track)
         if (vt == null && at == null) return made;
         var (s0, s1) = SourceRange(m);
         if (m.Type is ClipKind.Video or ClipKind.Audio) { s0 = Math.Round(s0 * TimeUtil.Fps) / TimeUtil.Fps; s1 = Math.Round(s1 * TimeUtil.Fps) / TimeUtil.Fps; }
@@ -599,7 +609,7 @@ public class Editor
             if (insert)
             {
                 CutClips(Clips.ToList(), t);
-                foreach (var c in Clips.Where(c => c.Start >= t - Eps)) c.Start += dur;
+                foreach (var c in Clips.Where(c => Editable(c) && c.Start >= t - Eps)) c.Start += dur;   // (locked tracks stay where they are)
             }
             else
                 foreach (int tr in made.Select(c => c.Track))
@@ -626,18 +636,22 @@ public class Editor
     public void AddTitle(TextRole role = TextRole.Title)
     {
         var (x, y) = Themes.DefaultPosition(role);
-        var c = new Clip { Kind = ClipKind.Text, Track = 1, Dur = 5, Role = role, Text = Themes.DefaultText(role), X = x, Y = y,
+        // V2 (the first above the pictures on V1), else the next one up, V1 as the last resort — unlocked
+        int track = Enumerable.Range(2, Math.Max(0, Tracks.Video - 1)).Select(Tracks.V).Append(Tracks.V1).FirstOrDefault(r => !Locked(r), -1);
+        if (track < 0) return;
+        var c = new Clip { Kind = ClipKind.Text, Track = track, Dur = 5, Role = role, Text = Themes.DefaultText(role), X = x, Y = y,
                            Style = Themes.Get(ThemeName).For(role).Clone() };
-        c.Start = FreeStart(1, Frame(Time), c.Dur);
+        c.Start = FreeStart(track, Frame(Time), c.Dur);
         Edit(() => Clips.Add(c));
         Select(c);
     }
 
-    /// <summary>An adjustment layer (no picture: its colour / blur apply to the tracks below) at the playhead on V3, or V2 when V3 is taken there.</summary>
+    /// <summary>An adjustment layer (no picture: its colour / blur apply to the tracks below) at the playhead on the highest video track that is
+    /// free there (never V1: nothing would be below it; unlocked).</summary>
     public Clip? AddAdjustment(double dur = 5)
     {
         double start = Frame(Time);
-        int track = new[] { 0, 1 }.FirstOrDefault(tr => !Collides(tr, start, dur, null), -1);
+        int track = Enumerable.Range(0, Tracks.V1).FirstOrDefault(tr => !Locked(tr) && !Collides(tr, start, dur, null), -1);
         if (track < 0) return null;
         var c = new Clip { Kind = ClipKind.Adjustment, Track = track, Start = start, Dur = dur, Text = "Adjustment layer", Grade = new ColorGrade() };
         Edit(() => Clips.Add(c));
@@ -708,7 +722,7 @@ public class Editor
                 if (After(c) is not { } nx || !IsSel(nx)) targets.Add((c, false));
             }
         else
-            foreach (var track in Clips.Where(Want).GroupBy(c => c.Track))
+            foreach (var track in Clips.Where(Want).Where(Editable).GroupBy(c => c.Track))
             {
                 var points = track.SelectMany(c => new[] { (c, head: true, t: c.Start), (c, head: false, t: c.End) })
                                   .Where(p => p.head || After(p.c) == null).OrderBy(p => Math.Abs(p.t - Time)).ToList();
@@ -724,7 +738,7 @@ public class Editor
     {
         t = Frame(t);
         var newLinks = new Dictionary<string, string>();
-        foreach (var c in targets.Distinct().ToList())
+        foreach (var c in targets.Where(Editable).Distinct().ToList())          // (locked tracks are never cut)
         {
             var r = SplitClip(c, t);
             if (r?.LinkId == null) continue;
@@ -739,7 +753,7 @@ public class Editor
     public void AddEdit(bool allTracks)
     {
         double t = Frame(Time);
-        var under = ClipsAt(t);
+        var under = ClipsAt(t).Where(Editable).ToList();
         var sel = under.Where(IsSel).ToList();
         var targets = !allTracks && sel.Count > 0 ? sel : under;
         if (targets.Count > 0) Edit(() => CutClips(targets, t));
@@ -747,10 +761,10 @@ public class Editor
 
     // ---- ripple helpers ----
     bool EmptyOn(int track, double a, double b) => !Clips.Any(c => c.Track == track && c.Start < b - Eps && c.End > a + Eps);
-    bool EmptyAll(double a, double b) => !Clips.Any(c => c.Start < b - Eps && c.End > a + Eps);
+    bool EmptyAll(double a, double b) => !Clips.Any(c => Editable(c) && c.Start < b - Eps && c.End > a + Eps);   // (locked tracks don't take part)
     void ShiftLeft(int? track, double from, double by)
     {
-        foreach (var c in Clips.Where(c => (track == null || c.Track == track) && c.Start >= from - Eps)) c.Start = Math.Max(0, c.Start - by);
+        foreach (var c in Clips.Where(c => (track == null || c.Track == track) && Editable(c) && c.Start >= from - Eps)) c.Start = Math.Max(0, c.Start - by);   // (locked tracks stay)
     }
     static List<(double A, double B)> Merge(IEnumerable<(double A, double B)> iv)
     {
@@ -776,7 +790,7 @@ public class Editor
             Edit(() => { if (st.Head) tc.TransIn = null; else tc.TransOut = null; });
             SelTrans = null; Raise(Changed); return;
         }
-        if (Gap is { } g) { Edit(() => CloseGap(g.A, g.B, new[] { g.Track })); return; }
+        if (Gap is { } g) { if (!Locked(g.Track)) Edit(() => CloseGap(g.A, g.B, new[] { g.Track })); return; }
         var dead = Clips.Where(IsSel).ToList();
         if (dead.Count == 0) return;
         Edit(() =>
@@ -802,7 +816,7 @@ public class Editor
         {
             CutClips(Clips.ToList(), b);
             CutClips(Clips.ToList(), a);
-            Clips.RemoveAll(c => c.Start >= a - Eps && c.End <= b + Eps);
+            Clips.RemoveAll(c => Editable(c) && c.Start >= a - Eps && c.End <= b + Eps);
             if (ripple) ShiftLeft(null, b, b - a);
             Time = newTime ?? a;
         });
@@ -839,7 +853,7 @@ public class Editor
     {
         var set = cs.ToList();
         var links = set.Where(c => c.LinkId != null).Select(c => c.LinkId).ToHashSet();
-        foreach (var c in Clips) if (c.LinkId != null && links.Contains(c.LinkId) && !set.Contains(c)) set.Add(c);
+        foreach (var c in Clips) if (c.LinkId != null && links.Contains(c.LinkId) && !set.Contains(c) && Editable(c)) set.Add(c);   // (a partner on a locked track stays as it is)
         return set;
     }
 
@@ -1021,7 +1035,7 @@ public class Editor
 
     // ---- shared geometry (preview + export use the same math => WYSIWYG) ----
     /// <summary>True when a clip fills the frame (Shorts "Fill"): V1 pictures crop to cover instead of fitting.</summary>
-    public static bool CoversFrame(Clip c) => Reframe == ReframeMode.Fill && c.Track == 2 && c.Kind is ClipKind.Video or ClipKind.Image;
+    public static bool CoversFrame(Clip c) => Reframe == ReframeMode.Fill && c.Track == Tracks.V1 && c.Kind is ClipKind.Video or ClipKind.Image;
 
     public static void Fit(MediaItem? m, Clip c, out double w, out double h) => Fit(m, c.Scale, false, out w, out h, CoversFrame(c));
 

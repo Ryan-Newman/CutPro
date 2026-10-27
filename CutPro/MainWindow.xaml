@@ -183,7 +183,9 @@
                             <ToggleButton x:Name="AutoWrite" Style="{StaticResource Tool}" Content="● Write" HorizontalAlignment="Right" Margin="0,0,10,0" Padding="8,0"
                                           ToolTip="Write automation: while playing, moving a fader or a pan knob records keyframes on its track (they show on the timeline: track header ▸ Track volume / Track pan)"/></Grid>
                         <StackPanel x:Name="LoudnessPanel" DockPanel.Dock="Bottom" Margin="16,8,12,12"/>
-                        <UniformGrid x:Name="MixerStrips" Rows="1" Margin="8,0,8,4"/>
+                        <ScrollViewer x:Name="MixerScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Focusable="False">
+                            <UniformGrid x:Name="MixerStrips" Rows="1" Margin="8,0,8,4"/>
+                        </ScrollViewer>
                     </DockPanel>
 
                     <!-- LUMETRI SCOPES -->
@@ -363,7 +365,8 @@
                     </Grid>
                     <local:TimelineView x:Name="Tl" Grid.Row="1"/>
                     <local:PlayheadOverlay x:Name="Ph" Grid.Row="1"/>
-                    <ScrollBar x:Name="HScroll" Grid.Row="2" Orientation="Horizontal" Scroll="HScroll_Scroll" Margin="92,0,0,0"/>
+                    <ScrollBar x:Name="HScroll" Grid.Row="2" Orientation="Horizontal" Scroll="HScroll_Scroll" Margin="136,0,0,0"/>
+                    <ScrollBar x:Name="VScroll" Grid.Row="1" Orientation="Vertical" HorizontalAlignment="Right" Width="12" Margin="0,26,0,0" Visibility="Collapsed" ToolTip="Scroll the tracks (Shift+wheel, or the wheel over the track headers)"/>
                     <local:KeyframeEditor x:Name="Kfe" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed"/>
                     <Grid x:Name="BottomHost" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed"/>
                 </Grid></local:Card>

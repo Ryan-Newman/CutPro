@@ -26,7 +26,8 @@ public class PlayheadOverlay : FrameworkElement
             if (x >= hw)
                 foreach (int r in Tl.HoverRows)
                 {
-                    double y0 = TimelineView.RulerH + r * TimelineView.RowH + 1, y1 = y0 + TimelineView.RowH - 2;
+                    double y0 = Math.Max(TimelineView.RulerH, Tl.RowY(r) + 1), y1 = Tl.RowY(r) + TimelineView.RowHt(r) - 1;
+                    if (y1 <= y0) continue;
                     dc.DrawLine(razorShadow, new Point(x, y0), new Point(x, y1));
                     dc.DrawLine(razorPen, new Point(x, y0), new Point(x, y1));
                 }

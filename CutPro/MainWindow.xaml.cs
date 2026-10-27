@@ -32,7 +32,7 @@ public partial class MainWindow : Window
         // (the playhead lives on the overlay: no full timeline redraw per scrub step)
         ed.Seeked += () => { if (playing) { audio.Stop(); clockRunning = false; playWall = Environment.TickCount64; } Ph.InvalidateVisual(); };
         ScrubCache.Updated += _ => Dispatcher.BeginInvoke(() => { binRef = null; OnChanged(); });
-        Tl.ViewChanged += () => { UpdateScrollBar(); Ph.InvalidateVisual(); };
+        Tl.ViewChanged += () => { UpdateScrollBar(); UpdateVScroll(); Ph.InvalidateVisual(); };
         Tl.OverlayChanged += () => Ph.InvalidateVisual();
         Tl.ScrubStarted += Pause;
         CompositionTarget.Rendering += OnRendering;
@@ -505,7 +505,7 @@ public partial class MainWindow : Window
             // an adjustment layer over the first seconds on V3: the LUT shader on the tracks-below canvas every frame
             if (!ed.Collides(0, 0, 6, null)) ed.Clips.Add(new Clip { Kind = ClipKind.Adjustment, Track = 0, Start = 0, Dur = 6, Text = "Adjustment layer", Grade = new ColorGrade { Look = "Warm Film", Contrast = 15 }, FadeIn = 0.5 });
             // track automation on every audio track (fader ramps + a balance sweep: block tables in the mixer) and a clip volume band
-            for (int tr = 3; tr < Tracks.Names.Length; tr++) { ed.Mix.Channels[tr].GainKeys = new() { new() { T = 0, V = -12 }, new() { T = 3, V = 0 }, new() { T = 9, V = -6 } }; ed.Mix.Channels[tr].PanKeys = new() { new() { T = 1, V = -50 }, new() { T = 8, V = 50 } }; }
+            for (int tr = Tracks.A1; tr < Tracks.Count; tr++) { ed.Mix.Channels[tr].GainKeys = new() { new() { T = 0, V = -12 }, new() { T = 3, V = 0 }, new() { T = 9, V = -6 } }; ed.Mix.Channels[tr].PanKeys = new() { new() { T = 1, V = -50 }, new() { T = 8, V = 50 } }; }
             if (ed.Clips.FirstOrDefault(c => c.Kind == ClipKind.Audio) is { } va) { Anim.SetKey(va, AnimProp.Volume, va.In, 100); Anim.SetKey(va, AnimProp.Volume, va.In + 2, 60); }
         }
         if (scenario == "looks")                                            // the basic session with a grade (LUT per frame) and / or a drawn look
@@ -524,6 +524,14 @@ public partial class MainWindow : Window
         {                                                                   // outer timeline plays a nested render (BGRA, its own frame grid), then media
             ed.SetSelection(ed.Clips.Where(c => c.Start < 3.9).ToList());
             ed.NestSelection("Nested opening");
+        }
+        if (scenario == "tracks")                                           // the basic session in a 12 + 4 track sequence: a picture-in-picture clip on
+        {                                                                   // each of V3 … V12 (ten decoders, the canvas tree 12 deep) and sound on A3 / A4
+            ed.AddTracks(9, 0, 2, Tracks.Count);
+            for (int vn = 3; vn <= 12; vn++)
+                ed.Clips.Add(new Clip { MediaId = (vn % 2 == 0 ? A : B).Id, Kind = ClipKind.Video, Track = Tracks.V(vn), Start = 0.2 * (vn - 3), Dur = vn % 2 == 0 ? 5 : 3.5, In = 0.3,
+                                        NoAudio = true, Scale = 24, X = -40 + (vn - 3) % 5 * 20, Y = vn < 8 ? -28 : 28 });
+            for (int an = 3; an <= 4; an++) ed.Clips.Add(new Clip { MediaId = A.Id, Kind = ClipKind.Audio, Track = Tracks.A(an), Start = 0.5 * an, Dur = 4, In = 0.5, Volume = 60 });
         }
         ed.ClearSelection();
         foreach (var m in ed.Media) AudioCache.WaitReady(m.Path, 20000);
@@ -842,6 +850,7 @@ public partial class MainWindow : Window
             string shot = ""; int shotDelay = 1000;
             Alert.Shown = async w => { await Task.Delay(shotDelay); Save(ScreenGrab.Window(this), Path.ChangeExtension(path, shot)); w.Close(); };
             shot = ".sequence.png"; SequenceSettings();
+            shot = ".addtracks.png"; AddTracksDialog(Tracks.V1);
             shot = ".export.png"; await ExportDialogAsync(ExportSettings.Presets.First(p => p.Name == "YouTube 1080p"));
             shot = ".accounts.png"; AccountsDialog("youtube");
             shot = ".publish.png"; shotDelay = 7000; OpenPublish(Path.Combine(d, "a.mp4"), "youtube");   // time for the automatic analysis
@@ -1028,6 +1037,26 @@ public partial class MainWindow : Window
                 OpenSource(sm, 1.2); sm.SrcIn = 0.8; sm.SrcOut = 3.4; SrcRefresh();
                 await Task.Delay(1800); Shot(Path.ChangeExtension(path, ".source.png"));
                 sm.SrcIn = sm.SrcOut = null; SrcRefresh(); ShowDock("Inspector");
+            }
+            // tracks: 6 video + 4 audio, named, one locked, mixed heights, pictures on the upper tracks, the mixer with its strips (undone after)
+            if (ed.Media.FirstOrDefault(x => x.Type == ClipKind.Video) is { } pm && ed.Media.FirstOrDefault(x => x.HasAudio) is { } am)
+            {
+                ed.AddTracks(3, 0, 2, Tracks.Count);
+                ed.RenameTrack(Tracks.V(6), "Titles"); ed.RenameTrack(Tracks.A(3), "Music"); ed.RenameTrack(Tracks.A(4), "Voice-over");
+                ed.Edit(() =>
+                {
+                    for (int vn = 4; vn <= 5; vn++)
+                        ed.Clips.Add(new Clip { MediaId = pm.Id, Kind = ClipKind.Video, Track = Tracks.V(vn), Start = 0.4 * vn - 1, Dur = 4, In = 0.5, NoAudio = true, Scale = 32, X = vn == 4 ? 30 : -30, Y = -28 });
+                    ed.Clips.Add(new Clip { MediaId = am.Id, Kind = ClipKind.Audio, Track = Tracks.A(3), Start = 0, Dur = 5.5, In = 0.3, Volume = 70 });
+                    ed.Clips.Add(new Clip { MediaId = am.Id, Kind = ClipKind.Audio, Track = Tracks.A(4), Start = 1.5, Dur = 3, In = 1 });
+                });
+                ed.SetLocked(Tracks.V(5), true);
+                ed.SetTrackHeight(Tracks.V(6), 36); ed.SetTrackHeight(Tracks.V1, 74); ed.SetTrackHeight(Tracks.A(4), 84);
+                ed.ClearSelection(); ed.Seek(2.4); ShowSideView("Mixer");
+                await Task.Delay(1800); Tl.ScrollY = 30;
+                await Task.Delay(600); Shot(Path.ChangeExtension(path, ".tracks.png"));
+                for (int i = 0; i < 5; i++) ed.Undo();                                   // (clips, three names, the tracks: back to 3 + 2)
+                Tl.ScrollY = 0; ShowSideView("Project");
             }
             // Shorts: 9:16, Fill (crop + pan) then Fit + blurred background
             Format_Click(Fmt916, new RoutedEventArgs()); ed.Select(vc); BuildInspector();

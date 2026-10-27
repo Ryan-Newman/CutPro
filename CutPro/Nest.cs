@@ -30,7 +30,7 @@ public static class Nest
         public string Id = "", Name = "";
         public SeqFormat Fmt = null!;
         public string ClipsJson = "";
-        public bool[] TrackOff = new bool[5];
+        public bool[] TrackOff = Array.Empty<bool>();
         public MixState Mix = new();
         public List<MediaItem> Media = new();
         public Dictionary<string, MaskTrack.State> Masks = new();
@@ -54,8 +54,8 @@ public static class Nest
         var sn = new Snap { Id = s.Id, Name = s.Name, Fmt = ed.FormatOf(s), ClipsJson = JsonSerializer.Serialize(s.Clips), TrackOff = (bool[])s.TrackOff.Clone(),
                             Mix = s.Mix.Clone(), Media = ed.Media.ToList(), End = s.End };
         var f = sn.Fmt;
-        var v = new StringBuilder(sn.ClipsJson.Length + 512).Append(Version).Append("|v|").Append(FormattableString.Invariant($"{f.OutW}x{f.OutH}|{f.Fps:R}|{f.Reframe}|"));
-        var a = new StringBuilder(sn.ClipsJson.Length + 512).Append(Version).Append("|a|").Append(FormattableString.Invariant($"{f.Fps:R}|")).Append(JsonSerializer.Serialize(sn.Mix)).Append('|');
+        var v = new StringBuilder(sn.ClipsJson.Length + 512).Append(Version).Append("|v|").Append(FormattableString.Invariant($"{f.OutW}x{f.OutH}|{f.Fps:R}|{f.Reframe}|{f.Video}v{f.Audio}a|"));   // (the layout: what each clip's row means)
+        var a = new StringBuilder(sn.ClipsJson.Length + 512).Append(Version).Append("|a|").Append(FormattableString.Invariant($"{f.Fps:R}|{f.Video}v{f.Audio}a|")).Append(JsonSerializer.Serialize(sn.Mix)).Append('|');
         foreach (var off in sn.TrackOff) { v.Append(off ? '1' : '0'); a.Append(off ? '1' : '0'); }
         v.Append('|').Append(sn.ClipsJson); a.Append('|').Append(sn.ClipsJson);
         foreach (var id in s.Clips.Select(c => c.MediaId).Where(id => id != null).Distinct().OrderBy(id => id, StringComparer.Ordinal))
@@ -423,7 +423,7 @@ public static class Nest
         static Sequence Seq(Snap x) => new()
         {
             Id = x.Id, Name = x.Name, Clips = JsonSerializer.Deserialize<List<Clip>>(x.ClipsJson)!, SeqW = x.Fmt.OutW, SeqH = x.Fmt.OutH, SeqFps = x.Fmt.Fps,
-            Reframe = x.Fmt.Reframe, Mix = x.Mix.Clone(), TrackOff = (bool[])x.TrackOff.Clone(),
+            Reframe = x.Fmt.Reframe, Mix = x.Mix.Clone(), TrackOff = (bool[])x.TrackOff.Clone(), VideoTracks = x.Fmt.Video, AudioTracks = x.Fmt.Audio,
         };
         var e = new Editor(timers: false) { Media = s.Media.ToList() };
         var known = new Dictionary<string, Snap>(s.Inner) { [s.Id] = s };

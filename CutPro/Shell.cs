@@ -79,6 +79,7 @@ public partial class MainWindow
         BuildStyleGallery();
         InitEffects();
         InitMixer();
+        InitTracks();
         InitSpeed(); InitStab();
         InitDock();                                          // (panels where the saved layout / workspace puts them)
         if (forceView != null) ShowSideView(forceView);
@@ -172,7 +173,8 @@ public partial class MainWindow
                     foreach (var sq in ed.Sequences) go.Items.Add(MI(sq.Name, "", () => OpenSequence(sq), sq == ed.Seq));
                     Add(go);
                 }
-                Add("-", MI("Add Adjustment Layer", "", AddAdjustment), MI("Nest…", "", NestSelected, enabled: ed.Sel.Count > 0),
+                Add("-", MI("Add Tracks…", "", () => AddTracksDialog()), MI("Delete Empty Tracks", "", DeleteEmptyTracks),
+                    "-", MI("Add Adjustment Layer", "", AddAdjustment), MI("Nest…", "", NestSelected, enabled: ed.Sel.Count > 0),
                     MI("Open Nested Sequence", "", () => { if (ed.Selected is { } nc) OpenNested(nc); }, enabled: ed.Selected is { } sc && ed.SeqOf(sc) != null), "-",
                     MI("Sequence Settings…", "", SequenceSettings), "-",
                     MI("Landscape 16:9", "", () => Format_Click(Fmt169, e), Math.Abs(a - 16 / 9.0) < 0.02),
@@ -523,6 +525,10 @@ public partial class MainWindow
         list.Add(new("Sequence: New Sequence…", "Ctrl+N", NewSequence));
         list.Add(new("Sequence: Duplicate", "", () => ed.DuplicateSequence(ed.Seq)));
         list.Add(new("Sequence: Rename…", "", () => RenameSeq(ed.Seq)));
+        list.Add(new("Sequence: Add Tracks…", "", () => AddTracksDialog()));
+        list.Add(new("Sequence: Add Video Track (on top)", "", () => ed.AddTracks(1, 0, 0, Tracks.Count)));
+        list.Add(new("Sequence: Add Audio Track (after the last)", "", () => ed.AddTracks(0, 0, 1, Tracks.Count)));
+        list.Add(new("Sequence: Delete Empty Tracks", "", DeleteEmptyTracks));
         list.Add(new("Sequence: Delete…", "", () => DeleteSeq(ed.Seq)));
         list.Add(new("Clip: Nest…", "", NestSelected));
         list.Add(new("Sequence: Add Adjustment Layer", "", AddAdjustment));

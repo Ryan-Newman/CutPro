@@ -7,7 +7,7 @@ and CapCut / Filmora (2026 versions). **Editors:** P Premiere · R Resolve · F 
 
 ## What CutPro has today (for reference)
 Import through ffmpeg (MKV/MP4/MOV, H.264/HEVC 4K 10-bit/VP9, rotated phone video, FLAC/Opus/WAV, images) · project bin with thumbnails, offline
-detection · 3 video + 2 audio tracks (hide/mute/solo) · **audio waveforms, Audio Track Mixer (faders, pan, mute, solo, master, peak meters), loudness (BS.1770 meter, normalize on export, match clips)** · select + razor tools, Add Edit, delete / ripple delete, lift / extract, in/out marks, ripple
+detection · up to 32 video + 32 audio tracks per sequence (names, locks, heights, hide/mute/solo) · **audio waveforms, Audio Track Mixer (faders, pan, mute, solo, master, peak meters), loudness (BS.1770 meter, normalize on export, match clips)** · select + razor tools, Add Edit, delete / ripple delete, lift / extract, in/out marks, ripple
 trim (Q/W), link/unlink, snapping, marquee, gap selection, undo/redo · audio-clock playback with hardware decoding and a scrub cache · motion
 (scale, position, rotation), opacity, Gaussian blur, fade in/out, volume, **speed / reverse / frame hold / time remapping**, **colour correction (Lumetri-style basic, looks + .cube LUTs, wheels, curves, vignette) + Lumetri Scopes**, **cartoon / cel / anime looks**, **transitions** (dissolve, dips, wipes, push, iris; audio crossfades) · **keyframes + formulas** on all of those (dope sheet, graph editor,
 easing, timeline diamonds) · titles (fonts, outline, shadow, glow, box, 16 styles, 7 themes, text masks) · **object masks** (AI click-to-select
@@ -19,7 +19,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 
 ## Suggested order (most value for the effort first)
 1. **Distort**: lens distortion done (keyframable, preview shader = lenscorrection); mesh warp / twirl / wave / spherize later (geq: ffmpeg's remap is nearest-only). (Keyframed corner pin with monitor handles, adjustment layers, crop, flip, blend modes, chroma / luma key, track mattes, anchor point, captions from speech + SRT / VTT, multiple sequences and nested sequences are done.)
-2. **More tracks, markers (→ YouTube chapters), slip/slide/roll/rate-stretch tools**. (Source monitor with Insert / Overwrite and Match Frame is done.)
+2. **Markers (→ YouTube chapters), slip/slide/roll/rate-stretch tools, sync-lock / track targeting**. (Source monitor with Insert / Overwrite and Match Frame, and any number of tracks — names, locks, heights — are done.)
 3. **Channel mapping / 5.1**, VST3 hosting (clip EQ, compressor, gate, de-esser, hum removal, reverb, pitch shift, track effects, submixes, volume rubber bands, track and master automation are done).
 
 ## 1. Project, media and sequences
@@ -42,7 +42,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## 2. Timeline editing
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
-| Add / remove tracks, track names, heights, lock, solo, target, sync-lock | all | partial: fixed V1–V3 / A1–A2 with hide / mute | M |
+| Add / remove tracks, track names, heights, lock, solo, target, sync-lock | all | done: 1 … 32 video + 1 … 32 audio tracks per sequence (add above / below / several, delete with clips, delete empty), names, locks, heights, vertical scrolling, hide / mute / solo; not yet sync-lock toggles or track targeting | M |
 | Overwrite vs insert edits, replace edit, fit-to-fill | P R F A V K | Premiere's drag = overwrite, Ctrl-drag = insert | M |
 | Rolling, slip, slide, rate-stretch tools | P R F A V K | ripple trim exists (Q/W); these reuse TryTrim | M |
 | Markers (sequence + clip), marker comments, chapter markers | all | also export chapters to MP4 metadata | S |

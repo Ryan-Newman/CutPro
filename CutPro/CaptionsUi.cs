@@ -136,10 +136,10 @@ public partial class MainWindow
             var (style, y) = Captioning.Look(ed, lay);
             var cues = Captioning.Build(res.Segments, lay, Captioning.Measure(style), Editor.W * 0.88, TimeUtil.Fps, new Captioning.Voice(pcm));
             if (cues.Count == 0) { Alert.Show(this, "No speech was found in this sequence's sound.", "Captions"); return; }
-            int track = Captioning.FreeTrack(ed, cues);
-            if (track < 0) { Alert.Show(this, "V3 and V2 both have clips where the captions would go. Free one of them (or move those clips), then try again.", "Captions", AlertKind.Warning); return; }
+            int track = CaptionTrack(cues, "Captions");
+            if (track < 0) return;
             if (ed.Clips.Any(c => Captioning.IsCaption(c) && c.Track == track) &&
-                !Alert.Confirm(this, $"Replace the captions on {Tracks.Names[track]}?", "Captions", "Replace", "Cancel")) return;
+                !Alert.Confirm(this, $"Replace the captions on {Tracks.Name(track)}?", "Captions", "Replace", "Cancel")) return;
             int n = Captioning.Place(ed, cues, track, style, y);
             RefreshCaptions(true);
             string lname = Whisper.Languages.FirstOrDefault(l => l.code == res.Language).name ?? res.Language;
@@ -183,6 +183,17 @@ public partial class MainWindow
         SetTask($"{cues.Count} captions saved", 2500);
     }
 
+    /// <summary>The track the captions go on: the highest free one above V1, else — asked — a new video track on top. −1: none.</summary>
+    int CaptionTrack(IReadOnlyList<Cue> cues, string title)
+    {
+        int track = Captioning.FreeTrack(ed, cues);
+        if (track >= 0) return track;
+        if (Tracks.Video >= Tracks.MaxVideo) { Alert.Show(this, "Every video track above V1 has clips where the captions would go, and the sequence has the most video tracks it can have. Free one of them, then try again.", title, AlertKind.Warning); return -1; }
+        if (!Alert.Confirm(this, "Every video track above V1 has clips (or is locked) where the captions would go. Add a video track on top for the captions?", title, "Add track", "Cancel")) return -1;
+        ed.AddTracks(1, 0, 0, Tracks.Count);
+        return 0;
+    }
+
     void ImportCaptions()
     {
         var dlg = new OpenFileDialog { Filter = "Captions|*.srt;*.vtt|All files|*.*" };
@@ -191,8 +202,8 @@ public partial class MainWindow
         if (cues.Count == 0) { Alert.Show(this, "No captions were found in that file.", "Import captions", AlertKind.Warning); return; }
         var lay = Captioning.Layouts[Math.Max(0, capLayout?.SelectedIndex ?? 0)];
         var (style, y) = Captioning.Look(ed, lay);
-        int track = Captioning.FreeTrack(ed, cues);
-        if (track < 0) { Alert.Show(this, "V3 and V2 both have clips where the captions would go. Free one of them, then import again.", "Import captions", AlertKind.Warning); return; }
+        int track = CaptionTrack(cues, "Import captions");
+        if (track < 0) return;
         Captioning.Place(ed, cues, track, style, y);
         RefreshCaptions(true);
         SetTask($"{cues.Count} captions imported", 2500);

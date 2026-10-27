@@ -21,7 +21,7 @@ public partial class MainWindow
         ed.SequencesChanged += () => { RefreshSeqTabs(); binRef = null; };
         Tl.NestOpenRequested += OpenNested;
         Tl.NestRequested += NestSelected;
-        Tl.Notice += msg => Alert.Show(this, msg, "Nested sequence", AlertKind.Warning);
+        Tl.Notice += msg => Alert.Show(this, msg, "Timeline", AlertKind.Warning);
         Nest.StatusChanged += () => Dispatcher.BeginInvoke(() =>
         {
             if (Nest.Status is { } s) SetTask(s, 0);

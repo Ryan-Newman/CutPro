@@ -20,7 +20,7 @@ public static class Adjust
 {
     public static bool Is(Clip c) => c.Kind == ClipKind.Adjustment;
     /// <summary>Tracks below an adjustment layer exist (V3 → V2 + V1, V2 → V1).</summary>
-    public static bool Works(Clip c) => Is(c) && c.Track < 2;
+    public static bool Works(Clip c) => Is(c) && c.Track < Tracks.V1;     // (any video track above V1: something is below it)
 
     /// <summary>The strength at t: opacity (keyframed) × fades.</summary>
     public static double Strength(Clip c, double t) => Math.Clamp(Anim.Value(c, AnimProp.Opacity, t) / 100 * c.Fade(t), 0, 1);

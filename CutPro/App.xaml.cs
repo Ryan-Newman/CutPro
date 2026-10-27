@@ -11,6 +11,9 @@ public partial class App : Application
         var a = e.Args;
         DispatcherUnhandledException += (_, ex) =>
         {   // keep a crash log for bug reports: %LOCALAPPDATA%\CutPro\crash.log
+            // (a WPF quirk, not ours: a tooltip outlives the window it came from — a floating panel docked back while the mouse was over it — and
+            // on the next mouse move WPF's popup service asks the destroyed window where the mouse is: Win32 error 1400. Carry on.)
+            if (ex.Exception is System.ComponentModel.Win32Exception { NativeErrorCode: 1400 } w && w.StackTrace?.Contains("PopupControlService") == true) { ex.Handled = true; return; }
             try
             {
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CutPro");
@@ -86,6 +89,12 @@ public partial class App : Application
         {
             int rc;
             try { rc = await NestTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "nesttest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--tracktest")
+        {
+            int rc;
+            try { rc = await TrackTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "tracktest.txt"), ex.ToString()); rc = 2; }
             Shutdown(rc); return;
         }
         if (a.Length >= 2 && a[0] == "--compositetest")
@@ -172,12 +181,13 @@ public partial class App : Application
         System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
         base.OnStartup(e);
         ThemeManager.Apply(a.Length >= 3 && a[0] == "--uishot" ? a[2] : Environment.GetEnvironmentVariable("CUTPRO_THEME") ?? AppSettings.Current.Theme);   // CUTPRO_THEME: tests in another theme   // editor colour theme (default: Dark Theme)
-        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
+        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest" or "--trackui") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
         var w = new MainWindow(); w.Show();
         if (a.Length >= 2 && a[0] == "--uishot") w.UiShot(a[1]);
         if (a.Length >= 2 && a[0] == "--objui") w.ObjScenario(a[1], a.Length > 2 ? a[2] : null);
         if (a.Length >= 2 && a[0] == "--docktest") w.DockScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--srctest") w.SourceScenario(a[1]);
+        if (a.Length >= 2 && a[0] == "--trackui") w.TrackScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--playtest") w.StartPlaytest(a[1], a.Length > 2 && a[2] != "-" ? a[2] : null, a.Length > 3 ? a[3] : "basic");
     }
 }

@@ -41,7 +41,8 @@ public sealed class SubMix
 /// <summary>Mixer settings of a sequence (saved with the project; fader / pan changes are undoable). Mute is <see cref="Editor.TrackOff"/>.</summary>
 public sealed class MixState
 {
-    public TrackMix[] Channels { get; set; } = Enumerable.Range(0, Tracks.Names.Length).Select(_ => new TrackMix()).ToArray();
+    /// <summary>Per timeline row (video rows too: a video clip without a linked sound clip plays its own sound on its track).</summary>
+    public TrackMix[] Channels { get; set; } = Enumerable.Range(0, Tracks.DefaultVideo + Tracks.DefaultAudio).Select(_ => new TrackMix()).ToArray();
     /// <summary>Master (Mix) fader in dB.</summary>
     public double Master { get; set; }
     /// <summary>Master automation: fader keyframes (timeline seconds, dB); none = <see cref="Master"/>.</summary>
@@ -50,11 +51,11 @@ public sealed class MixState
     /// <summary>Submix buses (tracks routed to one are summed, through its effects and fader, into the master).</summary>
     public List<SubMix> Subs { get; set; } = new();
     public MixState Clone() => new() { Channels = Channels.Select(c => c.Clone()).ToArray(), Master = Master, MasterKeys = MasterKeys?.Select(k => k.Clone()).ToList(), Subs = Subs.Select(s => s.Clone()).ToList() };
-    /// <summary>Pads / trims the channel list to the track count (older or hand-edited project files).</summary>
-    public MixState Fixed()
+    /// <summary>Pads / trims the channel list to the sequence's track count (older or hand-edited project files).</summary>
+    public MixState Fixed(int count)
     {
-        if (Channels == null || Channels.Length != Tracks.Names.Length)
-            Channels = Enumerable.Range(0, Tracks.Names.Length).Select(i => Channels != null && i < Channels.Length && Channels[i] != null ? Channels[i] : new TrackMix()).ToArray();
+        if (Channels == null || Channels.Length != count)
+            Channels = Enumerable.Range(0, count).Select(i => Channels != null && i < Channels.Length && Channels[i] != null ? Channels[i] : new TrackMix()).ToArray();
         return this;
     }
 }
@@ -71,8 +72,8 @@ public static class Mixer
     /// <summary>Meter slots: L/R per track, then master L/R.</summary>
     public const int MaxSubs = 4;
     /// <summary>Meter slots: L/R per track, then L/R per submix (<see cref="MaxSubs"/>), then master L/R.</summary>
-    public static int Slots => Tracks.Names.Length * 2 + MaxSubs * 2 + 2;
-    public static int SubSlot(int k) => Tracks.Names.Length * 2 + k * 2;
+    public const int Slots = Tracks.Max * 2 + MaxSubs * 2 + 2;   // (sized for the most tracks a sequence can have: the layout can change while playing)
+    public static int SubSlot(int k) => Tracks.Max * 2 + k * 2;
 
     public static double Lin(double db) => db <= MinDb ? 0 : Math.Pow(10, db / 20);
     public static double Db(double lin) => lin <= 0 ? double.NegativeInfinity : 20 * Math.Log10(lin);
@@ -250,7 +251,7 @@ public static class Mixer
     }
 
     /// <summary>Scratch buffers for <see cref="Mix"/> (one per track, n stereo frames).</summary>
-    public static float[][] Bus(int n) => Enumerable.Range(0, Tracks.Names.Length).Select(_ => new float[n * 2]).ToArray();
+    public static float[][] Bus(int n) => Enumerable.Range(0, Tracks.Max).Select(_ => new float[n * 2]).ToArray();
 
     static bool Overlaps(AudioOut.Src s, long b0, int n) => Math.Min((long)Math.Round(s.End * Rate), b0 + n) > Math.Max((long)Math.Round(s.Start * Rate), b0);
 
@@ -294,22 +295,22 @@ public static class Mixer
     /// (optional, <see cref="Slots"/> long) gets each track's post-fader L/R peak and the master L/R peak (1 = 0 dBFS).</summary>
     public static void Mix(AudioOut.Src[] srcs, MasterMix master, double T0, int n, float[] mix, float[][] bus, short[] tmp, float[]? peaks, AudioDsp.FxState? fx = null)
     {
-        int used = 0, fxDone = 0;
+        Span<bool> used = stackalloc bool[bus.Length], fxDone = stackalloc bool[bus.Length];   // (per track: any number of tracks)
         // whole samples throughout (like the export: atrim start_sample / adelay in samples) — NTSC frame times fall between samples
         long b0 = (long)Math.Round(T0 * Rate);
         foreach (var s in srcs)
         {
             var tb = bus[s.Track];
             if (!Overlaps(s, b0, n)) continue;
-            if ((used & (1 << s.Track)) == 0) { Array.Clear(tb, 0, n * 2); used |= 1 << s.Track; }
+            if (!used[s.Track]) { Array.Clear(tb, 0, n * 2); used[s.Track] = true; }
             Accumulate(s, b0, n, tb, tmp, ref fx);
         }
         foreach (var s in srcs)
         {
-            if (s.Bus is not { } tbus || (fxDone & (1 << tbus.Track)) != 0) continue;
-            fxDone |= 1 << tbus.Track;
+            if (s.Bus is not { } tbus || fxDone[tbus.Track]) continue;
+            fxDone[tbus.Track] = true;
             var tb = bus[tbus.Track];
-            if ((used & (1 << tbus.Track)) == 0) { Array.Clear(tb, 0, n * 2); used |= 1 << tbus.Track; }
+            if (!used[tbus.Track]) { Array.Clear(tb, 0, n * 2); used[tbus.Track] = true; }
             (fx ??= new AudioDsp.FxState()).ProcessBus(tbus, b0, tb, n, srcs);
             for (int k = 0; k < n; k++)
             {
@@ -327,7 +328,7 @@ public static class Mixer
         int subUsed = 0;
         for (int tr = 0; tr < bus.Length; tr++)
         {
-            if ((used & (1 << tr)) == 0) continue;
+            if (!used[tr]) continue;
             var tb = bus[tr]; float pl = 0, pr = 0;
             float[] dst = mix;
             if (route[tr] >= 0) { int r0 = route[tr]; dst = SubBuf(r0, n); if ((subUsed & (1 << r0)) == 0) { Array.Clear(dst, 0, n * 2); subUsed |= 1 << r0; } }

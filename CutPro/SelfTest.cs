@@ -399,6 +399,18 @@ public static class SelfTest
                       && lg3.IndexOf("lenscorrection", StringComparison.Ordinal) < lg3.IndexOf("perspective", StringComparison.Ordinal) && Math.Abs(Lens.At(lc, 0.5).k1) < 0.01
                       && Anim.PropsOf(lc).Contains(AnimProp.LensCurve) && !Anim.PropsOf(new Clip { Kind = ClipKind.Video }).Contains(AnimProp.LensCurve));
             }
+            {
+                // tracks: the row of each track in a 5 + 3 layout, a clip staying with its track when tracks are added above it, undo
+                var te = new Editor();
+                var tc = new Clip { Kind = ClipKind.Text, Track = Tracks.V(2), Start = 0, Dur = 1, Text = "x" }; te.Clips.Add(tc);
+                te.AddTracks(2, 0, 1, Tracks.Count);
+                var tmoved = te.Clips[0];
+                Check("tracks: 5 + 3 rows are V5 … V1 A1 … A3 (V(n), A(n), Number, Label agree); a clip on V2 is still on V2 after two tracks went on top",
+                      Tracks.Video == 5 && Tracks.Audio == 3 && Tracks.V1 == 4 && Tracks.A1 == 5 && Tracks.V(5) == 0 && Tracks.A(3) == 7 && Tracks.V(6) == -1 && Tracks.Number(7) == 3
+                      && Tracks.Label(0) == "V5" && Tracks.IsVideo(4) && !Tracks.IsVideo(5) && Tracks.Label(tmoved.Track) == "V2" && te.TrackOff.Length == 8 && te.Mix.Channels.Length == 8);
+                te.Undo();
+                Check("tracks: one undo → 3 + 2, the clip back on row 1", Tracks.Video == 3 && Tracks.Audio == 2 && te.Clips[0].Track == 1);
+            }
         }
         log.Add(fails == 0 ? "ALL PASSED" : $"{fails} FAILED");
         File.WriteAllLines(outFile, log);

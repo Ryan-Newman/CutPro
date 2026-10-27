@@ -135,7 +135,7 @@ public static class Analyzer
         if (info.Duration < 60) return new();
         var marks = new SortedDictionary<double, string>();
         foreach (var (t, text) in info.Titles) marks[Math.Round(t)] = Shorten(text, 50);
-        foreach (var c in ed.Clips.Where(c => c.Track == 2 && c.Kind is ClipKind.Video or ClipKind.Image))
+        foreach (var c in ed.Clips.Where(c => c.Track == Tracks.V1 && c.Kind is ClipKind.Video or ClipKind.Image))
             if (!marks.Keys.Any(k => Math.Abs(k - c.Start) < 10)) marks[Math.Round(c.Start)] = "";
         var list = new List<(double, string)>();
         foreach (var (t, label) in marks)

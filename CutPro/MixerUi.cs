@@ -25,6 +25,7 @@ public partial class MainWindow
     {
         BuildStrips();
         ed.MixChanged += RefreshMixer;
+        MixerScroll.SizeChanged += (_, _) => FitStrips();
         RefreshMixer();
         BuildLoudness();
     }
@@ -35,11 +36,21 @@ public partial class MainWindow
     {
         MixerStrips.Children.Clear(); strips.Clear();
         MixerStrips.Columns = 0;
-        for (int r = 0; r < Tracks.Names.Length; r++) if (!Tracks.IsVideo(r)) MixerStrips.Children.Add(MakeStrip(r));
+        for (int r = 0; r < Tracks.Count; r++) if (!Tracks.IsVideo(r)) MixerStrips.Children.Add(MakeStrip(r));
         for (int k = 0; k < ed.Mix.Subs.Count; k++) MixerStrips.Children.Add(MakeStrip(SubBase + k));
         MixerStrips.Children.Add(MakeStrip(-1));
         AddSubBtn.IsEnabled = ed.Mix.Subs.Count < Mixer.MaxSubs;
         stripSig = StripSig();
+        FitStrips();
+    }
+
+    /// <summary>The strips share the panel's width, at least 74 px each — with many tracks the row gets wider than the panel and scrolls.</summary>
+    void FitStrips()
+    {
+        double avail = MixerScroll.ViewportWidth > 0 ? MixerScroll.ViewportWidth : MixerScroll.ActualWidth;
+        if (avail <= 0) return;
+        double w = Math.Max(avail - MixerStrips.Margin.Left - MixerStrips.Margin.Right, MixerStrips.Children.Count * 74);
+        if (Math.Abs(MixerStrips.Width - w) > 0.5 || double.IsNaN(MixerStrips.Width)) MixerStrips.Width = w;
     }
 
     SubMix? SubOf(int id) => id >= SubBase && id - SubBase < ed.Mix.Subs.Count ? ed.Mix.Subs[id - SubBase] : null;
@@ -75,12 +86,12 @@ public partial class MainWindow
         bool master = track < 0, isSub = track >= SubBase;
         int sk = track - SubBase;
         var s = new Strip { Track = track };
-        var g = new Grid { Margin = new Thickness(2, 0, 2, 0) };
+        var g = new Grid { Margin = new Thickness(2, 0, 2, 0), MinWidth = 62 };   // (many tracks: the strips keep their width and the mixer scrolls)
         foreach (var h in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
             g.RowDefinitions.Add(new RowDefinition { Height = h });
         void Put(UIElement e, int row) { Grid.SetRow(e, row); g.Children.Add(e); }
 
-        var name = new TextBlock { Text = master ? "Mix" : isSub ? ed.Mix.Subs[sk].Name : Tracks.Names[track], FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center,
+        var name = new TextBlock { Text = master ? "Mix" : isSub ? ed.Mix.Subs[sk].Name : Tracks.Name(track), FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center,
                                    Margin = new Thickness(0, 0, 0, 4), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = isSub ? "Submix — double-click to rename" : null };
         if (isSub)
         {
@@ -211,12 +222,13 @@ public partial class MainWindow
         }
         AddSubBtn.IsEnabled = ed.Mix.Subs.Count < Mixer.MaxSubs;
         stripSig = StripSig();
+        FitStrips();
         Tl.InvalidateVisual();
         mixRefreshing = false;
     }
 
     string stripSig = "";
-    string StripSig() => string.Join("|", ed.Mix.Subs.Select(x => x.Name)) + "#" + ed.Mix.Subs.Count;
+    string StripSig() => string.Join("|", ed.Mix.Subs.Select(x => x.Name)) + "#" + ed.Mix.Subs.Count + "#" + string.Join(",", Tracks.AudioRows.Select(r => r + ":" + Tracks.Name(r)));   // (tracks added / removed / renamed: rows move)
 
     /// <summary>Per frame (render loop): meters follow what is being heard, ~30 updates a second, only while the mixer is showing.</summary>
     void UpdateMeters()

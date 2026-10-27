@@ -122,10 +122,10 @@ public class Preview : Canvas
     }
 
     /// <summary>Dip to black / white: a full-frame colour layer on the track, above its clips.</summary>
-    readonly System.Windows.Shapes.Rectangle?[] dipRect = new System.Windows.Shapes.Rectangle?[3];
+    System.Windows.Shapes.Rectangle?[] dipRect = Array.Empty<System.Windows.Shapes.Rectangle?>();
     void SyncDips(double t)
     {
-        for (int k = 0; k < 3; k++)
+        for (int k = 0; k < trackCv.Length; k++)
         {
             var dip = Ed.TrackOff[k] ? null : Transitions.DipAt(plan, k, t);
             if (dip == null) { if (dipRect[k] != null) Vis(dipRect[k]!, Visibility.Collapsed); continue; }
@@ -206,6 +206,7 @@ public class Preview : Canvas
     public void Sync(double t, bool playing)
     {
         long now = Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;   // ms, high resolution (TickCount is ~16 ms coarse)
+        EnsureTracks();                                                     // (the layout may have changed: tracks added / removed)
         plan = Transitions.Compute(Ed);
         SyncLayers(t);
         SyncAdjust(t);
@@ -423,32 +424,58 @@ public class Preview : Canvas
     }
 
     // ---- track groups: each video track has its own canvas, nested so a mask can cover "everything below a track" ----
-    readonly Canvas[] trackCv = new Canvas[3];   // V3, V2, V1 content
-    readonly Canvas[] below = new Canvas[2];     // below[0] = V2+V1 (masked by a V3 title), below[1] = V1 (masked by a V2 title)
-    readonly BitmapSource?[] maskBmp = new BitmapSource?[2];
-    readonly double[] maskF = new double[2];
+    // trackCv[k] = row k's clips (row 0 the highest video track). below[k] = everything under row k (the rows k+1 … V1 with their own
+    // adjustments) — what a matte or an adjustment layer on row k acts on, and what a blend mode on row k mixes with (V1: black).
+    Canvas[] trackCv = Array.Empty<Canvas>(), below = Array.Empty<Canvas>();
+    BitmapSource?[] maskBmp = Array.Empty<BitmapSource?>();
+    double[] maskF = Array.Empty<double>();
     readonly Dictionary<string, (string sig, BitmapSource bmp)> mattes = new();
+    readonly List<UIElement> treeRoots = new();
 
-    public Preview()
+    public Preview() { EnsureTracks(); }
+
+    /// <summary>The canvas tree for the active layout's video tracks — built again when their number changes (tracks added / removed, another
+    /// sequence). Layers sit on their row's canvas and are put there again by the next <see cref="Sync"/>; mattes, adjustments and blend
+    /// shaders are re-applied from scratch on the new canvases.</summary>
+    void EnsureTracks()
     {
+        int n = Tracks.Video;
+        if (trackCv.Length == n) return;
+        foreach (var e in treeRoots) Children.Remove(e);
+        treeRoots.Clear();
         Canvas Mk() => new() { Width = Editor.W, Height = Editor.H };
-        for (int i = 0; i < 3; i++) trackCv[i] = Mk();
-        // below[k] (adjustment colour shader, matte) > adjIn[k] (adjustment blur) > the tracks below; adjVig[k] (adjustment vignette) right above below[k]
-        for (int k = 0; k < 2; k++) adjVig[k] = new System.Windows.Shapes.Rectangle { Width = Editor.W, Height = Editor.H, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
-        adjIn[1] = Mk(); adjIn[1].Children.Add(trackCv[2]);
-        below[1] = Mk(); below[1].Children.Add(adjIn[1]);
-        adjIn[0] = Mk(); adjIn[0].Children.Add(below[1]); adjIn[0].Children.Add(adjVig[1]); adjIn[0].Children.Add(trackCv[1]);
-        below[0] = Mk(); below[0].Children.Add(adjIn[0]);
-        Children.Add(below[0]); Children.Add(adjVig[0]); Children.Add(trackCv[0]);
+        trackCv = Enumerable.Range(0, n).Select(_ => Mk()).ToArray();
+        int m = Math.Max(0, n - 1);
+        below = new Canvas[m]; adjIn = new Canvas[m]; adjVig = new System.Windows.Shapes.Rectangle[m];
+        for (int k = 0; k < m; k++)
+        {
+            below[k] = Mk(); adjIn[k] = Mk();
+            adjVig[k] = new System.Windows.Shapes.Rectangle { Width = Editor.W, Height = Editor.H, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+        }
+        // below[k] (adjustment colour shader, matte) > adjIn[k] (adjustment blur) > the tracks below; adjVig[k] (adjustment vignette) right
+        // above below[k] — built from the lowest track up
+        for (int k = m - 1; k >= 0; k--)
+        {
+            if (k == m - 1) adjIn[k].Children.Add(trackCv[n - 1]);
+            else { adjIn[k].Children.Add(below[k + 1]); adjIn[k].Children.Add(adjVig[k + 1]); adjIn[k].Children.Add(trackCv[k + 1]); }
+            below[k].Children.Add(adjIn[k]);
+        }
+        if (m > 0) { treeRoots.Add(below[0]); treeRoots.Add(adjVig[0]); }
+        treeRoots.Add(trackCv[0]);
+        for (int i = 0; i < treeRoots.Count; i++) Children.Insert(i, treeRoots[i]);   // (under the nest badge)
+        maskBmp = new BitmapSource?[m]; maskF = new double[m]; maskKey = Enumerable.Repeat("", m).ToArray();
+        adjVigCache = new (object?, string, Brush?)[m]; belowBrush = new VisualBrush?[m];
+        dipRect = new System.Windows.Shapes.Rectangle?[n];
+        foreach (var (e, bh) in blendHosts.ToList()) blendHosts[e] = (bh.Host, -1);   // (their shader samples the new tree: rebuilt by Place)
     }
 
-    // ---- adjustment layers (Adjust): the tracks below a V3 / V2 adjustment clip get its blur, colour and vignette at its strength ----
-    readonly Canvas[] adjIn = new Canvas[2];
-    readonly System.Windows.Shapes.Rectangle[] adjVig = new System.Windows.Shapes.Rectangle[2];
-    readonly (object? grade, string sig, Brush? brush)[] adjVigCache = new (object?, string, Brush?)[2];
+    // ---- adjustment layers (Adjust): the tracks below an adjustment clip (any track above V1) get its blur, colour and vignette at its strength ----
+    Canvas[] adjIn = Array.Empty<Canvas>();
+    System.Windows.Shapes.Rectangle[] adjVig = Array.Empty<System.Windows.Shapes.Rectangle>();
+    (object? grade, string sig, Brush? brush)[] adjVigCache = Array.Empty<(object?, string, Brush?)>();
     void SyncAdjust(double t)
     {
-        for (int k = 0; k < 2; k++)
+        for (int k = 0; k < below.Length; k++)
         {
             var c = Ed.TrackOff[k] ? null : Ed.Clips.FirstOrDefault(x => Adjust.Is(x) && x.Track == k && Covers(x, t));
             double s = c != null ? Adjust.Strength(c, t) : 0;
@@ -484,7 +511,7 @@ public class Preview : Canvas
     /// mixes it with a brush of the tracks below (V1: black, like the export's base), so both samplers line up pixel for pixel.</summary>
     void Place(FrameworkElement e, int track, Clip? c = null)
     {
-        track = Math.Clamp(track, 0, 2);
+        track = Math.Clamp(track, 0, trackCv.Length - 1);
         var host = trackCv[track];
         var mode = c?.Blend ?? BlendMode.Normal;
         var ps = mode != BlendMode.Normal ? Blend.Shader(mode) : null;
@@ -508,12 +535,12 @@ public class Preview : Canvas
         Z(bh.Host, GetZIndex(e));
     }
     readonly Dictionary<FrameworkElement, (Canvas Host, int Track)> blendHosts = new();
-    readonly VisualBrush?[] belowBrush = new VisualBrush?[2];
+    VisualBrush?[] belowBrush = Array.Empty<VisualBrush?>();
     static readonly SolidColorBrush BlackBelow = MakeBlack();
     static SolidColorBrush MakeBlack() { var b = new SolidColorBrush(Colors.Black); b.Freeze(); return b; }
     Brush BelowBrush(int track)
     {
-        if (track >= 2) return BlackBelow;
+        if (track >= below.Length) return BlackBelow;                      // (V1: black, like the export's base)
         return belowBrush[track] ??= new VisualBrush(below[track]) { Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, Editor.W, Editor.H) };
     }
     /// <summary>Per frame: a blend host shows only while its layer does (an idle host would still run the shader and render the brush), and
@@ -539,7 +566,7 @@ public class Preview : Canvas
             var g = new Grid { IsHitTestVisible = false }; g.Children.Add(rect);
             shadows[layer] = sh = (g, rect, vb);
         }
-        var cv = trackCv[Math.Clamp(track, 0, 2)];
+        var cv = trackCv[Math.Clamp(track, 0, trackCv.Length - 1)];
         if (sh.Host.Parent != cv) { Detach(sh.Host); cv.Children.Add(sh.Host); }
         var (dx, dy) = Looks.Offset(s);
         double sc = Editor.OutScale; dx = 2 * Math.Round(dx * sc / 2) / sc; dy = 2 * Math.Round(dy * sc / 2) / sc;   // (even output pixels, like the export)
@@ -585,7 +612,7 @@ public class Preview : Canvas
                              Effect = new BlurEffect { Radius = Exporter.BackdropBlur, KernelType = KernelType.Gaussian } };
             SetZIndex(bg, -100);
         }
-        if (bg.Parent != trackCv[2]) { Detach(bg); trackCv[2].Children.Add(bg); }
+        if (bg.Parent != trackCv[^1]) { Detach(bg); trackCv[^1].Children.Add(bg); }   // (V1)
         // cover the frame + the blur's reach, centred (as the export's scale + crop); WPF's UniformToFill would anchor top-left
         double pad = 2 * Math.Ceiling((3 * Exporter.BlurSigma(Exporter.BackdropBlur) + 2) / 2);
         double fw = Editor.W + 2 * pad, fh = Editor.H + 2 * pad, k = Math.Max(fw / m!.Width, fh / m.Height), cw = m.Width * k, ch = m.Height * k;
@@ -604,9 +631,9 @@ public class Preview : Canvas
         foreach (var b in below) { b.Width = Editor.W; b.OpacityMask = null; }
         foreach (var a in adjIn) a.Width = Editor.W;
         foreach (var v in adjVig) v.Width = Editor.W;
-        adjVigCache[0] = adjVigCache[1] = default;
+        Array.Clear(adjVigCache);
         foreach (var vb in belowBrush) if (vb != null) vb.Viewbox = new Rect(0, 0, Editor.W, Editor.H);
-        mattes.Clear(); maskBmp[0] = maskBmp[1] = null;
+        mattes.Clear(); Array.Clear(maskBmp);
         InvalidateMeasure();
     }
 
@@ -755,7 +782,7 @@ public class Preview : Canvas
         catch { return null; }
     }
 
-    readonly string[] maskKey = { "", "" };
+    string[] maskKey = Array.Empty<string>();
     /// <summary>A video / picture track matte on track k: its matte bitmap (brightness or alpha of what it shows, crop included, inverted for a
     /// cut-out) at its placement masks everything below; outside the clip a reveal hides, a cut-out keeps. Fades blend it like a title's.
     /// The export builds the same matte from the clip (Exporter: track matte).</summary>
@@ -815,11 +842,11 @@ public class Preview : Canvas
         FramePool.Return(m); if (crop != null) FramePool.Return(crop);
     }
 
-    /// <summary>Text masks (track mattes): a masking title on V3/V2 sets the opacity mask of everything below it.
+    /// <summary>Text masks (track mattes): a masking title on any track above V1 sets the opacity mask of everything below it.
     /// Opacity and fades blend the effect in and out: alpha = matte + (1 - strength)(1 - matte), same as the exporter.</summary>
     void SyncMasks(double t)
     {
-        for (int k = 0; k < 2; k++)
+        for (int k = 0; k < below.Length; k++)
         {
             var c = Ed.Clips.FirstOrDefault(x => x.Mask != MaskMode.None && x.Kind is ClipKind.Text or ClipKind.Video or ClipKind.Image && x.Track == k && Covers(x, t) && !Ed.TrackOff[k]);
             if (c == null) { if (below[k].OpacityMask != null) below[k].OpacityMask = null; maskBmp[k] = null; maskKey[k] = ""; continue; }

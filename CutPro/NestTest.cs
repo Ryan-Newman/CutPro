@@ -340,7 +340,7 @@ public static class NestTest
     }
 
     /// <summary>Frame k of a transparent render put over black by ffmpeg's 4:2:0 overlay (how the export composites it), as BGRA.</summary>
-    static byte[] OverBlack(string ff, string file, int k)
+    internal static byte[] OverBlack(string ff, string file, int k)
     {
         var psi = new ProcessStartInfo(ff) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var x in new[] { "-v", "error", "-i", file, "-filter_complex", $"[0:v]select='eq(n,{k})',setpts=PTS-STARTPTS[s];color=black:s={Editor.W}x{Editor.H}:r=30[b];[b][s]overlay=format={(ExportSettings.Default.Full444 ? "yuv444" : "yuv420")}:shortest=1,format=bgra",

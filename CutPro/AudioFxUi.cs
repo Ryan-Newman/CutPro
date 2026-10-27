@@ -111,7 +111,7 @@ public partial class MainWindow
         if (ed.SelectedId != fxTrackSel || (sm == null && track >= ed.Mix.Channels.Length)) { fxTrack = null; return false; }
         Func<List<AudioEffect>?> get = sm != null ? () => sm.Fx : () => ed.Mix.Channels[track].Fx;
         Action<List<AudioEffect>?> set = sm != null ? l => sm.Fx = l : l => ed.Mix.Channels[track].Fx = l;
-        Inspector.Children.Add(new TextBlock { Text = sm != null ? $"Submix effects — {sm.Name}" : $"Track effects — {Tracks.Names[track]}", FontWeight = FontWeights.SemiBold });
+        Inspector.Children.Add(new TextBlock { Text = sm != null ? $"Submix effects — {sm.Name}" : $"Track effects — {Tracks.Name(track)}", FontWeight = FontWeights.SemiBold });
         Inspector.Children.Add(new TextBlock { Text = sm != null ? "They run on everything sent to this submix, before its fader and pan. Select a clip to see its own controls." : "They run on the track's clips summed, before its fader and pan; a reverb's tail rings on after the clips. Select a clip to see its own controls.",
                                                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 6) });
         void Edit(Action a) { ed.MixBegin(); a(); ed.MixEnd(); ed.RaiseMixChanged(); }

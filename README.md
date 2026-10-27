@@ -6,7 +6,7 @@ A Premiere Pro–style video editor for Windows, built with WPF and .NET 9. Prev
 
 ## Features
 
-- **Editing:** 3 video + 2 audio tracks, select / razor tools, ripple trim, lift / extract, linking, snapping, multiple and nested sequences, a source monitor with Insert / Overwrite and Match Frame.
+- **Editing:** up to 32 video + 32 audio tracks per sequence (named, lockable, resizable), select / razor tools, ripple trim, lift / extract, linking, snapping, multiple and nested sequences, a source monitor with Insert / Overwrite and Match Frame.
 - **Playback:** an audio-clock player with hardware decoding (chosen per file by measurement) and a scrub cache.
 - **Picture:** motion with keyframes and formulas, blend modes, crop / flip, chroma and luma keys, track mattes, corner pin, lens distortion, adjustment layers, Lumetri-style colour (wheels, curves, .cube LUTs) with scopes, cartoon / anime looks, transitions, speed / reverse / time remapping, stabilization.
 - **Titles and captions:** styled titles with themes and text masks, and captions from speech (Whisper) with SRT / VTT.

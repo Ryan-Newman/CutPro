@@ -112,7 +112,7 @@ public static class HookBuilder
     public static double Insert(Editor ed, Plan p)
     {
         var moments = p.Moments.Count > 0 ? p.Moments : new List<HookMoment> { new(Math.Min(ed.End * 0.3, Math.Max(0, ed.End - 3)), Math.Min(ed.End, ed.End * 0.3 + 3), "", 0, "") };
-        if (ed.End < 0.5) return 0;
+        if (ed.End < 0.5 || Tracks.Video < 3 || Enumerable.Range(0, Tracks.Count).Any(ed.Locked)) return 0;   // (V1–V3 needed; everything moves: no locked track)
         var th = Themes.Get(ed.ThemeName);
         double fps = TimeUtil.Fps;
         double Fr(double t) => Math.Round(t * fps) / fps;
@@ -174,7 +174,7 @@ public static class HookBuilder
                     if (o != null)
                     {
                         var n = Copy(o); n.Id = Guid.NewGuid().ToString("N"); n.LinkId = null; n.TransIn = n.TransOut = null; n.FadeIn = n.FadeOut = 0;
-                        n.Track = 2; n.Start = pos; n.Dur = len; n.NoAudio = true; n.Anim = null;
+                        n.Track = Tracks.V1; n.Start = pos; n.Dur = len; n.NoAudio = true; n.Anim = null;
                         if (n.Kind == ClipKind.Video) { n.In = TimeMap.Src(o, t); n.Hold = true; }
                         if (part.kind == "card") { n.Blur = 28; n.Grade = new ColorGrade { Exposure = -1.1, Saturation = 80 }; }
                         else n.Grade = new ColorGrade { Exposure = -0.5, Contrast = 15 };
@@ -190,10 +190,10 @@ public static class HookBuilder
                 }
                 if (part.kind == "card")
                 {
-                    Title(p.Headline.Trim().Length > 0 ? p.Headline.Trim() : head, TextRole.Title, 1);
-                    if (p.Subline.Trim().Length > 0) Title(p.Subline.Trim(), TextRole.Subtitle, 0);
+                    Title(p.Headline.Trim().Length > 0 ? p.Headline.Trim() : head, TextRole.Title, Tracks.V(2));
+                    if (p.Subline.Trim().Length > 0) Title(p.Subline.Trim(), TextRole.Subtitle, Tracks.V(3));
                 }
-                else if (part.caption != null) Title(part.caption, part.role, 1);
+                else if (part.caption != null) Title(part.caption, part.role, Tracks.V(2));
                 if (first != null) firstOfPart.Add(first);
                 pos += len;
             }
@@ -356,6 +356,8 @@ sealed class HookWindow : Window
 
     void Insert()
     {
+        if (Enumerable.Range(0, Tracks.Count).FirstOrDefault(ed.Locked, -1) is int lk and >= 0) { status.Text = $"{Tracks.Name(lk)} is locked — the intro moves everything later, so unlock every track first."; return; }
+        if (Tracks.Video < 3 && !ed.AddTracks(3 - Tracks.Video, 0, 0, Tracks.Count)) return;   // (stills on V1, words on V2, a subtitle on V3)
         var picked = moments.Where(chosen.Contains).ToList();
         var plan = new HookBuilder.Plan(template, picked, headline.Text, subline.Text, slow.IsChecked == true, trans.SelectedItem as string ?? "Cross Dissolve", len.Value);
         double total = HookBuilder.Insert(ed, plan);

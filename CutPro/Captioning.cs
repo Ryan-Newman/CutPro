@@ -250,11 +250,11 @@ public static class Captioning
         return (s, vertical ? 24 : Themes.DefaultPosition(TextRole.Caption).y);
     }
 
-    /// <summary>The highest video track that is free (other than captions) over every cue, or −1.</summary>
+    /// <summary>The highest video track above V1 that is free (other than captions) over every cue, or −1 (then the UI adds one on top).</summary>
     public static int FreeTrack(Editor ed, IReadOnlyList<Cue> cues)
     {
         if (cues.Count == 0) return 0;
-        foreach (int tr in new[] { 0, 1 })
+        foreach (int tr in Enumerable.Range(0, Tracks.V1).Where(r => !ed.Locked(r)))   // (from the highest down, never V1; unlocked)
             if (!ed.Clips.Any(c => c.Track == tr && !IsCaption(c) && cues.Any(q => c.Start < q.End - 1e-4 && c.End > q.Start + 1e-4))) return tr;
         return -1;
     }

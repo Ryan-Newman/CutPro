@@ -10,8 +10,8 @@ namespace CutPro;
 /// <summary>Custom-drawn multi-track timeline with Premiere-style Selection (V) and Razor (C) tools.</summary>
 public partial class TimelineView : FrameworkElement
 {
-    public const double HeaderW = 92, RulerH = 26, RowH = 54;
-    enum Mode { None, Scrub, Move, TrimL, TrimR, Marquee, Key, TransEdge, Band }
+    public const double HeaderW = 136, RulerH = 26;                      // (the header: name, padlock, eye or M S)
+    enum Mode { None, Scrub, Move, TrimL, TrimR, Marquee, Key, TransEdge, Band, Size }
 
     public Editor Ed = null!;
     public bool Razor { get => razor; set { razor = value; HoverT = null; Cursor = value ? RazorCursor() : Cursors.Arrow; OverlayChanged?.Invoke(); } }
@@ -26,6 +26,10 @@ public partial class TimelineView : FrameworkElement
     public event Action<Clip>? NestOpenRequested;
     public event Action? NestRequested;
     public event Action<string>? Notice;
+    /// <summary>A track header asks for a name (double-click / menu) or the Add Tracks dialog (menu; the row the menu was opened on).</summary>
+    public event Action<int>? RenameTrackRequested, AddTracksRequested;
+    /// <summary>A short message for the status bar.</summary>
+    public event Action<string>? Status;
 
     /// <summary>Razor preview: the (frame/snap-adjusted) time and the rows the cut line is drawn on.</summary>
     public double? HoverT;
@@ -44,7 +48,35 @@ public partial class TimelineView : FrameworkElement
 
     double X2T(double x) => (x - HeaderW + scrollX) / pps;
     public double T2X(double t) => HeaderW + t * pps - scrollX;
-    static int RowAt(double y) { int r = (int)Math.Floor((y - RulerH) / RowH); return r is >= 0 and < 5 ? r : -1; }
+    // ---------- rows: one per track (Tracks), each its own height (TrackInfo), scrolled vertically under the ruler ----------
+    double scrollY;
+    /// <summary>Vertical scroll of the track rows (pixels; the ruler stays).</summary>
+    public double ScrollY
+    {
+        get => scrollY;
+        set { scrollY = Math.Clamp(value, 0, Math.Max(0, ContentHeight - TrackViewport)); ViewChanged?.Invoke(); InvalidateVisual(); }
+    }
+    /// <summary>All rows stacked (+ a little room under the last one), and the height they are shown in.</summary>
+    public double ContentHeight => RowTop(Tracks.Count) + 24;
+    public double TrackViewport => Math.Max(0, ActualHeight - RulerH);
+    static double RowTop(int r) { double y = 0; for (int i = 0; i < r; i++) y += Tracks.Height(i); return y; }
+    /// <summary>Top of a row on screen and its height.</summary>
+    public double RowY(int r) => RulerH - scrollY + RowTop(r);
+    public static double RowHt(int r) => Tracks.Height(r);
+    int RowAt(double y)
+    {
+        if (y < RulerH) return -1;
+        double top = RulerH - scrollY;
+        for (int r = 0; r < Tracks.Count; r++) { double h = Tracks.Height(r); if (y < top + h) return y >= top ? r : -1; top += h; }
+        return -1;
+    }
+    /// <summary>Scrolls just enough to show a row.</summary>
+    public void ShowRow(int r)
+    {
+        if (r < 0 || r >= Tracks.Count) return;
+        double top = RowTop(r), h = RowHt(r);
+        if (top < scrollY) ScrollY = top; else if (top + h > scrollY + TrackViewport) ScrollY = top + h - TrackViewport;
+    }
 
     record Orig(Clip C, double Start, double In, double Dur, int Track);
     Mode mode; Clip? drag; List<Orig> group = new(); double x0; double? snapAt;
@@ -64,7 +96,7 @@ public partial class TimelineView : FrameworkElement
     Brush bgBrush = null!, laneV = null!, laneA = null!, rulerBg = null!, hdrBg = null!, dim = null!, hdrText = null!, btnText = null!,
           snapBrush = null!, offBrush = null!, btnBrush = null!, gapBrush = null!, marqueeFill = null!, rangeBrush = null!, rangeBarBrush = null!,
           vBrush = null!, aBrush = null!, iBrush = null!, tBrush = null!, nBrush = null!, jBrush = null!, waveBrush = null!, soloBrush = null!, soloText = null!;
-    Pen tickPen = null!, rowPen = null!, marqueePen = null!;
+    Pen tickPen = null!, rowPen = null!, dividerPen = null!, marqueePen = null!;
 
     public void ReloadTheme()
     {
@@ -75,7 +107,7 @@ public partial class TimelineView : FrameworkElement
         snapBrush = T("Snap"); vBrush = T("Clip.Video"); aBrush = T("Clip.Audio"); iBrush = T("Clip.Image"); tBrush = T("Clip.Text"); nBrush = T("Clip.Nest"); jBrush = T("Clip.Adjust");
         waveBrush = T("Clip.Wave"); soloBrush = T("Tl.Solo"); soloText = T("Tl.SoloText"); bandBrush = T("Clip.Band");
         gapBrush = Alpha(acc, 0x55); marqueeFill = Alpha(acc, 0x22); rangeBrush = Alpha(acc, 0x32); rangeBarBrush = T("Accent");
-        tickPen = new Pen(T("Tl.Tick"), 1); rowPen = new Pen(T("Tl.RowLine"), 1); marqueePen = new Pen(T("Accent"), 1);
+        tickPen = new Pen(T("Tl.Tick"), 1); rowPen = new Pen(T("Tl.RowLine"), 1); dividerPen = new Pen(T("Tl.RowLine"), 3); marqueePen = new Pen(T("Accent"), 1);
         InvalidateVisual();
     }
     Brush KindBrush(ClipKind k) => k switch { ClipKind.Video => vBrush, ClipKind.Audio => aBrush, ClipKind.Image => iBrush, ClipKind.Adjustment => jBrush, _ => tBrush };
@@ -95,16 +127,21 @@ public partial class TimelineView : FrameworkElement
         double W = ActualWidth, H = ActualHeight;
         dc.DrawRectangle(bgBrush, null, new Rect(0, 0, W, H));
 
+        if (scrollY > Math.Max(0, ContentHeight - TrackViewport)) scrollY = Math.Max(0, ContentHeight - TrackViewport);   // (tracks removed / shrunk)
         dc.PushClip(new RectangleGeometry(new Rect(HeaderW, RulerH, Math.Max(0, W - HeaderW), Math.Max(0, H - RulerH))));
-        for (int r = 0; r < 5; r++)
+        for (int r = 0; r < Tracks.Count; r++)
         {
-            double y = RulerH + r * RowH;
-            dc.DrawRectangle(Tracks.IsVideo(r) ? laneV : laneA, null, new Rect(HeaderW, y, W, RowH));
-            dc.DrawLine(rowPen, new Point(HeaderW, y + RowH), new Point(W, y + RowH));
+            double y = RowY(r), rh = RowHt(r);
+            if (y > H || y + rh < RulerH) continue;
+            dc.DrawRectangle(Tracks.IsVideo(r) ? laneV : laneA, null, new Rect(HeaderW, y, W, rh));
+            dc.DrawLine(r == Tracks.V1 ? dividerPen : rowPen, new Point(HeaderW, y + rh), new Point(W, y + rh));   // (a heavier line between video and audio)
         }
         if (Ed.Gap is { } g)
-            dc.DrawRectangle(gapBrush, null, new Rect(T2X(g.A), RulerH + g.Track * RowH + 3, Math.Max(2, (g.B - g.A) * pps), RowH - 6));
+            dc.DrawRectangle(gapBrush, null, new Rect(T2X(g.A), RowY(g.Track) + 3, Math.Max(2, (g.B - g.A) * pps), RowHt(g.Track) - 6));
         foreach (var c in Ed.Clips) DrawClip(dc, c);
+        // locked tracks: diagonal lines over the whole row (Premiere's locked look)
+        for (int r = 0; r < Tracks.Count; r++)
+            if (Ed.Locked(r)) dc.DrawRectangle(LockHatch(), null, new Rect(HeaderW, RowY(r), Math.Max(0, W - HeaderW), RowHt(r)));
         DrawBands(dc);                                                         // volume rubber bands (clip volume or track automation)
         foreach (var w in Transitions.Compute(Ed).Wins) DrawTransition(dc, w);
         if (dropAt is { } da) DrawDrop(dc, da);
@@ -135,26 +172,60 @@ public partial class TimelineView : FrameworkElement
         }
         dc.Pop();
 
-        // track headers
+        // track headers: name (its own or V1 / A2 …), lock, hide (video) or mute + solo (audio), the band mode of audio tracks
         dc.DrawRectangle(hdrBg, null, new Rect(0, 0, HeaderW, H));
-        for (int r = 0; r < 5; r++)
+        dc.PushClip(new RectangleGeometry(new Rect(0, RulerH, HeaderW, Math.Max(0, H - RulerH))));
+        for (int r = 0; r < Tracks.Count; r++)
         {
-            double y = RulerH + r * RowH;
-            dc.DrawLine(rowPen, new Point(0, y + RowH), new Point(HeaderW, y + RowH));
-            dc.DrawText(Txt(Tracks.Names[r], 13, hdrText, true), new Point(10, y + RowH / 2 - 9));
+            double y = RowY(r), rh = RowHt(r);
+            if (y > H || y + rh < RulerH) continue;
+            bool locked = Ed.Locked(r);
+            dc.DrawLine(r == Tracks.V1 ? dividerPen : rowPen, new Point(0, y + rh), new Point(HeaderW, y + rh));
+            var name = Tracks.Name(r);
+            double nameW = LockRect(r).X - 8, nameY = Tracks.IsVideo(r) || rh < 46 ? y + rh / 2 - 9 : y + Math.Min(rh / 2 - 9, rh - 37);   // (audio: above the band mode)
+            dc.DrawText(Txt(name, name.Length <= 3 ? 13 : 11.5, hdrText, true, Math.Max(10, nameW)), new Point(6, nameY + (name.Length <= 3 ? 0 : 1)));
+            var lk = LockRect(r);
+            dc.DrawRoundedRectangle(locked ? offBrush : btnBrush, null, lk, 3, 3);
+            Glyph(dc, locked ? "" : "", lk, locked ? white : btnText);    // (closed / open padlock)
             var btn = MuteRect(r);
             dc.DrawRoundedRectangle(Ed.TrackOff[r] ? offBrush : btnBrush, null, btn, 3, 3);
-            if (Tracks.IsVideo(r)) { dc.DrawText(Txt("hide", 10, Ed.TrackOff[r] ? white : btnText), new Point(btn.X + 6, btn.Y + 3)); continue; }
+            if (Tracks.IsVideo(r)) { Glyph(dc, Ed.TrackOff[r] ? "" : "", btn, Ed.TrackOff[r] ? white : btnText); continue; }   // (eye: shown / hidden)
             // audio: M (mute) and S (solo), as in Premiere's track headers and the Audio Mixer
             Center(dc, "M", btn, Ed.TrackOff[r] ? white : btnText);
             bool solo = Ed.Mix.Channels[r].Solo;
             dc.DrawRoundedRectangle(solo ? soloBrush : btnBrush, null, SoloRect(r), 3, 3);
             Center(dc, "S", SoloRect(r), solo ? soloText : btnText);
-            DrawBandMode(dc, r);
+            if (rh >= 46) DrawBandMode(dc, r);
         }
+        dc.Pop();
     }
-    static Rect MuteRect(int r) { double y = RulerH + r * RowH + RowH / 2 - 10; return Tracks.IsVideo(r) ? new Rect(HeaderW - 42, y, 34, 20) : new Rect(HeaderW - 48, y, 20, 20); }
-    static Rect SoloRect(int r) => new(HeaderW - 25, RulerH + r * RowH + RowH / 2 - 10, 20, 20);
+    // header buttons, right-aligned and centred in the row: video [lock][eye], audio [lock][M][S]
+    double BtnY(int r) => RowY(r) + RowHt(r) / 2 - 10;
+    Rect MuteRect(int r) => Tracks.IsVideo(r) ? new Rect(HeaderW - 30, BtnY(r), 24, 20) : new Rect(HeaderW - 50, BtnY(r), 20, 20);
+    Rect SoloRect(int r) => new(HeaderW - 26, BtnY(r), 20, 20);
+    Rect LockRect(int r) => Tracks.IsVideo(r) ? new Rect(HeaderW - 56, BtnY(r), 22, 20) : new Rect(HeaderW - 74, BtnY(r), 20, 20);
+    static readonly FontFamily IconFont = new("Segoe MDL2 Assets");
+    void Glyph(DrawingContext dc, string g, Rect r, Brush b)
+    {
+        var ft = new FormattedText(g, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(IconFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+                                   11, b, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(ft, new Point(r.X + (r.Width - ft.Width) / 2, r.Y + (r.Height - ft.Height) / 2));
+    }
+    static Brush? lockHatch;
+    /// <summary>Thin diagonal lines (a locked track's rows).</summary>
+    static Brush LockHatch()
+    {
+        if (lockHatch != null) return lockHatch;
+        var g = new DrawingGroup();
+        using (var c = g.Open())
+        {
+            c.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, 8, 8));
+            c.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)), 1.2), new Point(0, 8), new Point(8, 0));
+        }
+        var b = new DrawingBrush(g) { TileMode = TileMode.Tile, Viewport = new Rect(0, 0, 8, 8), ViewportUnits = BrushMappingMode.Absolute };
+        b.Freeze();
+        return lockHatch = b;
+    }
     void Center(DrawingContext dc, string s, Rect r, Brush b)
     {
         var ft = Txt(s, 10.5, b, true);
@@ -201,7 +272,7 @@ public partial class TimelineView : FrameworkElement
     /// <summary>The band a transition box occupies in a track row (Premiere draws it across the cut, over both clips).</summary>
     Rect TransRect(Transitions.Win w)
     {
-        double y = RulerH + w.Track * RowH + 3, h = RowH - 6;
+        double y = RowY(w.Track) + 3, h = RowHt(w.Track) - 6;
         return new Rect(T2X(w.T0), y + h * 0.16, Math.Max(6, T2X(w.T1) - T2X(w.T0)), h * 0.6);
     }
     void DrawTransition(DrawingContext dc, Transitions.Win w)
@@ -250,7 +321,7 @@ public partial class TimelineView : FrameworkElement
     (Clip c, bool head, double t)? dropAt;
     (Clip c, bool head, double t)? EditPointAt(Point p, bool audio)
     {
-        int row = RowAt(p.Y); if (row < 0 || p.X < HeaderW || Tracks.IsVideo(row) == audio) return null;
+        int row = RowAt(p.Y); if (row < 0 || p.X < HeaderW || Tracks.IsVideo(row) == audio || Ed.Locked(row)) return null;
         double t = X2T(p.X), best = 24 / pps;
         (Clip c, bool head, double t)? hit = null;
         foreach (var c in Ed.Clips.Where(c => c.Track == row))
@@ -262,9 +333,9 @@ public partial class TimelineView : FrameworkElement
     }
     void DrawDrop(DrawingContext dc, (Clip c, bool head, double t) d)
     {
-        double x = T2X(d.t), y = RulerH + d.c.Track * RowH + 2;
+        double x = T2X(d.t), y = RowY(d.c.Track) + 2;
         var acc = T2("Accent");
-        dc.DrawRectangle(acc, null, new Rect(x - 1.5, y, 3, RowH - 4));
+        dc.DrawRectangle(acc, null, new Rect(x - 1.5, y, 3, RowHt(d.c.Track) - 4));
         var tri = new StreamGeometry();
         using (var g = tri.Open()) { g.BeginFigure(new Point(x - 6, y - 1), true, true); g.LineTo(new Point(x + 6, y - 1), true, false); g.LineTo(new Point(x, y + 6), true, false); }
         tri.Freeze(); dc.DrawGeometry(acc, null, tri);
@@ -274,8 +345,9 @@ public partial class TimelineView : FrameworkElement
     {
         double x1 = T2X(c.Start), x2 = T2X(c.End);
         if (x2 < HeaderW || x1 > ActualWidth) return;
-        double y = RulerH + c.Track * RowH + 3;
-        var rect = new Rect(x1, y, Math.Max(3, x2 - x1), RowH - 6);
+        double y = RowY(c.Track) + 3, ch = RowHt(c.Track) - 6;
+        if (y > ActualHeight || y + ch < RulerH) return;                    // (scrolled out of view)
+        var rect = new Rect(x1, y, Math.Max(3, x2 - x1), ch);
         bool sel = Ed.IsSel(c);
         var m = Ed.MediaOf(c);
         bool nested = m?.Seq != null;
@@ -283,9 +355,9 @@ public partial class TimelineView : FrameworkElement
         dc.PushClip(new RectangleGeometry(rect));
         if (m?.Thumb != null && !nested && c.Kind is ClipKind.Video or ClipKind.Image)
         {
-            double tw = (RowH - 6) * 16 / 9;
+            double tw = ch * 16 / 9;
             double xs = x1 + Math.Floor(Math.Max(0, HeaderW - x1) / tw) * tw, xe = Math.Min(x2, ActualWidth);
-            for (double x = xs; x < xe; x += tw) dc.DrawImage(m!.Thumb, new Rect(x, y, tw, RowH - 6));
+            for (double x = xs; x < xe; x += tw) dc.DrawImage(m!.Thumb, new Rect(x, y, tw, ch));
             dc.DrawRectangle(shade, null, rect);
         }
         if (c.Kind == ClipKind.Audio && m != null) DrawWave(dc, c, m, rect);
@@ -378,8 +450,8 @@ public partial class TimelineView : FrameworkElement
     (Clip c, double t, bool mask)? KeyHit(Point p)
     {
         var c = HitClip(p); if (c == null) return null;
-        double y = RulerH + c.Track * RowH + 3;
-        var rect = new Rect(T2X(c.Start), y, Math.Max(3, T2X(c.End) - T2X(c.Start)), RowH - 6);
+        double y = RowY(c.Track) + 3;
+        var rect = new Rect(T2X(c.Start), y, Math.Max(3, T2X(c.End) - T2X(c.Start)), RowHt(c.Track) - 6);
         foreach (var (t, mask) in KeyMarks(c).OrderBy(k => Math.Abs(T2X(k.t) - p.X)))
             if (Math.Abs(T2X(t) - p.X) <= 6 && Math.Abs(KeyY(rect, mask) - p.Y) <= 6) return (c, t, mask);
         return null;
@@ -462,15 +534,15 @@ public partial class TimelineView : FrameworkElement
     {
         double x1 = Math.Max(HeaderW, T2X(c.Start)), x2 = Math.Min(ActualWidth, T2X(c.End));
         if (x2 - x1 < 1) return null;
-        double y = RulerH + c.Track * RowH + 3;
-        return new Rect(x1, y, x2 - x1, RowH - 6);
+        double y = RowY(c.Track) + 3;
+        return new Rect(x1, y, x2 - x1, RowHt(c.Track) - 6);
     }
 
     Clip? HitClip(Point p)
     {
         int row = RowAt(p.Y); if (row < 0 || p.X < HeaderW) return null;
         double t = X2T(p.X);
-        return Ed.Clips.FirstOrDefault(c => c.Track == row && t >= c.Start && t < c.End);
+        return Ed.Clips.FirstOrDefault(c => c.Track == row && t >= c.Start && t < c.End && Ed.Editable(c));   // (a locked track's clips can't be picked)
     }
 
     /// <summary>Snaps v (plus any of the offsets) to the playhead, marks and clip edges within 8 px, then to a frame.</summary>
@@ -497,10 +569,10 @@ public partial class TimelineView : FrameworkElement
     /// <summary>Which clips a razor click at this point would cut (Shift = all tracks, Alt = ignore links).</summary>
     List<Clip> RazorTargets(Clip? c, double t)
     {
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return Ed.ClipsAt(t);
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return Ed.ClipsAt(t).Where(Ed.Editable).ToList();
         if (c == null) return new();
         var list = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) ? new List<Clip> { c } : Ed.Linked(c).ToList();
-        return list.Where(x => t > x.Start + 1e-4 && t < x.End - 1e-4).ToList();
+        return list.Where(x => t > x.Start + 1e-4 && t < x.End - 1e-4 && Ed.Editable(x)).ToList();
     }
 
     public void UpdateHover() => UpdateHover(lastMouse);
@@ -524,10 +596,14 @@ public partial class TimelineView : FrameworkElement
         bool shift = mods.HasFlag(ModifierKeys.Shift), ctrl = mods.HasFlag(ModifierKeys.Control), alt = mods.HasFlag(ModifierKeys.Alt);
         if (p.X < HeaderW)
         {
+            if (p.Y >= RulerH && SizeEdgeAt(p) is int sr) { sizeRow = sr; sizeY0 = p.Y; sizeH0 = RowHt(sr); mode = Mode.Size; CaptureMouse(); return; }   // (drag a header's lower edge: its height)
             int r = RowAt(p.Y);
-            if (r >= 0 && SoloRect(r).Contains(p) && !Tracks.IsVideo(r)) { Ed.Mix.Channels[r].Solo ^= true; Ed.RaiseMixChanged(); InvalidateVisual(); }
-            else if (r >= 0 && MuteRect(r).Contains(p)) { Ed.TrackOff[r] = !Ed.TrackOff[r]; Ed.RaiseMixChanged(); InvalidateVisual(); }
-            else if (r >= 0 && !Tracks.IsVideo(r) && BandModeRect(r).Contains(p)) CycleBand(r);
+            if (r < 0) return;
+            if (LockRect(r).Contains(p)) { Ed.SetLocked(r, !Ed.Locked(r)); InvalidateVisual(); }
+            else if (SoloRect(r).Contains(p) && !Tracks.IsVideo(r)) { Ed.Mix.Channels[r].Solo ^= true; Ed.RaiseMixChanged(); InvalidateVisual(); }
+            else if (MuteRect(r).Contains(p)) { Ed.TrackOff[r] = !Ed.TrackOff[r]; Ed.RaiseMixChanged(); InvalidateVisual(); }
+            else if (!Tracks.IsVideo(r) && RowHt(r) >= 46 && BandModeRect(r).Contains(p)) CycleBand(r);
+            else if (e.ClickCount == 2) RenameTrackRequested?.Invoke(r);       // (double-click the name: rename the track)
             return;
         }
         if (p.Y < RulerH) { ScrubStarted?.Invoke(); mode = Mode.Scrub; CaptureMouse(); Ed.Seek(Snap(X2T(p.X), null, 0)); snapAt = null; return; }
@@ -580,8 +656,15 @@ public partial class TimelineView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var p = e.GetPosition(this); lastMouse = p;
+        if (mode == Mode.Size)
+        {
+            Ed.SetTrackHeight(sizeRow, sizeH0 + (p.Y - sizeY0));
+            ViewChanged?.Invoke(); OverlayChanged?.Invoke(); InvalidateVisual(); return;
+        }
         if (mode == Mode.None)
         {
+            if (p.X < HeaderW) { Cursor = p.Y >= RulerH && SizeEdgeAt(p) != null ? Cursors.SizeNS : Cursors.Arrow; HoverT = null; HoverRows.Clear(); OverlayChanged?.Invoke(); return; }
+            if (Razor && Cursor != RazorCursor()) Cursor = RazorCursor();
             UpdateHover(p);
             if (!Razor)
             {
@@ -594,6 +677,11 @@ public partial class TimelineView : FrameworkElement
             return;
         }
         if (mode == Mode.Scrub) { Ed.Seek(Snap(X2T(p.X), null, 0)); snapAt = null; return; }
+        if (mode is Mode.Move or Mode.Marquee && ContentHeight > TrackViewport)
+        {   // dragging near the top / bottom edge scrolls the tracks
+            if (p.Y > ActualHeight - 16) ScrollY += 8;
+            else if (p.Y < RulerH + 16 && p.Y >= RulerH - 8) ScrollY -= 8;
+        }
         if (mode == Mode.Key) { KeyDragTo(p); return; }
         if (mode == Mode.Band) { BandDragTo(p); return; }
         if (mode == Mode.TransEdge) { TransEdgeTo(p); return; }
@@ -603,7 +691,7 @@ public partial class TimelineView : FrameworkElement
             var r = new Rect(mStart, mCur);
             double ta = X2T(r.Left), tb = X2T(r.Right);
             var hit = Ed.Clips.Where(c => c.Start < tb && c.End > ta &&
-                RulerH + c.Track * RowH < r.Bottom && RulerH + (c.Track + 1) * RowH > r.Top).ToList();
+                RowY(c.Track) < r.Bottom && RowY(c.Track) + RowHt(c.Track) > r.Top && Ed.Editable(c)).ToList();
             Ed.SetSelection(Ed.Clips.Where(c => mBase.Contains(c.Id)).Concat(hit));
             InvalidateVisual(); return;
         }
@@ -640,7 +728,7 @@ public partial class TimelineView : FrameworkElement
         foreach (var o in group)
         {
             int tr = Tracks.IsVideo(o.Track) == primVideo ? o.Track + dRow : o.Track;
-            if (tr < 0 || tr > 4 || Tracks.IsVideo(tr) != Tracks.IsVideo(o.Track)) return false;
+            if (tr < 0 || tr >= Tracks.Count || Tracks.IsVideo(tr) != Tracks.IsVideo(o.Track) || Ed.Locked(tr)) return false;   // (never onto a locked track)
             double s = Math.Max(0, o.Start + d);
             if (Ed.Collides(tr, s, o.Dur, ids)) return false;
             plan.Add((o, s, tr));
@@ -686,9 +774,51 @@ public partial class TimelineView : FrameworkElement
         Ed.RaiseChanged(); InvalidateVisual();
     }
 
+    /// <summary>A track header's menu (Premiere's): add tracks above / below or several, rename, lock, delete it or every empty one, its height.</summary>
+    void HeaderMenu(int r)
+    {
+        var menu = new ContextMenu();
+        MenuItem Item(string text, Action a, ItemsControl? into = null, bool check = false, bool enabled = true, string? tip = null)
+        {
+            var mi = new MenuItem { Header = text, IsChecked = check, IsEnabled = enabled, ToolTip = tip };
+            mi.Click += (_, _) => a(); (into ?? menu).Items.Add(mi); return mi;
+        }
+        bool video = Tracks.IsVideo(r), room = video ? Tracks.Video < Tracks.MaxVideo : Tracks.Audio < Tracks.MaxAudio;
+        string kind = video ? "Video" : "Audio";
+        Item($"Add {kind} Track Above", () => Ed.AddTrack(r), enabled: room);
+        Item($"Add {kind} Track Below", () => Ed.AddTrack(r, below: true), enabled: room);
+        Item("Add Tracks…", () => AddTracksRequested?.Invoke(r));
+        menu.Items.Add(new Separator());
+        Item("Rename…", () => RenameTrackRequested?.Invoke(r));
+        Item("Lock Track", () => Ed.SetLocked(r, !Ed.Locked(r)), check: Ed.Locked(r), tip: "A locked track's clips can't be selected, moved, cut or rippled");
+        menu.Items.Add(new Separator());
+        bool last = video ? Tracks.Video <= 1 : Tracks.Audio <= 1;
+        int n = Ed.Clips.Count(c => c.Track == r);
+        Item(n > 0 ? $"Delete Track (and its {n} clip{(n == 1 ? "" : "s")})" : "Delete Track", () => Ed.DeleteTracks(new[] { r }), enabled: !last,
+             tip: last ? $"A sequence keeps at least one {kind.ToLowerInvariant()} track" : null);
+        Item("Delete Empty Tracks", () => { int k = Ed.DeleteEmptyTracks(); Status?.Invoke(k > 0 ? $"{k} empty track{(k == 1 ? "" : "s")} deleted" : "No empty tracks to delete"); });
+        menu.Items.Add(new Separator());
+        var size = new MenuItem { Header = "Track Height" }; menu.Items.Add(size);
+        var all = new MenuItem { Header = "All Tracks" }; menu.Items.Add(all);
+        foreach (var (label, h) in new[] { ("Small", 32.0), ("Medium", Tracks.DefaultHeight), ("Large", 96.0), ("Extra large", 150.0) })
+        {
+            Item(label, () => { Ed.SetTrackHeight(r, h == Tracks.DefaultHeight ? 0 : h); ViewChanged?.Invoke(); InvalidateVisual(); OverlayChanged?.Invoke(); }, size, Math.Abs(RowHt(r) - h) < 0.5);
+            Item(label, () => { for (int i = 0; i < Tracks.Count; i++) Ed.SetTrackHeight(i, h == Tracks.DefaultHeight ? 0 : h); ViewChanged?.Invoke(); InvalidateVisual(); OverlayChanged?.Invoke(); }, all);
+        }
+        menu.PlacementTarget = this; menu.IsOpen = true;
+    }
+
+    // track heights: drag the lower edge of a track header
+    int sizeRow; double sizeY0, sizeH0;
+    int? SizeEdgeAt(Point p)
+    {
+        for (int r = 0; r < Tracks.Count; r++) if (Math.Abs(p.Y - (RowY(r) + RowHt(r))) <= 3) return r;
+        return null;
+    }
+
     bool SelectGapAt(Point p)
     {
-        int row = RowAt(p.Y); if (row < 0) return false;
+        int row = RowAt(p.Y); if (row < 0 || Ed.Locked(row)) return false;
         double t = X2T(p.X);
         var onRow = Ed.Clips.Where(c => c.Track == row).ToList();
         var next = onRow.Where(c => c.Start >= t).OrderBy(c => c.Start).FirstOrDefault();
@@ -705,7 +835,8 @@ public partial class TimelineView : FrameworkElement
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
     {
         var p = e.GetPosition(this);
-        if (p.X < HeaderW || p.Y < RulerH) return;
+        if (p.Y < RulerH) return;
+        if (p.X < HeaderW) { if (RowAt(p.Y) is >= 0 and var hr) { HeaderMenu(hr); e.Handled = true; } return; }
         var c = HitClip(p);
         var menu = new ContextMenu();
         MenuItem Item(string text, Action a, string gesture = "", ItemsControl? into = null, bool check = false)
@@ -780,7 +911,9 @@ public partial class TimelineView : FrameworkElement
             scrollX = Math.Clamp(t * pps - (p.X - HeaderW), 0, Math.Max(0, ContentWidth - Viewport));
             ViewChanged?.Invoke(); InvalidateVisual();
         }
+        else if (Keyboard.Modifiers == ModifierKeys.Shift || e.GetPosition(this).X < HeaderW) ScrollY -= e.Delta * 0.5;   // (over the headers / Shift: up and down the tracks)
         else ScrollX -= e.Delta;
+        OverlayChanged?.Invoke();
         e.Handled = true;
     }
 
@@ -819,6 +952,7 @@ public partial class TimelineView : FrameworkElement
         var p = e.GetPosition(this);
         int row = RowAt(p.Y);
         if (m == null || row < 0 || p.X < HeaderW) return;
+        if (Ed.Locked(row)) { Status?.Invoke($"{Tracks.Name(row)} is locked — unlock it to drop clips on it"); e.Handled = true; return; }
         if (!Ed.CanAdd(m)) { Notice?.Invoke($"“{m.Name}” can't go into “{Ed.Seq.Name}”: it is this sequence, or contains it."); e.Handled = true; return; }
         bool ok = Tracks.IsVideo(row) ? m.Type != ClipKind.Audio : m.Type == ClipKind.Audio || (m.Type == ClipKind.Video && m.HasAudio);
         // from the source monitor: its V / A choice, or a video-only / audio-only handle

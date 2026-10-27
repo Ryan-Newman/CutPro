@@ -40,7 +40,7 @@ public static class Exporter
 
     /// <summary>True when a clip gets the blurred, filled copy behind it (Shorts "Fit + blur": V1 pictures of another shape).</summary>
     public static bool BlurBackdrop(MediaItem? m, Clip c) =>
-        Editor.Reframe == ReframeMode.FitBlur && c.Track == 2 && c.Kind is ClipKind.Video or ClipKind.Image && m is { Width: > 0, Height: > 0 }
+        Editor.Reframe == ReframeMode.FitBlur && c.Track == Tracks.V1 && c.Kind is ClipKind.Video or ClipKind.Image && m is { Width: > 0, Height: > 0 }
         && Math.Abs(m.Width / (double)m.Height - Editor.W / (double)Editor.H) > 0.02;
     /// <summary>Blur radius (logical px) and brightness of the Fit + blur backdrop (the preview uses the same numbers).</summary>
     public const double BackdropBlur = 40, BackdropLevel = 0.8;

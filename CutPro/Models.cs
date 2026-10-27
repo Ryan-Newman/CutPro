@@ -7,11 +7,55 @@ public enum ClipKind { Video, Audio, Image, Text, Adjustment }
 /// <summary>How a picture of another shape fills the sequence frame: Fit (letterbox), Fill (crop; Pan picks the part), FitBlur (fit over a blurred, filled copy — the usual landscape-to-Shorts look).</summary>
 public enum ReframeMode { Fit, Fill, FitBlur }
 
+/// <summary>
+/// The track layout of the active sequence (or, on a thread rendering another sequence, that one's: <see cref="SeqScope"/>). A clip's
+/// <see cref="Clip.Track"/> is its timeline row, top to bottom: the video tracks first — row 0 is the highest (drawn on top), row
+/// <see cref="V1"/> = Video − 1 the lowest — then the audio tracks, A1 at row <see cref="A1"/> = Video. Projects from before were 3 + 2
+/// (rows V3 V2 V1 A1 A2), which is the default. Each <see cref="Sequence"/> keeps its own counts and per-track settings
+/// (<see cref="TrackInfo"/>: name, lock, height); <see cref="Use"/> makes a sequence's layout the active one.
+/// </summary>
 public static class Tracks
 {
-    // Row order top->bottom. V3 draws on top of V2 on top of V1.
-    public static readonly string[] Names = { "V3", "V2", "V1", "A1", "A2" };
-    public static bool IsVideo(int i) => i < 3;
+    public const int DefaultVideo = 3, DefaultAudio = 2, MaxVideo = 32, MaxAudio = 32;
+    /// <summary>Most rows a sequence can have (mixer buses and meter slots are sized for it).</summary>
+    public const int Max = MaxVideo + MaxAudio;
+    /// <summary>Timeline row height in pixels (a track's own height when it has none).</summary>
+    public const double DefaultHeight = 54, MinHeight = 28, MaxHeight = 180;
+    static int video = DefaultVideo, audio = DefaultAudio;
+    static List<TrackInfo>? info;
+    public static int Video => SeqScope.Current?.Video ?? video;
+    public static int Audio => SeqScope.Current?.Audio ?? audio;
+    public static int Count => Video + Audio;
+    public static bool IsVideo(int row) => row < Video;
+    /// <summary>Row of the lowest video track (V1) and of the first audio track (A1).</summary>
+    public static int V1 => Video - 1;
+    public static int A1 => Video;
+    /// <summary>Row of track Vn / An (n from 1), or −1 when the sequence has fewer tracks.</summary>
+    public static int V(int n) => n >= 1 && n <= Video ? Video - n : -1;
+    public static int A(int n) => n >= 1 && n <= Audio ? Video + n - 1 : -1;
+    /// <summary>The track's number: 1 for V1 and A1.</summary>
+    public static int Number(int row) => IsVideo(row) ? Video - row : row - Video + 1;
+    /// <summary>"V1", "A2" — the position, whatever the track is called.</summary>
+    public static string Label(int row) => (IsVideo(row) ? "V" : "A") + Number(row);
+    /// <summary>The track's name (its own, or its label).</summary>
+    public static string Name(int row) => info is { } l && row >= 0 && row < l.Count && !string.IsNullOrWhiteSpace(l[row].Name) ? l[row].Name! : Label(row);
+    public static bool Locked(int row) => info is { } l && row >= 0 && row < l.Count && l[row].Locked;
+    public static double Height(int row) => info is { } l && row >= 0 && row < l.Count && l[row].Height > 0 ? Math.Clamp(l[row].Height, MinHeight, MaxHeight) : DefaultHeight;
+    /// <summary>The video rows from the lowest (V1) up, and the audio rows from A1 down.</summary>
+    public static IEnumerable<int> VideoRows => Enumerable.Range(0, Video).Reverse();
+    public static IEnumerable<int> AudioRows => Enumerable.Range(Video, Audio);
+    /// <summary>Makes a sequence's layout the active one (UI thread: the editor's active sequence).</summary>
+    public static void Use(Sequence s) { s.Fix(); video = s.VideoTracks; audio = s.AudioTracks; info = s.TrackInfo; }
+}
+
+/// <summary>A track's own settings (per row of a <see cref="Sequence"/>): the name shown in its header (null = V1, A2 …), whether it is
+/// locked (its clips can't be selected, moved, cut or rippled, and nothing is edited onto it) and its height in the timeline (0 = the default).</summary>
+public sealed class TrackInfo
+{
+    public string? Name { get; set; }
+    public bool Locked { get; set; }
+    public double Height { get; set; }
+    public TrackInfo Clone() => (TrackInfo)MemberwiseClone();
 }
 
 public class MediaItem
@@ -174,18 +218,45 @@ public class Sequence
     public int SeqH { get; set; } = 720;
     public double SeqFps { get; set; } = 30;
     public ReframeMode Reframe { get; set; }
+    /// <summary>How many video and audio tracks it has (projects from before: 3 + 2). See <see cref="Tracks"/> for the row order.</summary>
+    public int VideoTracks { get; set; } = Tracks.DefaultVideo;
+    public int AudioTracks { get; set; } = Tracks.DefaultAudio;
+    /// <summary>Per row: name, lock, height (null = all default).</summary>
+    public List<TrackInfo>? TrackInfo { get; set; }
     public MixState Mix { get; set; } = new();
-    public bool[] TrackOff { get; set; } = new bool[5];
+    /// <summary>Per row: hidden (video) / muted (audio).</summary>
+    public bool[] TrackOff { get; set; } = new bool[Tracks.DefaultVideo + Tracks.DefaultAudio];
     public double Time { get; set; }
     public double? MarkIn { get; set; }
     public double? MarkOut { get; set; }
     [JsonIgnore] public double End => Clips.Count == 0 ? 0 : Clips.Max(c => c.End);
+    [JsonIgnore] public int TrackCount => VideoTracks + AudioTracks;
+
+    /// <summary>Keeps the per-row lists as long as the track count (older or hand-edited files; a count within 1 … the maximum).</summary>
+    public Sequence Fix()
+    {
+        VideoTracks = Math.Clamp(VideoTracks, 1, Tracks.MaxVideo); AudioTracks = Math.Clamp(AudioTracks, 1, Tracks.MaxAudio);
+        int n = TrackCount;
+        if (TrackOff is not { } off || off.Length != n) TrackOff = Enumerable.Range(0, n).Select(i => TrackOff != null && i < TrackOff.Length && TrackOff[i]).ToArray();
+        Mix = (Mix ?? new MixState()).Fixed(n);
+        if (TrackInfo != null && TrackInfo.Count != n)
+            TrackInfo = Enumerable.Range(0, n).Select(i => i < TrackInfo.Count && TrackInfo[i] != null ? TrackInfo[i] : new TrackInfo()).ToList();
+        return this;
+    }
+    /// <summary>A copy of the layout (counts, per-row settings) onto another sequence — its clips use the same rows.</summary>
+    public void CopyLayout(Sequence to)
+    {
+        to.VideoTracks = VideoTracks; to.AudioTracks = AudioTracks;
+        to.TrackInfo = TrackInfo?.Select(t => t.Clone()).ToList();
+        to.Fix();
+    }
 }
 
 public class ProjectFile
 {
-    /// <summary>1 = one timeline in <see cref="Clips"/> and the Seq* fields; 2 = <see cref="Sequences"/> (the old fields stay empty).</summary>
-    public int Version { get; set; } = 2;
+    /// <summary>1 = one timeline in <see cref="Clips"/> and the Seq* fields; 2 = <see cref="Sequences"/> (the old fields stay empty);
+    /// 3 = sequences with their own track counts (<see cref="Sequence.VideoTracks"/> …; a version 2 sequence is 3 + 2).</summary>
+    public int Version { get; set; } = 3;
     public List<MediaItem> Media { get; set; } = new();
     public List<Clip> Clips { get; set; } = new();
     public string Theme { get; set; } = "Modern";
@@ -208,9 +279,9 @@ public class ProjectFile
     /// <summary>The project's sequences (a version 1 file becomes one sequence).</summary>
     public List<Sequence> AllSequences()
     {
-        if (Sequences is { Count: > 0 }) { foreach (var s in Sequences) { s.Mix = (s.Mix ?? new MixState()).Fixed(); if (s.TrackOff is not { Length: 5 }) s.TrackOff = new bool[5]; } return Sequences; }
-        return new List<Sequence> { new() { Name = "Sequence 01", Clips = Clips, SeqW = SeqW, SeqH = SeqH, SeqFps = SeqFps, Reframe = Reframe,
-                                            Mix = (Mix ?? new MixState()).Fixed(), TrackOff = TrackOff is { Length: 5 } ? TrackOff : new bool[5] } };
+        if (Sequences is { Count: > 0 }) { foreach (var s in Sequences) s.Fix(); return Sequences; }
+        return new List<Sequence> { new Sequence { Name = "Sequence 01", Clips = Clips, SeqW = SeqW, SeqH = SeqH, SeqFps = SeqFps, Reframe = Reframe,
+                                                   Mix = Mix ?? new MixState(), TrackOff = TrackOff ?? new bool[Tracks.DefaultVideo + Tracks.DefaultAudio] }.Fix() };
     }
 }
 

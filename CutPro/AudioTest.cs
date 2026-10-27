@@ -227,7 +227,7 @@ public static class AudioTest
             var old = System.Text.Json.JsonSerializer.Deserialize<ProjectFile>("{\"Clips\":[]}")!;
             var eo = new Editor(); eo.UseMix(old.Mix, old.TrackOff);
             Check(ep.Mix.Channels[3].Gain == -4.5 && ep.Mix.Channels[4].Pan == 70 && ep.Mix.Master == -1.5 && ep.Mix.Channels[4].Solo && ep.TrackOff[3]
-                  && eo.Mix.Channels.Length == Tracks.Names.Length && eo.Mix.Master == 0 && !eo.TrackOff.Any(x => x),
+                  && eo.Mix.Channels.Length == Tracks.Count && eo.Mix.Master == 0 && !eo.TrackOff.Any(x => x),
                   "project file keeps the mixer and track mutes; older projects open at 0 dB");
 
             // ---- 5b. audio effects: each one does its job (on test tones), the export = the mixer, playback from mid-clip = played through ----
@@ -410,7 +410,7 @@ public static class AudioTest
     static ExportSettings Wav() => new() { Video = "none", Container = "wav", Audio = "pcm" };
 
     /// <summary>The playback mixer rendered offline over [t0, t1) (interleaved stereo, 1 = full scale).</summary>
-    static float[] MixOf(Editor ed, double t0, double t1)
+    internal static float[] MixOf(Editor ed, double t0, double t1)
     {
         var srcs = Mixer.Sources(ed, Transitions.Compute(ed), new()).ToArray();
         foreach (var p in srcs.Select(s => s.Path).Distinct()) while (!AudioCache.IsDone(p)) Thread.Sleep(20);
@@ -423,7 +423,7 @@ public static class AudioTest
 
     /// <summary>Signal-to-difference ratio (dB) at the best alignment within ±16 samples, and that alignment.
     /// quietOnly: only where the reference is below −6 dBFS (the limiter changes the loud parts on purpose).</summary>
-    static (double snr, int lag) Compare(float[] mix, float[] exp, bool quietOnly = false)
+    internal static (double snr, int lag) Compare(float[] mix, float[] exp, bool quietOnly = false)
     {
         int n = Math.Min(mix.Length, exp.Length) / 2;
         double best = double.MaxValue, sig = 0; int bl = 0;
@@ -455,7 +455,7 @@ public static class AudioTest
 
     static void Run(string ff, string args) { using var p = Process.Start(new ProcessStartInfo(ff, args) { UseShellExecute = false, CreateNoWindow = true })!; p.WaitForExit(); }
 
-    static float[] Pcm(string ff, string file)
+    internal static float[] Pcm(string ff, string file)
     {
         var psi = new ProcessStartInfo(ff) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var x in new[] { "-v", "error", "-i", file, "-f", "f32le", "-ac", "2", "pipe:1" }) psi.ArgumentList.Add(x);

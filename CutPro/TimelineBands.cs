@@ -14,14 +14,21 @@ namespace CutPro;
 public partial class TimelineView
 {
     public enum AutoShow { ClipVolume, TrackVolume, TrackPan }
-    readonly AutoShow[] autoShow = new AutoShow[Tracks.Names.Length];
+    AutoShow[] autoShow = new AutoShow[Tracks.Max];
     Brush bandBrush = null!;
     public AutoShow BandOf(int track) => autoShow[track];
     public void ShowAuto(int track, AutoShow s) { autoShow[track] = s; InvalidateVisual(); }
+    /// <summary>Tracks were added / removed: each row's band mode goes with its track (old row → new row, −1 removed).</summary>
+    public void MoveRows(int[] map)
+    {
+        var moved = new AutoShow[Tracks.Max];
+        for (int r = 0; r < map.Length && r < autoShow.Length; r++) if (map[r] >= 0 && map[r] < moved.Length) moved[map[r]] = autoShow[r];
+        autoShow = moved; InvalidateVisual();
+    }
 
     const double ClipHiDb = 12, TrackHiDb = Mixer.MaxDb, LoDb = -48;
 
-    static Rect BandModeRect(int r) => new(6, RulerH + r * RowH + RowH - 17, 38, 14);
+    Rect BandModeRect(int r) => new(6, RowY(r) + RowHt(r) - 17, 38, 14);
     void CycleBand(int r) { autoShow[r] = (AutoShow)(((int)autoShow[r] + 1) % 3); InvalidateVisual(); }
     void DrawBandMode(DrawingContext dc, int r)
     {
@@ -45,20 +52,21 @@ public partial class TimelineView
     IEnumerable<Band> Bands()
     {
         double W = ActualWidth;
-        for (int r = 0; r < Tracks.Names.Length; r++)
+        for (int r = 0; r < Tracks.Count; r++)
         {
             if (Tracks.IsVideo(r)) continue;
-            double y = RulerH + r * RowH;
+            double y = RowY(r), rh = RowHt(r);
+            if (y > ActualHeight || y + rh < RulerH) continue;                 // (scrolled out of view)
             if (autoShow[r] == AutoShow.ClipVolume)
             {
                 foreach (var c in Ed.Clips.Where(c => c.Track == r && c.Kind == ClipKind.Audio))
                 {
                     double x1 = T2X(c.Start), x2 = T2X(c.End);
                     if (x2 < HeaderW || x1 > W || x2 - x1 < 6) continue;
-                    yield return new Band { Track = r, C = c, R = new Rect(x1, y + 3 + 15, x2 - x1, RowH - 6 - 18), X0 = Math.Max(x1, HeaderW), X1 = Math.Min(x2, W) };
+                    yield return new Band { Track = r, C = c, R = new Rect(x1, y + 3 + 15, x2 - x1, Math.Max(4, rh - 6 - 18)), X0 = Math.Max(x1, HeaderW), X1 = Math.Min(x2, W) };
                 }
             }
-            else yield return new Band { Track = r, Pan = autoShow[r] == AutoShow.TrackPan, R = new Rect(HeaderW, y + 6, Math.Max(0, W - HeaderW), RowH - 12), X0 = HeaderW, X1 = W };
+            else yield return new Band { Track = r, Pan = autoShow[r] == AutoShow.TrackPan, R = new Rect(HeaderW, y + 6, Math.Max(0, W - HeaderW), Math.Max(4, rh - 12)), X0 = HeaderW, X1 = W };
         }
     }
 
@@ -147,7 +155,7 @@ public partial class TimelineView
     {
         foreach (var b in Bands())
         {
-            if (p.X < b.X0 || p.X > b.X1 || p.Y < b.R.Top - 6 || p.Y > b.R.Bottom + 6) continue;
+            if (p.X < b.X0 || p.X > b.X1 || p.Y < b.R.Top - 6 || p.Y > b.R.Bottom + 6 || Ed.Locked(b.Track)) continue;   // (a locked track's bands are shown, not edited)
             if (KeysOf(b) is { Count: > 0 } keys)
                 foreach (var k in keys)
                 {
