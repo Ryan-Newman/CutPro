@@ -61,6 +61,7 @@ public partial class MainWindow
             mi("Auto Colour", K("color.auto"), () => { if (ed.Selected is { } c) AutoGrade(c); }, false, SelectedClips(c => c.Kind is ClipKind.Video or ClipKind.Image).Count > 0),
             mi("Colour Match…", K("color.match"), ColorMatchDialog, false, SelectedClips(c => c.Kind is ClipKind.Video or ClipKind.Image).Count > 0),
             mi("Remove Background", K("clip.removeBg"), () => _ = RemoveBackground(), false, ed.Selected is { Kind: ClipKind.Video }),
+            mi("Blur Faces…", K("clip.blurFaces"), () => _ = BlurFacesDialog(), false, vid),
             mi("Auto Reframe with Push-in…", K("seq.reframeZoom"), ReframeZoomDialog, false, ed.Clips.Any(Editor.CoversFrame)), "-",
             mi("Save Preset…", K("clip.savePreset"), SavePresetDialog, false, ed.Selected != null),
         });
@@ -79,7 +80,7 @@ public partial class MainWindow
         if (ed.Sel.Count > 1) Item("Synchronize (by sound)", () => _ = SyncSelected(), K("clip.sync"));
         if (Mixer.HasSound(c)) { Item("Detect Beats (markers)…", BeatsDialog, K("audio.beats")); Item("Auto Ducking…", DuckingDialog, K("audio.ducking")); }
         if (c.Kind is ClipKind.Video or ClipKind.Image) Item("Colour Match…", ColorMatchDialog, K("color.match"));
-        if (c.Kind == ClipKind.Video) Item("Remove Background", () => _ = RemoveBackground(), K("clip.removeBg"));
+        if (c.Kind == ClipKind.Video) { Item("Remove Background", () => _ = RemoveBackground(), K("clip.removeBg")); Item("Blur Faces…", () => _ = BlurFacesDialog(), K("clip.blurFaces")); }
         Item("Save Preset…", SavePresetDialog, K("clip.savePreset"));
     }
 
@@ -141,8 +142,8 @@ public partial class MainWindow
             for (int i = 0; i < clips.Count; i++)
             {
                 var c = clips[i]; var m = ed.MediaOf(c)!; var (lo, hi) = TimeMap.Span(c); int k = i;
-                var times = await Task.Run(() => SceneDetect.Find(ff, m, lo, hi, s, ms, ct,
-                                           new Progress<double>(x => SetTask($"Scene edit detection: clip {k + 1} of {clips.Count} — {x * 100:0}%", 0))), ct);
+                var sceneProg = new Progress<double>(x => SetTask($"Scene edit detection: clip {k + 1} of {clips.Count} — {x * 100:0}%", 0));   // (made on the UI thread)
+                var times = await Task.Run(() => SceneDetect.Find(ff, m, lo, hi, s, ms, ct, sceneProg), ct);
                 plan.Add((c, times));
             }
             int n = 0;

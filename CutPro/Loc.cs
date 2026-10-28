@@ -247,6 +247,9 @@ public static class Loc
         "Attach to Object|An Objekt anheften|Adjuntar al objeto|Attacher à l'objet", "Detach from Object|Vom Objekt lösen|Separar del objeto|Détacher de l'objet",
         "Time Interpolation|Zeitinterpolation|Interpolación de tiempo|Interpolation temporelle", "Audio Channels|Audiokanäle|Canales de audio|Canaux audio",
         "Clean Up Sound|Ton bereinigen|Limpiar sonido|Nettoyer le son",
+        "Blur Faces…|Gesichter weichzeichnen…|Desenfocar caras…|Flouter les visages…", "Blur Faces|Gesichter weichzeichnen|Desenfocar caras|Flouter les visages",
+        "Mask size (%)|Maskengröße (%)|Tamaño de máscara (%)|Taille du masque (%)", "Find small faces too (slower)|Auch kleine Gesichter finden (langsamer)|Buscar también caras pequeñas (más lento)|Trouver aussi les petits visages (plus lent)",
+        "Black out|Schwärzen|Tapar en negro|Masquer en noir",
     };
     static readonly Dictionary<string, string[]> table = new(StringComparer.Ordinal);
     static readonly Dictionary<string, string> back = new(StringComparer.Ordinal);

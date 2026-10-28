@@ -41,6 +41,7 @@ public static partial class ExtraTest
             await Section("audio time units", () => AudioUnitsTest(dir));
             await Section("proxies", () => ProxyTest(dir));
             await Section("distort", () => DistortTest(dir));
+            await Section("face blur", () => FaceTest(dir));
         }
         catch (Exception ex) { Check(false, "exception: " + ex); }
         log.Add(fails == 0 ? "ALL PASSED" : $"{fails} FAILED");
@@ -569,6 +570,110 @@ public static partial class ExtraTest
             Check(noiseDb < -10 && voiceDb > -3 && Math.Abs(lag) <= 12 && er == null && MaxDiff(exS, cleaned, Math.Min(exS.Length, cleaned.Length)) <= 2,
                   $"clean-up “{mode}”: noise between words {noiseDb:0.0} dB, the voice {voiceDb:+0.0;−0.0;0.0} dB, no shift ({lag} samples: the band filters' phase); export = mixer ({MaxDiff(exS, cleaned, Math.Min(exS.Length, cleaned.Length)):0.0} LSB)");
         }
+    }
+
+    // ---------------- face blur: YuNet, tracks, masks ----------------
+    static async Task FaceTest(string dir)
+    {
+        // 1. tracks from detections (no model needed): a face moving right, a second from frame 30, one stray detection
+        var dets = new List<(int, List<FaceTracks.Box>)>();
+        for (int f = 0; f <= 60; f += 2)
+        {
+            var l = new List<FaceTracks.Box> { new(0.1 + f * 0.005, 0.3, 0.12, 0.2) };
+            if (f >= 30) l.Add(new(0.7, 0.2, 0.1, 0.17));
+            if (f == 10) l.Add(new(0.45, 0.8, 0.05, 0.08));
+            dets.Add((f, l));
+        }
+        var tracks = FaceTracks.Build(dets);
+        var mA = FaceTracks.ToMask(tracks[0], 0, 90); var mB = FaceTracks.ToMask(tracks[1], 0, 90);
+        var (cx, cy) = MaskGeometry.Centroid(mA.At(20)!);
+        Check(tracks.Count == 2 && tracks[0].At.Count == 31 && tracks[1].At.Count == 16 && mB.At(25) is { Count: 0 } && mB.At(30) is { Count: 1 } && mA.At(62) is { Count: 0 } && mA.At(80) is { Count: 0 }
+              && Math.Abs(cx - (0.1 + 20 * 0.005 + 0.06)) < 0.005 && Math.Abs(cy - (0.3 + 0.1 - 0.016)) < 0.005,
+              $"face tracks: {tracks.Count} faces from {dets.Count} detection frames (the stray one dropped), each mask only on its own frames, centred on the face ({cx:0.000}, {cy:0.000})");
+        var ed = new Editor();
+        var mm = new MediaItem { Path = Path.Combine(dir, "pat.mp4"), Type = ClipKind.Video, Width = 640, Height = 360, Duration = 12, Fps = 30 };
+        ed.Media.Add(mm);
+        var clip = new Clip { Kind = ClipKind.Video, MediaId = mm.Id, Track = Tracks.V1, Start = 0, Dur = 3, NoAudio = true };
+        ed.Clips.Add(clip);
+        var made = ed.AddFaceMasks(clip, tracks, MaskFx.Pixelate, 20);
+        var cl = ed.Clips[0];
+        Check(made.Count == 2 && cl.Masks.Count == 2 && cl.Masks.All(x => x.Effect == MaskFx.Pixelate && x.Kind == MaskKind.Ellipse) && cl.Masks[0].Name == "Face 1" && ed.UndoLabels.First() == "Blur Faces"
+              && ed.MaskTracks.ContainsKey(made[0].Id), "Blur Faces adds a pixelate mask per face in one undo step");
+        ed.Undo();
+        Check(ed.Clips[0].Masks.Count == 0, "undo removes them");
+
+        // 2. the model
+        if (!FaceDetector.Present) { log.Add("SKIP face model: not downloaded"); return; }
+        using var det = new FaceDetector();
+        string io = det.Describe();
+        bool names = new[] { "cls_8", "cls_16", "cls_32", "obj_8", "obj_16", "obj_32", "bbox_8", "bbox_16", "bbox_32" }.All(n => io.Contains(n + "["));
+        var pat = FxTest.Pattern();
+        var bgr = Bgr(pat, out int pw, out int ph);
+        var sw = Stopwatch.StartNew();
+        var none = det.Detect(bgr, pw, ph, 0.6f);
+        double ms = sw.Elapsed.TotalMilliseconds;
+        Check(names && none.Count == 0, $"YuNet ({io.Split(';')[0]}): the outputs OpenCV decodes; no faces in the test pattern ({ms:0} ms for {pw}×{ph})");
+        // 3. drawn faces (emoji): where a face is found, its box covers it
+        var dv = new System.Windows.Media.DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 130, 140)), null, new System.Windows.Rect(0, 0, 640, 360));
+            var ft = new System.Windows.Media.FormattedText("\U0001F9D1", CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight, new System.Windows.Media.Typeface("Segoe UI Emoji"), 150, System.Windows.Media.Brushes.Black, 1.0);
+            dc.DrawText(ft, new System.Windows.Point(60, 80));
+            var ft2 = new System.Windows.Media.FormattedText("\U0001F468", CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight, new System.Windows.Media.Typeface("Segoe UI Emoji"), 120, System.Windows.Media.Brushes.Black, 1.0);
+            dc.DrawText(ft2, new System.Windows.Point(400, 110));
+        }
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(640, 360, 96, 96, System.Windows.Media.PixelFormats.Pbgra32); rtb.Render(dv);
+        FxTest.Save(rtb, Path.Combine(dir, "faces_emoji.png"));
+        var eb = Bgr(rtb, out int ew, out int eh);
+        var found = det.Detect(eb, ew, eh, 0.3f);
+        log.Add($"    emoji faces: {string.Join("; ", found.Select(f => $"({f.X:0},{f.Y:0} {f.W:0}×{f.H:0}) {f.Score:0.00}"))}");
+        bool inside = found.Count > 0 && found.All(f => f.X + f.W / 2 is > 40 and < 260 && f.Y + f.H / 2 is > 60 and < 300 || f.X + f.W / 2 is > 380 and < 560 && f.Y + f.H / 2 is > 90 and < 300);
+        Check(found.Count == 2 && inside, $"drawn faces: {found.Count} found, each on a drawn face (scores {string.Join(", ", found.Select(f => f.Score.ToString("0.00")))})");
+
+        // 4. end to end: a face moving across a video → one track that follows it → a blurred export there
+        var face = new System.Windows.Media.DrawingVisual();
+        using (var dc = face.RenderOpen())
+            dc.DrawText(new System.Windows.Media.FormattedText("\U0001F9D1", CultureInfo.InvariantCulture, System.Windows.FlowDirection.LeftToRight, new System.Windows.Media.Typeface("Segoe UI Emoji"), 110, System.Windows.Media.Brushes.Black, 1.0), new System.Windows.Point(10, 10));
+        var fr = new System.Windows.Media.Imaging.RenderTargetBitmap(180, 180, 96, 96, System.Windows.Media.PixelFormats.Pbgra32); fr.Render(face);
+        var facePng = Path.Combine(dir, "face.png"); FxTest.Save(fr, facePng);
+        var walkF = Path.Combine(dir, "facewalk.mp4");
+        Exec($"-y -v error -f lavfi -i color=c=0x78828c:s=640x360:r=30:d=3 -i \"{facePng}\" -filter_complex \"[0][1]overlay=x='40+n*4':y=90:format=auto\" -frames:v 90 -c:v libx264 -crf 14 -pix_fmt yuv420p \"{walkF}\"");
+        var mw = await Imp(walkF);
+        Editor.SetSequence(640, 360, 30, ReframeMode.Fit);
+        try
+        {
+            var walk = await Task.Run(() => FaceTracks.Find(mw, 0, 89, 0.6f, 2, null, CancellationToken.None));
+            var t0 = walk.OrderByDescending(t => t.At.Count).FirstOrDefault();
+            double x10 = t0 != null && t0.At.TryGetValue(10, out var b10) ? b10.Cx * 640 : -1, x80 = t0 != null && t0.At.TryGetValue(80, out var b80) ? b80.Cx * 640 : -1;
+            Check(walk.Count == 1 && t0!.At.Count >= 40 && Math.Abs(x80 - x10 - 70 * 4) < 12,
+                  $"a moving face in a video: {walk.Count} track, found on {t0?.At.Count} of the 46 frames checked (every other one and the last), following it ({x10:0} → {x80:0} px, it moved {70 * 4} px)");
+            var ew2 = new Editor(); ew2.Media.Add(mw);
+            var wc = new Clip { Kind = ClipKind.Video, MediaId = mw.Id, Track = Tracks.V1, Start = 0, Dur = 3, NoAudio = true };
+            ew2.Clips.Add(wc);
+            ew2.AddFaceMasks(ew2.Clips[0], walk, MaskFx.Blur, 40);
+            var outF = Path.Combine(dir, "facewalk_blurred.mp4");
+            var err = await Export(ew2, dir, outF, new ExportSettings { Quality = 12 });
+            // detail (mean absolute horizontal difference) in the face's square at frame 45, before and after
+            double Detail(string f, double cxPx)
+            {
+                var px = Frame(f, 1.5 - 0.4 / 30, 640, 360); double s = 0; int n = 0;
+                int x0 = Math.Max(1, (int)cxPx - 40), x1 = Math.Min(639, (int)cxPx + 40);
+                for (int y = 120; y < 230; y++) for (int x = x0; x < x1; x++) { int i = (y * 640 + x) * 4; s += Math.Abs(px[i + 1] - px[i - 4 + 1]); n++; }
+                return n > 0 ? s / n : 0;
+            }
+            double cx45 = t0 != null && t0.At.TryGetValue(44, out var b44) ? b44.Cx * 640 : 40 + 45 * 4 + 75;
+            double before = Detail(walkF, cx45), after = err == null ? Detail(outF, cx45) : 99;
+            Check(err == null && after < before * 0.5, $"exported with the face blurred: detail on the face {before:0.0} → {after:0.0}" + (err != null ? " — " + err : ""));
+        }
+        finally { Editor.SetSequence(1280, 720, 30, ReframeMode.Fit); }
+    }
+    static byte[] Bgr(System.Windows.Media.Imaging.BitmapSource b, out int w, out int h)
+    {
+        w = b.PixelWidth; h = b.PixelHeight;
+        var c = new System.Windows.Media.Imaging.FormatConvertedBitmap(b, System.Windows.Media.PixelFormats.Bgr24, null, 0);
+        var px = new byte[w * h * 3]; c.CopyPixels(px, w * 3, 0);
+        return px;
     }
 
     // ---------------- distort: twirl, wave, spherize, mesh warp — the preview's shader vs the export's geq ----------------

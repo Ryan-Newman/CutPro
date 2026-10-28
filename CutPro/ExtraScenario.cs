@@ -100,6 +100,21 @@ public partial class MainWindow
             Check(job.Status == RenderQueue.State.Done && File.Exists(outQ) && listed && Shows(QueueView), $"the Render Queue panel shows the job done ({job.Status}); the edit made meanwhile isn't in it");
             ed.Undo(); RenderQueue.ClearFinished(); ShowSideView("Project");
 
+            // ---------- Clip ▸ Blur Faces (the test clips have no faces: nothing is added, nothing breaks) ----------
+            if (FaceDetector.Present)
+            {
+                ed.Select(ed.Clips.First(c => c.Kind == ClipKind.Video));
+                int masks0 = ed.Clips.Sum(c => c.Masks.Count);
+                await BlurFacesDialog(); await Settle(300);
+                Check(ed.Clips.Sum(c => c.Masks.Count) == masks0 && toolCts == null, "Clip ▸ Blur Faces runs through the selected clip (no faces in the test footage: no masks)");
+            }
+            else log.Add("SKIP Blur Faces: the face model isn't downloaded");
+            // Clip ▸ Scene Edit Detection through the window (its progress is reported from a background task: it must reach the UI thread)
+            ed.Select(ed.Clips.First(c => c.Kind == ClipKind.Video));
+            SceneDetectDialog();
+            for (int i = 0; i < 300 && toolCts != null; i++) await Task.Delay(100);
+            Check(toolCts == null, "Clip ▸ Scene Edit Detection runs to the end through the window (progress on the UI thread)");
+
             // ---------- proxies ----------
             SetProxies(true);
             Check(Proxies.Use && ProxyBtn.IsChecked == true, "the Proxies button turns proxies on");

@@ -18,7 +18,7 @@ reframe) · **export settings** (18 platform presets, H.264/HEVC/AV1/VP9/ProRes,
 captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bible references) · **Thumbnail Studio** (YouTube / Shorts covers, AI subject cut-out) · **Intro & Hook** (best opening moments, 5 intro templates) · VS Code-style UI with 3 themes, command palette, glass dialogs.
 
 ## Suggested order (most value for the effort first)
-1. **Automatic face blur** (needs a face-detection model download), AI voice isolation / upscaling / interpolation models, sync lock and track targeting, VST3 hosting. (Every "extra high" item but face blur is done: trim tools, shuttle, scrubbing, sample edits, proxies, opacity bands, distort, generators, denoise, frame interpolation, animated text, follow an object, HSL secondary / power windows, channel maps / 5.1, alpha exports, render queue, XML / OTIO / EDL import.)
+1. AI voice isolation / upscaling / interpolation models, sync lock and track targeting, VST3 hosting. (Every "extra high" item is done, face blur included: trim tools, shuttle, scrubbing, sample edits, proxies, opacity bands, distort, generators, denoise, frame interpolation, animated text, follow an object, HSL secondary / power windows, channel maps / 5.1, alpha exports, render queue, XML / OTIO / EDL import.)
 2. **Max-effort items**: multicam, HDR / 10-bit pipeline, GPU export compositing, smart rendering, motion graphics templates, object removal.
 3. **Live keyframes for distort**, keyboard trimming, a Markers list panel.
 
@@ -85,7 +85,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Speech-to-text transcription, captions, text-based editing | P R F C | done: captions from speech; text-based editing (Transcript panel: media transcribed on this PC, words follow cuts, Delete ripples, fillers, pauses, search) | M |
 | Auto reframe (smart crop for vertical / square) | P R C | done: Fill reframe (tracked mask or saliency → Pan keys) and Auto Reframe with Push-in (Scale keys, pan for the zoomed width) | S |
 | Background removal for people, automatically for the whole clip | R C (P) | done: Clip ▸ Remove Background (AI picks the subject in the middle, cut-out mask tracked through the clip); click selection for anything else | S |
-| Automatic face detection → blur all faces | R C | not yet: needs a face-detector model (e.g. YuNet, MIT, ~230 KB) downloaded with consent → tracked object masks with blur / pixelate | M |
+| Automatic face detection → blur all faces | R C | done: Clip ▸ Blur Faces… — YuNet (OpenCV, MIT, downloaded on first use with consent) finds every face, they are tracked through the clip and each gets an ellipse mask with blur / pixelate / black out (editable like any object mask) | M |
 | Object removal / inpainting, clean plate | R (P) | video inpainting model | L |
 | Voice isolation, dialogue enhance, AI noise removal | P R F C | partial: Audio ▸ Clean up — reduce background noise / isolate the voice (FFT denoiser with the clip's measured noise floor, voice band; latency compensated); an AI model (DeepFilterNet / DTLN) would do better — needs a model download | M |
 | Auto-ducking music under dialogue | P R F C | done: Clip ▸ Auto Ducking (voice activity of the speech tracks → volume keys on the music: amount, fades) | S |

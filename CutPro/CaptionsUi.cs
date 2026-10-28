@@ -118,20 +118,22 @@ public partial class MainWindow
         var wav = Path.Combine(Path.GetTempPath(), $"cutpro_captions_{Guid.NewGuid().ToString("N")[..8]}.wav");
         try
         {
-            var err = await Task.Run(() => Exporter.RunAsync(ff, ed, wav, new Progress<double>(p => capBar.Value = p * 0.1), ct, null, null,
+            var mixProg = new Progress<double>(p => capBar.Value = p * 0.1);      // (made on the UI thread: it reports there)
+            var err = await Task.Run(() => Exporter.RunAsync(ff, ed, wav, mixProg, ct, null, null,
                                                               new ExportSettings { Video = "none", Container = "wav", Audio = "pcm" }));
             if (err != null) { if (err != "Cancelled") Alert.Show(this, err, "Could not mix the sound", AlertKind.Error); return; }
             var pcm = await Task.Run(() => Whisper.Pcm16k(ff, wav), ct);
             capStatus.Text = "Loading the speech model…";
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            var listenProg = new Progress<double>(p =>                               // (made on the UI thread: it reports there)
+            {
+                capBar.Value = 0.1 + p * 0.9;
+                capStatus.Text = $"Listening… {p * 100:0}%"; SetTask($"Captions: listening… {p * 100:0}%", 0);
+            });
             var res = await Task.Run(() =>
             {
                 using var w = new Whisper();
-                return w.TranscribeTimed(pcm, lang, new Progress<double>(p =>
-                {
-                    capBar.Value = 0.1 + p * 0.9;
-                    capStatus.Text = $"Listening… {p * 100:0}%"; SetTask($"Captions: listening… {p * 100:0}%", 0);
-                }), ct);
+                return w.TranscribeTimed(pcm, lang, listenProg, ct);
             }, ct);
             var (style, y) = Captioning.Look(ed, lay);
             var cues = Captioning.Build(res.Segments, lay, Captioning.Measure(style), Editor.W * 0.88, TimeUtil.Fps, new Captioning.Voice(pcm));

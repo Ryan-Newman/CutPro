@@ -231,11 +231,12 @@ public partial class MainWindow
             {
                 var m = items[i];
                 int k = i;
-                var words = await Task.Run(() => Transcript.Transcribe(ff, m, lang, new Progress<double>(p =>
+                var prog = new Progress<double>(p =>                                  // (made on the UI thread: it reports there)
                 {
                     trStatus.Text = $"Transcribing {m.Name} ({k + 1} of {items.Count})… {p * 100:0}%";
                     SetTask($"Transcribing… {(k + p) / items.Count * 100:0}%", 0);
-                }), ct), ct);
+                });
+                var words = await Task.Run(() => Transcript.Transcribe(ff, m, lang, prog, ct), ct);
                 m.Words = words;
                 trStale = true; RefreshTranscript();
             }

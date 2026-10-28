@@ -49,7 +49,7 @@ public partial class MainWindow
         ["file.autosaves"] = AutoSaveVersions, ["file.exportEdl"] = () => ExportInterchange(false), ["file.exportOtio"] = () => ExportInterchange(true),
         ["bin.new"] = () => { ShowSideView("Project"); NewBinHere(); }, ["view.transcript"] = () => ShowDock("Transcript"),
         ["clip.replace"] = ReplaceFromBin, ["clip.fitFill"] = FitToFill, ["clip.scenes"] = SceneDetectDialog, ["clip.sync"] = () => _ = SyncSelected(),
-        ["clip.beatCut"] = CutToBeat, ["clip.savePreset"] = SavePresetDialog, ["clip.removeBg"] = () => _ = RemoveBackground(),
+        ["clip.beatCut"] = CutToBeat, ["clip.savePreset"] = SavePresetDialog, ["clip.removeBg"] = () => _ = RemoveBackground(), ["clip.blurFaces"] = () => _ = BlurFacesDialog(),
         ["color.auto"] = () => { if (ed.Selected is { } c) AutoGrade(c); }, ["color.match"] = ColorMatchDialog,
         ["audio.beats"] = BeatsDialog, ["audio.ducking"] = DuckingDialog, ["audio.voiceover"] = () => VoiceOverDialog(), ["seq.reframeZoom"] = ReframeZoomDialog,
         ["trans.video"] = () => ApplyTransitions(true, false), ["trans.audio"] = () => ApplyTransitions(false, true), ["trans.both"] = () => ApplyTransitions(true, true),

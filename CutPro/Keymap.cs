@@ -71,6 +71,7 @@ public static class Keymap
         new("clip.beatCut", "Clip: Cut to the Beat", Array.Empty<string>()),
         new("clip.savePreset", "Clip: Save Preset…", Array.Empty<string>()),
         new("clip.removeBg", "Clip: Remove Background", Array.Empty<string>()),
+        new("clip.blurFaces", "Clip: Blur Faces", Array.Empty<string>()),
         new("color.auto", "Clip: Auto Colour", Array.Empty<string>()),
         new("color.match", "Clip: Colour Match…", Array.Empty<string>()),
         new("audio.beats", "Audio: Detect Beats (markers)…", Array.Empty<string>()),
