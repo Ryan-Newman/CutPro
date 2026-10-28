@@ -58,6 +58,7 @@ public static class MediaProbe
             if (info == null) return false;
             m.Duration = info.Value.Duration; m.Width = info.Value.W; m.Height = info.Value.H; m.HasAudio = info.Value.HasAudio;
             m.Rotation = info.Value.Rotation; m.Codec = info.Value.Codec; m.TenBit = info.Value.TenBit; m.Fps = info.Value.Fps;
+            m.Meta = info.Value.Meta; m.Timecode = info.Value.Meta.FirstOrDefault(x => x.Key == "Timecode").Value; m.Reel = info.Value.Meta.FirstOrDefault(x => x.Key == "Reel").Value;
             m.Type = info.Value.HasVideo ? ClipKind.Video : ClipKind.Audio;
             if (m.Type == ClipKind.Video) m.Thumb = await Task.Run(() => Thumb(m));
             if (m.HasAudio) AudioCache.Ensure(m);
@@ -71,7 +72,7 @@ public static class MediaProbe
         catch (Exception ex) { LastError = ex.Message; return false; }
     }
 
-    readonly record struct Info(double Duration, int W, int H, bool HasVideo, bool HasAudio, int Rotation, string Codec, bool TenBit, double Fps);
+    readonly record struct Info(double Duration, int W, int H, bool HasVideo, bool HasAudio, int Rotation, string Codec, bool TenBit, double Fps, List<KeyValuePair<string, string>> Meta);
 
     static Info? Probe(string path)
     {
@@ -105,7 +106,58 @@ public static class MediaProbe
             }
         if (!hasV && !hasA) { LastError = "no video or audio stream"; return null; }
         if (dur <= 0) { LastError = "unknown duration (raw stream?) — remux it into MP4/MKV first"; return null; }
-        return new Info(dur, w, h, hasV, hasA, rot, codec, ten, fps);
+        return new Info(dur, w, h, hasV, hasA, rot, codec, ten, fps, Metadata(root));
+    }
+
+    /// <summary>What a file says about itself (Properties dialog, Project panel tooltip): container, size, bit rate, the streams, and tags —
+    /// timecode (the format's, a stream's or the tmcd track's), reel name, recording date, camera, encoder.</summary>
+    static List<KeyValuePair<string, string>> Metadata(JsonElement root)
+    {
+        var l = new List<KeyValuePair<string, string>>();
+        void Add(string k, string? v) { if (!string.IsNullOrWhiteSpace(v) && !l.Any(x => x.Key == k)) l.Add(new(k, v.Trim())); }
+        static string? S(JsonElement e, string key) => e.TryGetProperty(key, out var v) ? v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString() : null;
+        static string? Tag(JsonElement e, params string[] keys)
+        {
+            if (!e.TryGetProperty("tags", out var t)) return null;
+            foreach (var p in t.EnumerateObject()) foreach (var k in keys) if (p.Name.Equals(k, StringComparison.OrdinalIgnoreCase)) return p.Value.GetString();
+            return null;
+        }
+        var fmt = root.TryGetProperty("format", out var f) ? f : default;
+        var streams = root.TryGetProperty("streams", out var ss) ? ss.EnumerateArray().ToList() : new List<JsonElement>();
+        if (fmt.ValueKind == JsonValueKind.Object)
+        {
+            Add("Container", S(fmt, "format_long_name"));
+            if (double.TryParse(S(fmt, "size"), NumberStyles.Float, CultureInfo.InvariantCulture, out var size)) Add("File size", size >= 1 << 30 ? $"{size / (1 << 30):0.00} GB" : $"{size / (1 << 20):0.0} MB");
+            if (double.TryParse(S(fmt, "bit_rate"), NumberStyles.Float, CultureInfo.InvariantCulture, out var br)) Add("Bit rate", $"{br / 1e6:0.0} Mb/s");
+        }
+        foreach (var s in streams)
+        {
+            var type = S(s, "codec_type");
+            if (type == "video" && !(s.TryGetProperty("disposition", out var d) && d.TryGetProperty("attached_pic", out var ap) && ap.GetInt32() == 1))
+            {
+                Add("Video", $"{S(s, "codec_long_name") ?? S(s, "codec_name")}{(S(s, "profile") is { } pr ? " · " + pr : "")}");
+                Add("Pixels", $"{S(s, "width")}×{S(s, "height")} {S(s, "pix_fmt")}");
+                if (S(s, "color_space") is { } cs) Add("Colour", $"{cs} / {S(s, "color_primaries") ?? "?"} / {S(s, "color_transfer") ?? "?"} ({S(s, "color_range") ?? "tv"})");
+                Add("Frame rate", Rate(s, "avg_frame_rate") is > 0 and var fr ? $"{fr:0.###} fps" : null);
+            }
+            else if (type == "audio")
+                Add("Audio", $"{S(s, "codec_long_name") ?? S(s, "codec_name")} · {S(s, "sample_rate")} Hz · {S(s, "channel_layout") ?? S(s, "channels") + " ch"}");
+        }
+        // tags: the format's first, then each stream's (a tmcd data stream holds QuickTime timecode)
+        var all = new[] { fmt }.Where(e => e.ValueKind == JsonValueKind.Object).Concat(streams).ToList();
+        foreach (var e in all) Add("Timecode", Tag(e, "timecode"));
+        foreach (var e in all) Add("Reel", Tag(e, "reel_name", "com.apple.proapps.reel", "reel"));
+        foreach (var e in all) Add("Recorded", Tag(e, "creation_time", "date", "com.apple.quicktime.creationdate"));
+        foreach (var e in all)
+        {
+            var make = Tag(e, "com.apple.quicktime.make", "make", "com.android.manufacturer");
+            var model = Tag(e, "com.apple.quicktime.model", "model", "com.android.model");
+            if (make != null || model != null) Add("Camera", $"{make} {model}".Trim());
+        }
+        foreach (var e in all) Add("Encoder", Tag(e, "encoder", "com.apple.quicktime.software", "software"));
+        foreach (var e in all) Add("Title", Tag(e, "title"));
+        foreach (var e in all) Add("Comment", Tag(e, "comment", "description"));
+        return l;
     }
 
     static double Rate(JsonElement s, string key)

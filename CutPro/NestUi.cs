@@ -197,6 +197,10 @@ public partial class MainWindow
                 cm.Items.Add(new Separator());
                 Item("Clear source In and Out", null, () => { media.SrcIn = media.SrcOut = null; if (ReferenceEquals(media, srcItem)) SrcRefresh(); });
             }
+            cm.Items.Add(new Separator());
+            Item(media.Offline ? "Relink…" : "Replace Footage…", null, () => RelinkMedia(media));
+            Item("Reveal in File Explorer", null, () => { BinList.SelectedItem = media; ed.ClearSelection(); RevealInExplorer(); });
+            Item("Properties…", null, () => ShowProperties(media));
             cm.PlacementTarget = BinList; cm.IsOpen = true; e.Handled = true;
             return;
         }

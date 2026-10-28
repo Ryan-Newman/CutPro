@@ -296,6 +296,15 @@ public class AppSettings
     /// <summary>Saved workspaces by name; the last one chosen.</summary>
     public Dictionary<string, DockLayout> Workspaces { get; set; } = new();
     public string Workspace { get; set; } = "Editing";
+    /// <summary>Keyboard shortcuts the user changed (command id → gestures; <see cref="Keymap"/>).</summary>
+    public Dictionary<string, string[]> Shortcuts { get; set; } = new();
+    /// <summary>How the timeline follows the playhead while playing: Page (jumps a page, Premiere's default), Smooth (the playhead stays in the
+    /// middle), None.</summary>
+    public string PlaybackScroll { get; set; } = "Page";
+    /// <summary>Interface language (<see cref="Loc"/>: "en", "de", "es", "fr").</summary>
+    public string Language { get; set; } = "en";
+    /// <summary>Larger interface text (accessibility): 1 = normal.</summary>
+    public double TextScale { get; set; } = 1;
 
     static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CutPro", "settings.json");
     static AppSettings? current;

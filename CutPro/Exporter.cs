@@ -914,6 +914,16 @@ public static class Exporter
         var script = Path.Combine(Path.GetTempPath(), $"cutpro_filter_{Guid.NewGuid().ToString("N")[..8]}.txt");
         temps.Add(script);
         args.AddRange(new[] { "-/filter_complex", script });
+        // chapters: the sequence's chapter markers in the range (times from its start) as an ffmetadata input; otherwise none (not the media's)
+        var chapters = !alpha && o.Chapters && Chapters.Supported(o.Container) ? ed.ChaptersFor(t0, t1) : new();
+        if (chapters.Count > 0)
+        {
+            var meta = Path.Combine(Path.GetTempPath(), $"cutpro_chapters_{Guid.NewGuid().ToString("N")[..8]}.txt");
+            File.WriteAllText(meta, Chapters.FfMetadata(Chapters.ForFile(chapters), t1 - t0), new UTF8Encoding(false));
+            temps.Add(meta);
+            args.AddRange(new[] { "-f", "ffmetadata", "-i", meta, "-map_chapters", inputs.ToString() }); inputs++;
+        }
+        else args.AddRange(new[] { "-map_chapters", "-1" });
         if (!o.AudioOnly) args.AddRange(new[] { "-map", $"[{vout}]" });
         if (o.Audio != "none") args.AddRange(new[] { "-map", $"[{aout}]" });
         args.AddRange(new[] { "-t", F(t1 - t0) });

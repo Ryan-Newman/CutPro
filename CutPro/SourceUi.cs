@@ -239,7 +239,7 @@ public partial class MainWindow
         srcBar.InvalidateVisual();
         if (has) { var (a, b) = Editor.SourceRange(srcItem!); srcDur.Text = (srcItem!.SrcIn != null || srcItem.SrcOut != null ? "▸ " : "") + TimeUtil.Format(b - a); }
         else srcDur.Text = "";
-        srcTime.Text = TimeUtil.Format(srcEd?.Time ?? 0);
+        srcTime.Text = SrcClock(srcEd?.Time ?? 0);
     }
 
     // ---------------- playback ----------------
@@ -280,7 +280,7 @@ public partial class MainWindow
         {
             srcDrawnT = srcEd.Time;
             srcBar.T = srcEd.Time; srcBar.InvalidateVisual();
-            srcTime.Text = TimeUtil.Format(srcEd.Time);
+            srcTime.Text = SrcClock(srcEd.Time);
         }
     }
 

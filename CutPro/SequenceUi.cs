@@ -59,7 +59,11 @@ public partial class MainWindow
         double avail = PanelGrid.ActualWidth;                                  // (the bottom panel may be in its own window)
         bool Fits(FrameworkElement bar) { bar.Measure(inf); PanelTabs.Measure(inf); return PanelTabs.DesiredSize.Width + PanelTabs.Margin.Left + bar.DesiredSize.Width + bar.Margin.Right + 12 <= avail; }
         SelectLabel.Visibility = RazorLabel.Visibility = Visibility.Visible; ZoomSlider.Width = 140;
+        // (longer words in other languages: then Lift / Extract go too — they stay in the Edit menu and on ; and ')
+        var spare = TlBar.Children.OfType<Button>().Where(b => b.Content is string s && Loc.English(s) is "Lift" or "Extract").ToList();
+        foreach (var b in spare) b.Visibility = Visibility.Visible;
         if (!Fits(TlBar)) { SelectLabel.Visibility = RazorLabel.Visibility = Visibility.Collapsed; ZoomSlider.Width = 80; }
+        if (!Fits(TlBar)) { ZoomSlider.Width = 50; foreach (var b in spare) b.Visibility = Visibility.Collapsed; }
         var optional = KeyBar.Children.OfType<Button>().Where(b => (b.Tag as string) is "Ease In" or "Ease Out" or "Auto Bezier").ToList();
         foreach (var b in optional) b.Visibility = Visibility.Visible;
         if (!Fits(KeyBar)) foreach (var b in optional) b.Visibility = Visibility.Collapsed;

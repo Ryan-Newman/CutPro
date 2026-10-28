@@ -95,10 +95,18 @@ public class MediaItem
     /// <summary>Decoder used for playback (sustained throughput).</summary>
     [JsonIgnore] public Decoder PlayDecoder { get; set; } = Decoder.SwFrame;
     [JsonIgnore] public string DecodeNote { get; set; } = "";
+    /// <summary>What the file says about itself (container, streams, timecode, reel, camera …; <see cref="MediaProbe"/>), its start timecode and reel name.</summary>
+    [JsonIgnore] public List<KeyValuePair<string, string>> Meta { get; set; } = new();
+    [JsonIgnore] public string? Timecode { get; set; }
+    [JsonIgnore] public string? Reel { get; set; }
+    /// <summary>The Project panel's tooltip: the path and the metadata.</summary>
+    [JsonIgnore] public string Tip => Seq != null ? "Sequence — double-click to open it, drag it into another sequence to nest it" :
+        Path + (Offline ? "\n(offline — right-click: Relink…)" : "") + string.Concat(Meta.Select(kv => $"\n{kv.Key}: {kv.Value}"));
 
     [JsonIgnore] public string Info => Seq != null ? $"Sequence  {TimeUtil.Format(Duration, false)}  {Width}×{Height}  {TimeUtil.Label(Fps)} fps" :
         (Offline ? "OFFLINE  " : "") + Type + (Type == ClipKind.Image ? "" : "  " + TimeUtil.Format(Duration, false))
         + (Type == ClipKind.Video && Width > 0 ? $"  {Width}×{Height} {Codec.ToUpperInvariant()}{(TenBit ? " 10-bit" : "")}" : "")
+        + (Timecode != null ? "  TC " + Timecode : "") + (Reel != null ? "  Reel " + Reel : "")
         + (Decoders.IsHardware(PlayDecoder) || Decoders.IsHardware(SeekDecoder) ? $"  · {Decoders.Label(Decoders.IsHardware(PlayDecoder) ? PlayDecoder : SeekDecoder)} decode" : "");
 }
 
@@ -148,6 +156,10 @@ public class Clip
 
     /// <summary>Clips sharing a LinkId (e.g. a video and its audio) are selected, moved, trimmed and cut together.</summary>
     public string? LinkId { get; set; }
+    /// <summary>Clips sharing a GroupId are selected and moved together (Ctrl+G), without linking their edits.</summary>
+    public string? GroupId { get; set; }
+    /// <summary>Clip markers (source seconds: they stay with the content).</summary>
+    public List<Marker>? Markers { get; set; }
     /// <summary>Transition at the clip's head (with the clip that ends where this one starts, or from nothing) and at its tail
     /// (only used when no adjacent clip follows with its own head transition). See <see cref="Transitions"/>.</summary>
     public Transition? TransIn { get; set; }
@@ -229,6 +241,8 @@ public class Sequence
     public double Time { get; set; }
     public double? MarkIn { get; set; }
     public double? MarkOut { get; set; }
+    /// <summary>Sequence markers (timeline seconds; chapters for the export / YouTube). See <see cref="Marker"/>.</summary>
+    public List<Marker>? Markers { get; set; }
     [JsonIgnore] public double End => Clips.Count == 0 ? 0 : Clips.Max(c => c.End);
     [JsonIgnore] public int TrackCount => VideoTracks + AudioTracks;
 
@@ -315,5 +329,30 @@ public static class TimeUtil
         long s = f / n, fr = f % n;
         string core = $"{s / 3600:00}:{s / 60 % 60:00}:{s % 60:00}";
         return frames ? $"{core}:{fr:00}" : core.Substring(3);
+    }
+
+    /// <summary>The media's own timecode at source time t (its start timecode tag + the frames since; null when the file has none). "HH:MM:SS;FF"
+    /// is drop-frame (29.97 / 59.94: frame numbers 0 and 1 — 0 to 3 at 59.94 — are skipped each minute except every tenth).</summary>
+    public static string? SourceTimecode(MediaItem m, double t)
+    {
+        if (m.Timecode is not { } tc) return null;
+        var p = tc.Split(':', ';', '.');
+        if (p.Length != 4 || !p.All(x => int.TryParse(x, out _))) return null;
+        double rate = m.Fps > 0 ? m.Fps : Fps;
+        int nom = (int)Math.Round(rate);
+        if (nom <= 0) return null;
+        bool df = tc.Contains(';') && Math.Abs(rate * 1001 / 1000 - nom) < 0.05 && nom % 30 == 0;
+        int drop = df ? nom / 15 : 0;                                       // 2 at 29.97, 4 at 59.94
+        int h = int.Parse(p[0]), mi = int.Parse(p[1]), s = int.Parse(p[2]), f = int.Parse(p[3]);
+        int totalMin = h * 60 + mi;
+        long start = ((long)totalMin * 60 + s) * nom + f - drop * (totalMin - totalMin / 10);
+        long n = start + (long)Math.Floor(Math.Max(0, t) * rate + 1e-6);
+        if (df)
+        {   // frame count → drop-frame label
+            long perMin = nom * 60 - drop, per10 = perMin * 10 + drop;
+            long d = n / per10, r = n % per10;
+            n += drop * 9 * d + (r > drop ? drop * ((r - drop) / perMin) : 0);
+        }
+        return $"{n / (nom * 3600L) % 24:00}:{n / (nom * 60L) % 60:00}:{n / nom % 60:00}{(df ? ';' : ':')}{n % nom:00}";
     }
 }

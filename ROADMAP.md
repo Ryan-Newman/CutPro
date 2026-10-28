@@ -19,7 +19,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 
 ## Suggested order (most value for the effort first)
 1. **Distort**: lens distortion done (keyframable, preview shader = lenscorrection); mesh warp / twirl / wave / spherize later (geq: ffmpeg's remap is nearest-only). (Keyframed corner pin with monitor handles, adjustment layers, crop, flip, blend modes, chroma / luma key, track mattes, anchor point, captions from speech + SRT / VTT, multiple sequences and nested sequences are done.)
-2. **Markers (→ YouTube chapters), slip/slide/roll/rate-stretch tools, sync-lock / track targeting**. (Source monitor with Insert / Overwrite and Match Frame, and any number of tracks — names, locks, heights — are done.)
+2. **Slip / slide / roll / rate-stretch tools, sync-lock / track targeting**. (Markers + chapters, every "medium" convenience (history, shortcut editor, relink / collect, paste attributes, groups, layouts, zoom modes, languages), source monitor with Insert / Overwrite and Match Frame, and any number of tracks — names, locks, heights — are done.)
 3. **Channel mapping / 5.1**, VST3 hosting (clip EQ, compressor, gate, de-esser, hum removal, reverb, pitch shift, track effects, submixes, volume rubber bands, track and master automation are done).
 
 ## 1. Project, media and sequences
@@ -29,13 +29,13 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Source monitor with in/out marking; 3-point / 4-point editing | P R A V K | done: Source panel (own Preview + AudioOut), I / O marks per clip, Insert (,) / Overwrite (.) at the playhead with V / A track targets, video-only / audio-only drags, Match Frame (F); not yet 4-point fit-to-fill | M |
 | Bins / folders, labels (colour), ratings, keywords, search & filters, list view with metadata | all | partial: flat bin with name/duration/size | M |
 | Proxy workflow (generate low-res proxies, toggle, relink) | P R F A V K | partial: scrub cache is a hidden proxy; add user proxies for editing 4K/8K and RAW | M |
-| Relink / replace media, consolidate / archive project (collect files) | all | offline detection exists; add relink dialog and "collect" export | S |
+| Relink / replace media, consolidate / archive project (collect files) | all | done: Relink (offline files; the others found in the same folder), Replace Footage, Collect Files (project + media + .cube looks copied, the copy's paths rewritten) | S |
 | Auto-save with versions, crash recovery | all | crash.log exists; add timed saves + recovery prompt | S |
 | Interchange: XML (FCP7/FCPXML), EDL, AAF, OpenTimelineIO | P R F A V K | OTIO/EDL export first (S), import later | M |
 | Scene edit detection (cut a clip at its shot changes) | P R C | ffmpeg `select='gt(scene,x)'` → Add Edits | S |
 | Multicam (sync angles by audio/timecode, live angle switching) | P R F A V | needs audio-sync + a multi-view monitor | L |
 | Sync / merge clips by audio waveform (external recorder) | P R F A | cross-correlate the conformed PCM (AudioCache) | M |
-| Timecode, reel names, metadata display | P R F A | | S |
+| Timecode, reel names, metadata display | P R F A | done: timecode / reel / camera / streams from the file's tags (Properties…, Project panel tooltip and info line), the source monitor shows the media's timecode (drop-frame aware) | S |
 | Screen / webcam / voice-over recording | P F V C | voice-over first (waveIn), screen capture later | M |
 | Stock media / templates browser | C (P) | | L |
 
@@ -45,19 +45,19 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Add / remove tracks, track names, heights, lock, solo, target, sync-lock | all | done: 1 … 32 video + 1 … 32 audio tracks per sequence (add above / below / several, delete with clips, delete empty), names, locks, heights, vertical scrolling, hide / mute / solo; not yet sync-lock toggles or track targeting | M |
 | Overwrite vs insert edits, replace edit, fit-to-fill | P R F A V K | Premiere's drag = overwrite, Ctrl-drag = insert | M |
 | Rolling, slip, slide, rate-stretch tools | P R F A V K | ripple trim exists (Q/W); these reuse TryTrim | M |
-| Markers (sequence + clip), marker comments, chapter markers | all | also export chapters to MP4 metadata | S |
+| Markers (sequence + clip), marker comments, chapter markers | all | done: sequence markers (name, comment, colour, length, chapter; drag / double-click / menu) and clip markers (source time); chapters into MP4 / MOV / MKV, YouTube chapter list (copy, Publish description) | S |
 | Clip speed / duration, reverse, frame blending / optical flow | all | done: Speed/Duration (Ctrl+R, linked speed / duration, ripple), reverse, pitch-kept or tape-style sound; rendered frame-exact (`Remap`). Next: frame blending / optical flow for slow motion (`minterpolate`), Rate Stretch tool (R) | M |
 | Time remapping / speed ramps (keyframed speed) | P R F V C | done: Speed keyframes (Effect Controls → Time; keyed by source time, eased like any key), picture only like Premiere | M |
 | Freeze frame / frame hold, still from frame | all | done: Add Frame Hold, Insert Frame Hold Segment, Freeze frame toggle | S |
 | Audio waveforms on clips | all | done: rectified, dB scale, from the AudioCache PCM (`Peaks`: 256-frame max + ×4 levels, `.peaks` file per conformed file) | S |
 | Volume / opacity rubber bands on the clip (keyframes drawn as a line) | P R F V K | done (volume): the clip volume band on audio clips — drag the line / keys, Ctrl+click adds, Alt+click removes; track volume / pan automation bands too; not yet opacity bands on video clips | S |
 | Magnetic timeline, connected clips, auditions | F | different editing model — optional | L |
-| Clip groups, copy / paste attributes (effects, motion, keyframes) | all | keyframe copy/paste exists in the Keyframes panel | S |
-| Match frame, reveal in project, go to next/previous edit or gap | P R A V | | S |
-| Undo history panel | P R V | Editor history is a stack of snapshots already | S |
-| Keyboard shortcut editor | all | shortcuts are hard-coded (Premiere defaults) | S |
+| Clip groups, copy / paste attributes (effects, motion, keyframes) | all | done: groups (Ctrl+G), copy / cut / paste / paste insert, Paste / Remove Attributes (keyframes moved to the target's source times) | S |
+| Match frame, reveal in project, go to next/previous edit or gap | P R A V | done: Reveal in Project / File Explorer, Go to Gap (sequence / track) | S |
+| Undo history panel | P R V | done: History panel (named steps, click to go back / forward) | S |
+| Keyboard shortcut editor | all | done: every command in a keymap; Settings lists them (search, change, add, remove, reset) | S |
 | JKL shuttle at 2×/4×/8×, reverse playback | all | partial: J/K/L; reverse decode needs chunked decoding (like backward tracking) | M |
-| Timeline zoom to sequence / to selection, scroll with playback modes | all | partial | S |
+| Timeline zoom to sequence / to selection, scroll with playback modes | all | done:  zoom to sequence, zoom to selection, = / -, log zoom slider (an hour fits); Page / Smooth / None while playing | S |
 
 ## 3. Effects, compositing and motion graphics
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -77,7 +77,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Animated title presets (fly in, typewriter, fade per word), rolling / crawling credits | P R F V C | keyframes + formulas exist; add per-character animation and presets | M |
 | Motion graphics templates, shape layers, arrows, stickers | P F C | | L |
 | 3D titles, particles, Fusion-style node compositing | R (F) | | L |
-| Picture-in-picture / split-screen layout presets | V C F | motion keyframes exist — presets only | S |
+| Picture-in-picture / split-screen layout presets | V C F | done: picture in picture (4 corners), side by side, top / bottom, three across, 2 × 2 grid, full frame | S |
 
 ## 4. AI features
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -137,7 +137,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Team projects / shared bins / bin locking | P R A F | | L |
 | Review & approval with timecoded comments (Frame.io-style) | P R F | | L |
 | Plugins (OFX effects), scripting API (Python / Lua / JS) | P R F A V K | formulas are a small start | L |
-| Localization (languages), accessibility (screen readers, high contrast) | all | | M |
+| Localization (languages), accessibility (screen readers, high contrast) | all | done (partial): German / Spanish / French for menus, panels, dialogs, palette, shortcuts, history (run-time messages stay English); screen-reader names, timeline peer, interface size 100–150 % | M |
 | macOS / Linux builds | P R K C (F macOS only) | WPF is Windows-only; would need Avalonia / MAUI | L |
 | GPU compositing for export (faster, identical to the preview) | P R F V C | export composites with ffmpeg on the CPU; preview is WPF on the GPU | L |
 

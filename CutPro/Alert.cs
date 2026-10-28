@@ -35,7 +35,7 @@ public static class Alert
         if (buttons.Length == 0) buttons = new[] { "OK" };
         if (Auto != null) return Auto(title, message, buttons);
         owner ??= Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow;
-        var w = new AlertWindow(title, message, kind, buttons);
+        var w = new AlertWindow(Loc.T(title), Loc.T(message), kind, buttons.Select(Loc.T).ToArray());
         if (owner is { IsLoaded: true, IsVisible: true } && !ReferenceEquals(owner, w)) w.Owner = owner;
         else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Hook(w);
@@ -48,7 +48,8 @@ public static class Alert
     {
         if (Auto != null) return Auto(title, message, buttons);
         owner ??= Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow;
-        var w = new AlertWindow(title, message, kind, buttons, extra);
+        var w = new AlertWindow(Loc.T(title), Loc.T(message), kind, buttons.Select(Loc.T).ToArray(), extra);
+        Loc.Apply(extra);
         if (owner is { IsLoaded: true, IsVisible: true }) w.Owner = owner; else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Hook(w);
         using (Scrim.Over(w.Owner)) w.ShowDialog();

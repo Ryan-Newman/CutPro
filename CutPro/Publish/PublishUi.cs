@@ -356,8 +356,10 @@ sealed class PublishWindow : Window
         foreach (var p in Platforms.All)
         {
             var post = Post(p.Id);
-            foreach (var (k, val) in Captions.Suggest(info, p).Fields)
+            foreach (var (k, v0) in Captions.Suggest(info, p).Fields)
             {
+                // YouTube: the sequence's chapter markers after the description (YouTube turns them into chapters)
+                var val = p.Id == "youtube" && k == "description" && main.ChapterText() is { } ch ? (v0.Length > 0 ? v0 + "\n\n" : "") + ch : v0;
                 string key = p.Id + "/" + k;
                 bool untouched = !post.TryGetValue(k, out var cur) || cur.Length == 0 || (marks.TryGetValue(key, out var was) && was == cur);
                 if (untouched) { post[k] = val; marks[key] = val; }

@@ -185,3 +185,14 @@ if (-not $p.WaitForExit(600000)) { $p.Kill(); "TRACKTEST TIMEOUT" } else { Get-C
 $tu = "$env:TEMP\cutpro_trackui.txt"; Remove-Item $tu -ErrorAction SilentlyContinue
 $p = Start-Process $exe -ArgumentList '--trackui', $tu -PassThru
 if (-not $p.WaitForExit(240000)) { $p.Kill(); "TRACKUI TIMEOUT" } else { Get-Content $tu | ? { $_ -notmatch '^PASS' } }
+# 25. editing conveniences: markers (sequence / clip, undo, chapters in an exported MP4 read back by ffprobe, YouTube rules), copy / paste /
+#     paste insert, Paste / Remove Attributes, groups, layouts, gaps, history names + stepping, keyboard shortcuts, timecode (drop-frame),
+#     relink by folder, Collect Files, the language table
+$ft = Join-Path $env:TEMP 'cutpro_features'
+$p = Start-Process $exe -ArgumentList '--featuretest', $ft -PassThru
+if (-not $p.WaitForExit(300000)) { $p.Kill(); "FEATURETEST TIMEOUT" } else { Get-Content "$ft\featuretest.txt" | ? { $_ -notmatch '^PASS' } }
+# 26. the same through the real window: keys, menus, the History panel, zoom, Smooth / Page scrolling while playing, dialogs, Reveal in
+#     Project, German and back, interface size, screen-reader names
+$fu = "$env:TEMP\cutpro_featureui.txt"; Remove-Item $fu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--featureui', $fu -PassThru
+if (-not $p.WaitForExit(240000)) { $p.Kill(); "FEATUREUI TIMEOUT" } else { Get-Content $fu | ? { $_ -notmatch '^PASS' } }

@@ -34,6 +34,8 @@ public sealed class ExportSettings
     /// <summary>Composite in 4:4:4 (full colour: titles, keys and overlays keep their chroma; the encoder subsamples once at the end) — false =
     /// 4:2:0 throughout (a little faster, softer colour edges).</summary>
     public bool Full444 { get; set; } = true;
+    /// <summary>The sequence's chapter markers as the file's chapters (MP4 / MOV / MKV / M4A).</summary>
+    public bool Chapters { get; set; } = true;
     /// <summary>Transparent background (a nested sequence's render: <see cref="Nest"/>): the composite keeps alpha, yuva444p FFV1 (yuva420p with 4:2:0).</summary>
     [System.Text.Json.Serialization.JsonIgnore] public bool Alpha { get; set; }
     /// <summary>A background render (nested sequences while editing): ffmpeg runs below normal priority, so playback keeps its CPU.</summary>

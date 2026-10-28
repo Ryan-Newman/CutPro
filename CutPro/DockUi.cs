@@ -67,6 +67,8 @@ public partial class MainWindow
         Add("Inspector", "Effect Controls", InspectorView, "Right", ActInspector);
         BuildSourceView();
         Add("Source", "Source", SourceView, "Right", ActSource);
+        BuildHistoryView();
+        Add("History", "History", HistoryView, "Right", ActHistory);
         Add("Program", "Program", EditorGrid, "Center", fix: true);
         Add("Timeline", "Timeline", PanelGrid, "Bottom", fix: true);
         foreach (var d in docks.Where(d => !d.Fixed)) if (d.El is DockPanel dp && dp.Children.Count > 0 && dp.Children[0] is FrameworkElement head) HookDock(head, d.Id);
@@ -185,6 +187,7 @@ public partial class MainWindow
         DockTabs.Children.Clear();
         foreach (var d in bottom) DockTabs.Children.Add(DockTab(d, d.Id == bottomActive, () => ShowDock(d.Id), upper: true));
         ShowPanel(bottomActive);
+        if (Loc.Current != "en") Dispatcher.BeginInvoke(() => Loc.Apply(this), System.Windows.Threading.DispatcherPriority.Loaded);   // (tabs rebuilt in another language)
     }
 
     /// <summary>A tab for a docked panel (click shows it, drag moves it, right-click: where to).</summary>
@@ -228,6 +231,7 @@ public partial class MainWindow
             case "Float": d.Win?.Activate(); break;
         }
         if (d.Id == "Captions") RefreshCaptions(true);
+        if (d.Id == "History") Dispatcher.BeginInvoke(RefreshHistory, System.Windows.Threading.DispatcherPriority.Loaded);
         if (!dockApplying) SaveLayout();
     }
     /// <summary>The panel is the one showing in its zone (menus' check marks).</summary>

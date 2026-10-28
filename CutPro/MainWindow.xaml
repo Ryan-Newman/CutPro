@@ -27,19 +27,20 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Border Grid.ColumnSpan="3" BorderBrush="{DynamicResource B.Divider}" BorderThickness="0,0,0,1"/>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Stretch">
+            <StackPanel x:Name="MenuBar" Orientation="Horizontal" VerticalAlignment="Stretch">
                 <Image x:Name="TitleLogo" Width="20" Height="20" Margin="10,0,6,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock Text="CutPro" FontWeight="SemiBold" Foreground="{DynamicResource B.TitleBar.Fg}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Button Style="{StaticResource MenuBtn}" Content="File" Tag="File" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Edit" Tag="Edit" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="View" Tag="View" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Sequence" Tag="Sequence" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Markers" Tag="Marker" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Publish" Tag="Publish" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Window" Tag="Window" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Help" Tag="Help" Click="Menu_Click"/>
             </StackPanel>
             <!-- command center: opens the command palette -->
-            <Button Grid.Column="1" Style="{StaticResource CommandCenter}" Width="440" Height="24" Click="CommandCenter_Click" ToolTip="Command Palette (Ctrl+Shift+P)">
+            <Button x:Name="CommandCenterBtn" Grid.Column="1" Style="{StaticResource CommandCenter}" Width="440" Height="24" Click="CommandCenter_Click" ToolTip="Command Palette (Ctrl+Shift+P)">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE721;" Style="{StaticResource IconText}" FontSize="12" Margin="0,0,8,0"/>
                     <TextBlock x:Name="CommandCenterText" Text="CutPro — Untitled"/>
@@ -81,6 +82,7 @@
                     <RadioButton x:Name="ActCaptions" Style="{StaticResource Activity}" GroupName="act" Tag="Captions" Content="&#xE7F0;" Click="Activity_Click" ToolTip="Captions · from speech, edit, SRT / VTT"/>
                     <RadioButton x:Name="ActInspector" Style="{StaticResource Activity}" GroupName="act" Tag="Inspector" Content="&#xE70F;" Click="Activity_Click" ToolTip="Effect Controls" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActSource" Style="{StaticResource Activity}" GroupName="act" Tag="Source" Content="&#xE7F4;" Click="Activity_Click" ToolTip="Source monitor" Visibility="Collapsed"/>
+                    <RadioButton x:Name="ActHistory" Style="{StaticResource Activity}" GroupName="act" Tag="History" Content="&#xE81C;" Click="Activity_Click" ToolTip="History · every undo step" Visibility="Collapsed"/>
                 </StackPanel>
             </DockPanel></local:Card>
 
@@ -104,7 +106,7 @@
                                      HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Margin="0,2">
+                                        <Grid Margin="0,2" ToolTip="{Binding Tip}" AutomationProperties.Name="{Binding Name}">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="88"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <Border Background="{DynamicResource B.Thumb.Bg}" Width="84" Height="48" CornerRadius="4" ClipToBounds="True">
                                                 <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
@@ -359,7 +361,7 @@
                             <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
                             <CheckBox x:Name="SnapChk" Content="Snap" IsChecked="True" VerticalAlignment="Center" Margin="6,0,10,0" Checked="Snap_Changed" Unchecked="Snap_Changed" ToolTip="Snapping (S)"/>
                             <TextBlock Text="&#xE71F;" Style="{StaticResource IconText}" Foreground="{DynamicResource B.Fg.Dim}" Margin="4,0,4,0"/>
-                            <Slider x:Name="ZoomSlider" Width="140" Minimum="8" Maximum="400" Value="80" VerticalAlignment="Center" ValueChanged="Zoom_Changed" ToolTip="Zoom (Ctrl+wheel)"/>
+                            <Slider x:Name="ZoomSlider" Width="140" Minimum="-5.64" Maximum="8.97" Value="6.32" VerticalAlignment="Center" ValueChanged="Zoom_Changed" ToolTip="Zoom (Ctrl+wheel, = and -; backslash = the whole sequence)"/>
                             <TextBlock Text="&#xE8A3;" Style="{StaticResource IconText}" Foreground="{DynamicResource B.Fg.Dim}" Margin="4,0,0,0"/>
                         </StackPanel>
                     </Grid>

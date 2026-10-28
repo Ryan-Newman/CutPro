@@ -119,6 +119,8 @@ public partial class MainWindow
         var aRow = new StackPanel { Orientation = Orientation.Horizontal }; aRow.Children.Add(audio); aRow.Children.Add(new TextBlock { Text = "  " }); aRow.Children.Add(akbps); aRow.Children.Add(Dim("  kbps", 12));
         var inout = new CheckBox { Content = "In to Out only", IsEnabled = ed.MarkIn != null && ed.MarkOut != null };
         var full = new CheckBox { Content = "Full colour composite (4:4:4)", IsChecked = o.Full444, ToolTip = "Titles, keys and overlays keep their full colour detail until the encoder; off = 4:2:0 throughout (a little faster, softer colour edges)" };
+        int nChapters = ed.ChaptersFor(0, ed.End).Count;
+        var chapters = new CheckBox { Content = $"Chapters from the {nChapters} chapter marker{(nChapters == 1 ? "" : "s")}", IsChecked = o.Chapters, ToolTip = "The sequence's chapter markers become the file's chapters (players show them; MP4 / MOV / MKV / M4A)" };
         bool hasCaptions = ed.Clips.Any(Captioning.IsCaption);
         var burn = new CheckBox { Content = "Burn into the video", IsChecked = o.BurnCaptions, ToolTip = "Draw the captions into the picture (they show everywhere and can't be turned off)" };
         var srt = new CheckBox { Content = "Save an .srt next to it", IsChecked = o.CaptionFile, Margin = new Thickness(14, 0, 0, 0), ToolTip = "A subtitle file viewers can turn on and off (upload it with the video on YouTube, Facebook, LinkedIn…)" };
@@ -138,6 +140,7 @@ public partial class MainWindow
         Row("Range", inout);
         Row("Colour", full);
         if (hasCaptions) Row("Captions", capRow);
+        if (nChapters > 0) Row("Chapters", chapters);
         form.Children.Add(estimate);
 
         bool busy = false;
@@ -185,6 +188,7 @@ public partial class MainWindow
             if (akbps.SelectedItem is string k && int.TryParse(k, out int kb)) o.AudioKbps = kb;
             o.InOutOnly = inout.IsChecked == true;
             o.Full444 = full.IsChecked == true;
+            o.Chapters = chapters.IsChecked == true;
             o.BurnCaptions = burn.IsChecked == true; o.CaptionFile = srt.IsChecked == true;
             o.Normalize = norm.IsChecked == true && o.Audio != "none";
             if (lufs.SelectedIndex >= 0) o.Lufs = Loudness.Targets[lufs.SelectedIndex].lufs;

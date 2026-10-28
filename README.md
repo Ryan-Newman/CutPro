@@ -6,7 +6,7 @@ A Premiere Pro–style video editor for Windows, built with WPF and .NET 9. Prev
 
 ## Features
 
-- **Editing:** up to 32 video + 32 audio tracks per sequence (named, lockable, resizable), select / razor tools, ripple trim, lift / extract, linking, snapping, multiple and nested sequences, a source monitor with Insert / Overwrite and Match Frame.
+- **Editing:** up to 32 video + 32 audio tracks per sequence (named, lockable, resizable), select / razor tools, ripple trim, lift / extract, linking, snapping, multiple and nested sequences, a source monitor with Insert / Overwrite and Match Frame, markers with MP4 / YouTube chapters, copy / paste and Paste Attributes, clip groups, split-screen and picture-in-picture layouts, relink and Collect Files.
 - **Playback:** an audio-clock player with hardware decoding (chosen per file by measurement) and a scrub cache.
 - **Picture:** motion with keyframes and formulas, blend modes, crop / flip, chroma and luma keys, track mattes, corner pin, lens distortion, adjustment layers, Lumetri-style colour (wheels, curves, .cube LUTs) with scopes, cartoon / anime looks, transitions, speed / reverse / time remapping, stabilization.
 - **Titles and captions:** styled titles with themes and text masks, and captions from speech (Whisper) with SRT / VTT.
@@ -14,7 +14,7 @@ A Premiere Pro–style video editor for Windows, built with WPF and .NET 9. Prev
 - **Audio:** track mixer with automation, submixes, clip and track effects (EQ, compressor, gate, de-esser, reverb), pitch shift, BS.1770 loudness normalization.
 - **Export:** platform presets (YouTube, Shorts, TikTok, Instagram, …), H.264 / HEVC / AV1 / VP9 / ProRes (including 4444), GPU encoders, a full-colour 4:4:4 composite.
 - **Publishing:** uploads to the major platforms with your own developer app credentials; caption / hashtag suggestions; thumbnail and intro studios.
-- **Interface:** dockable panels and workspaces, a command palette, and flat and material themes.
+- **Interface:** dockable panels and workspaces, a History panel, a command palette, editable keyboard shortcuts (Premiere defaults), English / German / Spanish / French, a larger-interface option, and flat and material themes.
 
 ## Requirements
 

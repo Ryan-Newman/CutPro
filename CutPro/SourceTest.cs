@@ -53,8 +53,8 @@ public partial class MainWindow
             var mA = ed.Media.First(m => m.Path == fa); var mB = ed.Media.First(m => m.Path == fb);
             ed.AddMedia(mA, null, 0); ed.AddMedia(mB, null, ed.End);
             await Settle(800);
-            Check(Inside(SourceView, RightHost) && !Shows(SourceView) && Shows(InspectorView) && RightTabs.Children.Count == 2,
-                  "default layout: Source is a tab next to Effect Controls (Effect Controls in front)");
+            Check(Inside(SourceView, RightHost) && !Shows(SourceView) && Shows(InspectorView) && RightTabs.Children.Count == 3,
+                  "default layout: Source and History are tabs next to Effect Controls (Effect Controls in front)");
 
             // opening (the Project panel's double-click) — the frame shown is the media's frame at that time
             OpenSource(mA); await Settle(500);
@@ -65,8 +65,8 @@ public partial class MainWindow
             foreach (var t in new[] { 2.0, 2.0 + F, 4.5 })
             {
                 bool settled = await SrcFrame(t);
-                if (Near(t, 2.0 + F)) { SrcSeek(2.0); await SrcFrame(2.0); SrcStep(1); var sw = Stopwatch.StartNew(); while (!srcPv.Settled(srcEd.Time) && sw.ElapsedMilliseconds < 8000) await Task.Delay(50); await Task.Delay(100); }
-                var (psnr, worst) = FxTest.Compare(Grab(), FxTest.Frame(ff, fa, srcEd.Time + 0.001));
+                if (Near(t, 2.0 + F)) { SrcSeek(2.0); await SrcFrame(2.0); SrcStep(1); var sw = Stopwatch.StartNew(); while (!srcPv!.Settled(srcEd!.Time) && sw.ElapsedMilliseconds < 8000) await Task.Delay(50); await Task.Delay(100); }
+                var (psnr, worst) = FxTest.Compare(Grab(), FxTest.Frame(ff, fa, srcEd!.Time + 0.001));
                 Check(settled && psnr >= 35 && Near(srcEd.Time, Math.Round(t * TimeUtil.Fps) / TimeUtil.Fps),
                       $"source frame at {srcEd.Time:0.000} s{(Near(t, 2.0 + F) ? " (one step on)" : "")} = ffmpeg's frame: PSNR {psnr:0.0} dB, worst block {worst:0.0}");
             }
@@ -97,7 +97,7 @@ public partial class MainWindow
                   $"Insert: everything from the playhead moves {dur:0.000} s later (cut pieces keep their source time), the playhead at the end of the new clip");
             // Match Frame on the moved piece: its source frame
             ed.Seek(1.0 + dur + 0.5); srcFocus = false; Key(System.Windows.Input.Key.F);
-            Check(srcItem == mA && Near(srcEd.Time, Math.Round(1.5 * TimeUtil.Fps) / TimeUtil.Fps), $"Match Frame (F): the clip under the playhead opens at its source frame ({srcEd.Time:0.000} s)");
+            Check(srcItem == mA && Near(srcEd!.Time, Math.Round(1.5 * TimeUtil.Fps) / TimeUtil.Fps), $"Match Frame (F): the clip under the playhead opens at its source frame ({srcEd!.Time:0.000} s)");
             ed.Undo();
             Check(JsonSerializer.Serialize(ed.Clips) == before, "Insert: one undo puts every clip back");
 

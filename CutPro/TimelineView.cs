@@ -11,7 +11,7 @@ namespace CutPro;
 public partial class TimelineView : FrameworkElement
 {
     public const double HeaderW = 136, RulerH = 26;                      // (the header: name, padlock, eye or M S)
-    enum Mode { None, Scrub, Move, TrimL, TrimR, Marquee, Key, TransEdge, Band, Size }
+    enum Mode { None, Scrub, Move, TrimL, TrimR, Marquee, Key, TransEdge, Band, Size, Marker }
 
     public Editor Ed = null!;
     public bool Razor { get => razor; set { razor = value; HoverT = null; Cursor = value ? RazorCursor() : Cursors.Arrow; OverlayChanged?.Invoke(); } }
@@ -28,6 +28,8 @@ public partial class TimelineView : FrameworkElement
     public event Action<string>? Notice;
     /// <summary>A track header asks for a name (double-click / menu) or the Add Tracks dialog (menu; the row the menu was opened on).</summary>
     public event Action<int>? RenameTrackRequested, AddTracksRequested;
+    /// <summary>A clip's context menu is being built (the clip, the time under the mouse): the window adds its own items.</summary>
+    public event Action<ContextMenu, Clip, double>? ClipMenuOpening;
     /// <summary>A short message for the status bar.</summary>
     public event Action<string>? Status;
 
@@ -37,7 +39,25 @@ public partial class TimelineView : FrameworkElement
 
     bool razor;
     double pps = 80, scrollX;
-    public double Pps { get => pps; set { pps = Math.Clamp(value, 8, 500); ViewChanged?.Invoke(); InvalidateVisual(); } }
+    public const double MinPps = 0.02, MaxPps = 500;                   // (an hour-long sequence fits a 1000 px timeline at ~0.27)
+    public double Pps { get => pps; set { pps = Math.Clamp(value, MinPps, MaxPps); scrollX = Math.Clamp(scrollX, 0, Math.Max(0, ContentWidth - Viewport)); ViewChanged?.Invoke(); InvalidateVisual(); } }
+    /// <summary>Zooms by a factor keeping time t where it is on screen (Ctrl+wheel: the mouse; = / -: the playhead).</summary>
+    public void ZoomAround(double factor, double t)
+    {
+        double x = T2X(t) - HeaderW;
+        if (x < 0 || x > Viewport) x = Viewport / 2;
+        pps = Math.Clamp(pps * factor, MinPps, MaxPps);
+        scrollX = Math.Clamp(t * pps - x, 0, Math.Max(0, ContentWidth - Viewport));
+        ViewChanged?.Invoke(); InvalidateVisual(); OverlayChanged?.Invoke();
+    }
+    /// <summary>Shows a time range across the timeline (Zoom to Sequence, Zoom to Selection), with a little room on both sides.</summary>
+    public void ZoomTo(double a, double b)
+    {
+        double len = Math.Max(b - a, 1 / TimeUtil.Fps), pad = len * 0.02;
+        pps = Math.Clamp(Viewport / (len + 2 * pad), MinPps, MaxPps);
+        scrollX = Math.Clamp((a - pad) * pps, 0, Math.Max(0, ContentWidth - Viewport));
+        ViewChanged?.Invoke(); InvalidateVisual(); OverlayChanged?.Invoke();
+    }
     public double ScrollX
     {
         get => scrollX;
@@ -157,8 +177,8 @@ public partial class TimelineView : FrameworkElement
         // ruler
         dc.DrawRectangle(rulerBg, null, new Rect(HeaderW, 0, Math.Max(0, W - HeaderW), RulerH));
         dc.PushClip(new RectangleGeometry(new Rect(HeaderW, 0, Math.Max(0, W - HeaderW), RulerH)));
-        double[] steps = { 1.0 / 30, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300, 600 };
-        double step = steps.FirstOrDefault(s => s * pps >= 70, 600);
+        double[] steps = { 1.0 / 30, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300, 600, 1800, 3600, 7200 };
+        double step = steps.FirstOrDefault(s => s * pps >= 70, 7200);
         for (double t = Math.Floor(X2T(HeaderW) / step) * step; T2X(t) < W; t += step)
         {
             double x = T2X(t); if (x < HeaderW - 60) continue;
@@ -170,6 +190,7 @@ public partial class TimelineView : FrameworkElement
             double a = T2X(Ed.MarkIn ?? Ed.MarkOut!.Value), b = T2X(Ed.MarkOut ?? Ed.MarkIn!.Value);
             dc.DrawRectangle(rangeBarBrush, null, new Rect(a, RulerH - 6, Math.Max(2, b - a), 6));
         }
+        DrawRulerMarkers(dc);
         dc.Pop();
 
         // track headers: name (its own or V1 / A2 …), lock, hide (video) or mute + solo (audio), the band mode of audio tracks
@@ -376,6 +397,7 @@ public partial class TimelineView : FrameworkElement
         if (c.FadeIn > 0) dc.DrawLine(fadePen, new Point(x1, y + rect.Height), new Point(x1 + c.FadeIn * pps, y));
         if (c.FadeOut > 0) dc.DrawLine(fadePen, new Point(x2 - c.FadeOut * pps, y), new Point(x2, y + rect.Height));
         DrawKeys(dc, c, rect);
+        DrawClipMarkers(dc, c, rect);
         dc.Pop();
         dc.DrawRectangle(null, sel ? selPen : edgePen, rect);
         // hard black edit lines at both ends so every cut is visible, even between two pieces of the same shot
@@ -556,6 +578,7 @@ public partial class TimelineView : FrameworkElement
             if (Ed.MarkIn is double mi) pts.Add(mi);
             if (Ed.MarkOut is double mo) pts.Add(mo);
             foreach (var c in Ed.Clips) if (ignore == null || !ignore.Contains(c.Id)) { pts.Add(c.Start); pts.Add(c.End); }
+            foreach (var (mt, mk, _) in Ed.AllMarkers()) if (mk != markerDrag) pts.Add(mt);
             double bd = 8 / pps;
             foreach (var p in pts) foreach (var off in offsets)
             {
@@ -606,6 +629,7 @@ public partial class TimelineView : FrameworkElement
             else if (e.ClickCount == 2) RenameTrackRequested?.Invoke(r);       // (double-click the name: rename the track)
             return;
         }
+        if (MarkerMouseDown(p, e.ClickCount)) { InvalidateVisual(); return; }
         if (p.Y < RulerH) { ScrubStarted?.Invoke(); mode = Mode.Scrub; CaptureMouse(); Ed.Seek(Snap(X2T(p.X), null, 0)); snapAt = null; return; }
 
         if (!Razor && BeginBand(p, ctrl, alt)) return;                     // (a rubber band: its keys or its line)
@@ -614,7 +638,7 @@ public partial class TimelineView : FrameworkElement
         {
             // a transition: select it (Effect Controls shows it); its edges change the duration
             Ed.SelectTransition(th.w.Owner, th.w.Head);
-            if (th.edge != 0) { transDrag = th.w; transSide = th.edge; mode = Mode.TransEdge; Ed.Checkpoint(); CaptureMouse(); }
+            if (th.edge != 0) { transDrag = th.w; transSide = th.edge; mode = Mode.TransEdge; Ed.Checkpoint("Transition Duration"); CaptureMouse(); }
             InvalidateVisual(); return;
         }
         var c = HitClip(p);
@@ -624,7 +648,7 @@ public partial class TimelineView : FrameworkElement
             // Razor tool: cut exactly where the guide line is; the tool stays active for the next cut
             double t = Snap(X2T(p.X), null, 0); snapAt = null;
             var targets = RazorTargets(c, t);
-            if (targets.Count > 0) Ed.Edit(() => Ed.CutClips(targets, t));
+            if (targets.Count > 0) Ed.Edit(() => Ed.CutClips(targets, t), "Razor");
             UpdateHover(p);
             return;
         }
@@ -650,7 +674,7 @@ public partial class TimelineView : FrameworkElement
             : Ed.Linked(c).Where(x => mode == Mode.TrimL ? Math.Abs(x.Start - c.Start) < 1e-4 : Math.Abs(x.End - c.End) < 1e-4);
         group = members.Select(x => new Orig(x, x.Start, x.In, x.Dur, x.Track)).ToList();
         drag = c; x0 = p.X;
-        Ed.Checkpoint(); CaptureMouse(); InvalidateVisual();
+        Ed.Checkpoint(mode == Mode.Move ? "Move" : "Trim"); CaptureMouse(); InvalidateVisual();
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -664,6 +688,7 @@ public partial class TimelineView : FrameworkElement
         if (mode == Mode.None)
         {
             if (p.X < HeaderW) { Cursor = p.Y >= RulerH && SizeEdgeAt(p) != null ? Cursors.SizeNS : Cursors.Arrow; HoverT = null; HoverRows.Clear(); OverlayChanged?.Invoke(); return; }
+            MarkerTip(p);
             if (Razor && Cursor != RazorCursor()) Cursor = RazorCursor();
             UpdateHover(p);
             if (!Razor)
@@ -676,6 +701,7 @@ public partial class TimelineView : FrameworkElement
             }
             return;
         }
+        if (mode == Mode.Marker) { MarkerDragTo(p); return; }
         if (mode == Mode.Scrub) { Ed.Seek(Snap(X2T(p.X), null, 0)); snapAt = null; return; }
         if (mode is Mode.Move or Mode.Marquee && ContentHeight > TrackViewport)
         {   // dragging near the top / bottom edge scrolls the tracks
@@ -765,6 +791,7 @@ public partial class TimelineView : FrameworkElement
     {
         if (mode == Mode.None) return;
         ReleaseMouseCapture();
+        if (mode == Mode.Marker) MarkerUp();
         if (mode == Mode.Key) EndKeyDrag();
         if (mode == Mode.Band) EndBand();
         if (mode == Mode.TransEdge) { Ed.Commit(); transDrag = null; }
@@ -835,6 +862,7 @@ public partial class TimelineView : FrameworkElement
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
     {
         var p = e.GetPosition(this);
+        if (MarkerMenu(p)) { e.Handled = true; return; }
         if (p.Y < RulerH) return;
         if (p.X < HeaderW) { if (RowAt(p.Y) is >= 0 and var hr) { HeaderMenu(hr); e.Handled = true; } return; }
         var c = HitClip(p);
@@ -849,7 +877,7 @@ public partial class TimelineView : FrameworkElement
             // a transition: change it, its alignment and duration, or delete it
             Ed.SelectTransition(th.w.Owner, th.w.Head);
             var tr = Ed.SelectedTransition!;
-            void Change(Action<Transition> f) { Ed.Edit(() => f(tr)); Ed.RaiseChanged(); }
+            void Change(Action<Transition> f) { Ed.Edit(() => f(tr), "Transition"); Ed.RaiseChanged(); }
             var kinds = new MenuItem { Header = "Transition" }; menu.Items.Add(kinds);
             foreach (var d in Transitions.Get(tr.Kind).Fx == Transitions.Fx.Audio ? Transitions.AudioDefs : Transitions.VideoDefs)
                 Item(d.Name, () => Change(x => x.Kind = d.Name), "", kinds, d.Name == tr.Kind);
@@ -894,6 +922,7 @@ public partial class TimelineView : FrameworkElement
                 }
                 else Item("Remove Frame Hold", () => Ed.SetHold(c, false));
             }
+            ClipMenuOpening?.Invoke(menu, c, X2T(p.X));                     // (the window adds copy / paste attributes / groups / markers / reveal)
         }
         else if (SelectGapAt(p)) Item("Ripple Delete", () => Ed.DeleteSelection(true), "Del");
         else return;
@@ -907,7 +936,7 @@ public partial class TimelineView : FrameworkElement
         if (Keyboard.Modifiers == ModifierKeys.Control || Keyboard.Modifiers == ModifierKeys.Alt)
         {
             var p = e.GetPosition(this); double t = X2T(p.X);
-            pps = Math.Clamp(pps * (e.Delta > 0 ? 1.15 : 1 / 1.15), 8, 500);
+            pps = Math.Clamp(pps * (e.Delta > 0 ? 1.15 : 1 / 1.15), MinPps, MaxPps);
             scrollX = Math.Clamp(t * pps - (p.X - HeaderW), 0, Math.Max(0, ContentWidth - Viewport));
             ViewChanged?.Invoke(); InvalidateVisual();
         }
@@ -941,7 +970,7 @@ public partial class TimelineView : FrameworkElement
             if (EditPointAt(e.GetPosition(this), Transitions.Get(kind).Fx == Transitions.Fx.Audio) is { } at)
             {
                 (Clip c, bool head) placed = default;
-                Ed.Edit(() => placed = Ed.PlaceTransition(at.c, at.head, kind));
+                Ed.Edit(() => placed = Ed.PlaceTransition(at.c, at.head, kind), "Add Transition");
                 Ed.SelectTransition(placed.c!, placed.head);
             }
             InvalidateVisual(); e.Handled = true; return;

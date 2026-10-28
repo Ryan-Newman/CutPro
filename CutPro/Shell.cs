@@ -26,48 +26,12 @@ public partial class MainWindow
     bool palCommitted, galleryBusy;
     ContextMenu? lastMenu;   // (diagnostics: --uishot renders it)
 
-    static readonly (string keys, string what)[] ShortcutRows =
-    {
-        ("Ctrl+Shift+P", "Command palette"), ("Ctrl+B", "Toggle side bar"), ("Ctrl+Alt+B", "Toggle effect controls"),
-        ("Space", "Play / pause"), ("J  K  L", "Shuttle"), ("← →", "Previous / next frame (Shift = 1 s)"), ("↑ ↓", "Previous / next edit"),
-        ("V", "Selection tool"), ("C", "Razor tool"), ("S", "Snapping on / off"), ("Ctrl+K", "Add edit (Shift = all tracks)"),
-        (",  .", "Insert / overwrite from the Source monitor"), ("F", "Match frame (open in Source)"), ("Q  W", "Ripple trim to playhead"), ("Del", "Delete"), ("Shift+Del", "Ripple delete"), ("Ctrl+L", "Link / unlink"),
-        ("I  O  X", "Mark in / out / clear"), (";  '", "Lift / extract"), ("Ctrl+Z  Ctrl+Y", "Undo / redo"), ("Ctrl+A", "Select all"),
-        ("F11", "Full-screen playback"), ("`", "Maximize the panel under the mouse"),
-        ("Esc", "Deselect"), ("Ctrl+I", "Import"), ("Ctrl+O", "Open project"), ("Ctrl+S", "Save project"), ("Ctrl+E", "Export MP4"),
-    };
-
-    /// <summary>Keybinding list with key "chips", VS Code keyboard-shortcuts style.</summary>
-    void BuildShortcuts()
-    {
-        ShortcutList.Children.Clear();
-        foreach (var (keys, what) in ShortcutRows)
-        {
-            var g = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
-            g.ColumnDefinitions.Add(new ColumnDefinition());
-            var chips = new WrapPanel();
-            foreach (var k in keys.Split("  "))
-            {
-                var chip = new Border { CornerRadius = new CornerRadius(3), BorderThickness = new Thickness(1, 1, 1, 2), Padding = new Thickness(5, 0, 5, 1), Margin = new Thickness(0, 0, 4, 0),
-                                        Child = new TextBlock { Text = k, FontSize = 11, FontFamily = new FontFamily("Segoe UI Semibold") } };
-                chip.SetResourceReference(Border.BackgroundProperty, "B.Input.Bg");
-                chip.SetResourceReference(Border.BorderBrushProperty, "B.Input.Border");
-                chips.Children.Add(chip);
-            }
-            var t = new TextBlock { Text = what, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
-            Grid.SetColumn(t, 1);
-            g.Children.Add(chips); g.Children.Add(t);
-            ShortcutList.Children.Add(g);
-        }
-    }
-
     void InitShell()
     {
         SideCol.Width = new GridLength(S.SideBarWidth);
         InspCol.Width = new GridLength(S.InspectorWidth);
         PanelRow.Height = new GridLength(S.TimelineHeight);
+        InitLoc();
         BuildShortcuts();
         var forceView = Environment.GetEnvironmentVariable("CUTPRO_SIDEVIEW");          // tests: e.g. measure playback with the mixer showing (applied after the docks)
         ShowSideView(forceView ?? S.SideView, animate: false);
@@ -80,6 +44,7 @@ public partial class MainWindow
         InitEffects();
         InitMixer();
         InitTracks();
+        InitMarkers();
         InitSpeed(); InitStab();
         InitDock();                                          // (panels where the saved layout / workspace puts them)
         if (forceView != null) ShowSideView(forceView);
@@ -132,7 +97,7 @@ public partial class MainWindow
     void ApplyCards()
     {
         foreach (var c in new[] { TitleCard, ActivityCard, SideCard, EditorCard, PanelCard, InspCard, StatusCard }) ThemeManager.ApplyCard(c, c.Region);
-        if (System.Windows.Shell.WindowChrome.GetWindowChrome(this) is { } chrome) chrome.CaptionHeight = 36 + ThemeManager.Current.Gap;
+        if (System.Windows.Shell.WindowChrome.GetWindowChrome(this) is { } chrome) chrome.CaptionHeight = (36 + ThemeManager.Current.Gap) * Math.Clamp(S.TextScale, 1, 1.5);
     }
 
     void Window_StateChanged(object? s, EventArgs e)
@@ -157,9 +122,12 @@ public partial class MainWindow
         switch ((string)b.Tag)
         {
             case "File":
-                Add(MI("Import Media…", "Ctrl+I", () => Import_Click(this, e)), MI("Open Project…", "Ctrl+O", () => Open_Click(this, e)),
-                    MI("Save Project", "Ctrl+S", () => Save_Click(this, e)), "-", MI("Export…", "Ctrl+E", () => Export_Click(this, e)),
-                    MI("Publish…", "Ctrl+Shift+U", () => OpenPublish(null)), "-",
+                Add(MI("Import Media…", K("file.import"), () => Import_Click(this, e)), MI("Open Project…", K("file.open"), () => Open_Click(this, e)),
+                    MI("Save Project", K("file.save"), () => Save_Click(this, e)), "-",
+                    MI("Relink Offline Media…", "", () => RelinkOffline(), enabled: ed.Media.Any(m => m.Offline)),
+                    MI("Collect Files…", K("file.collect"), () => _ = CollectFilesAsync(), enabled: ed.Media.Count > 0), "-",
+                    MI("Export…", K("file.export"), () => Export_Click(this, e)),
+                    MI("Publish…", K("file.publish"), () => OpenPublish(null)), "-",
                     MI("Exit", "Alt+F4", Close));
                 break;
             case "Sequence":
@@ -173,6 +141,13 @@ public partial class MainWindow
                     foreach (var sq in ed.Sequences) go.Items.Add(MI(sq.Name, "", () => OpenSequence(sq), sq == ed.Seq));
                     Add(go);
                 }
+                var gap = new MenuItem { Header = "Go to Gap" };
+                foreach (var (id, h) in new[] { ("gap.next", "Next in Sequence"), ("gap.prev", "Previous in Sequence"), ("gap.nextTrack", "Next in Track"), ("gap.prevTrack", "Previous in Track") })
+                    gap.Items.Add(MI(h, K(id), () => RunCommand(id)));
+                var zoom = new MenuItem { Header = "Zoom" };
+                foreach (var (id, h) in new[] { ("tl.zoomIn", "Zoom In"), ("tl.zoomOut", "Zoom Out"), ("tl.zoomSeq", "Zoom to Sequence"), ("tl.zoomSel", "Zoom to Selection") })
+                    zoom.Items.Add(MI(h, K(id), () => RunCommand(id)));
+                Add("-", gap, zoom, LayoutMenu());
                 Add("-", MI("Add Tracks…", "", () => AddTracksDialog()), MI("Delete Empty Tracks", "", DeleteEmptyTracks),
                     "-", MI("Add Adjustment Layer", "", AddAdjustment), MI("Nest…", "", NestSelected, enabled: ed.Sel.Count > 0),
                     MI("Open Nested Sequence", "", () => { if (ed.Selected is { } nc) OpenNested(nc); }, enabled: ed.Selected is { } sc && ed.SeqOf(sc) != null), "-",
@@ -223,14 +198,37 @@ public partial class MainWindow
                 break;
             }
             case "Edit":
-                Add(MI("Undo", "Ctrl+Z", ed.Undo), MI("Redo", "Ctrl+Y", ed.Redo), "-",
-                    MI("Add Edit", "Ctrl+K", () => ed.AddEdit(false)), MI("Add Edit to All Tracks", "Ctrl+Shift+K", () => ed.AddEdit(true)),
-                    MI("Delete", "Del", () => ed.DeleteSelection(false)), MI("Ripple Delete", "Shift+Del", () => ed.DeleteSelection(true)), "-",
-                    MI("Select All", "Ctrl+A", ed.SelectAll), MI("Deselect All", "Esc", ed.ClearSelection), MI("Link / Unlink", "Ctrl+L", ed.ToggleLink), "-",
-                    MI("Mark In", "I", () => ed.SetMark(true)), MI("Mark Out", "O", () => ed.SetMark(false)),
-                    MI("Lift", ";", () => ed.LiftExtract(false)), MI("Extract", "'", () => ed.LiftExtract(true)), "-",
-                    MI("Insert from Source", ",", () => SourceEdit(true)), MI("Overwrite from Source", ".", () => SourceEdit(false)), MI("Match Frame", "F", MatchFrame));
+            {
+                bool sel = ed.Sel.Count > 0;
+                string Step(string what, string? label) => Loc.T(what) + (label != null ? " " + Loc.T(label) : "");
+                Add(MI(Step("Undo", ed.UndoLabels.FirstOrDefault()), K("edit.undo"), ed.Undo, enabled: ed.UndoLabels.Any()),
+                    MI(Step("Redo", ed.RedoLabels.FirstOrDefault()), K("edit.redo"), ed.Redo, enabled: ed.RedoLabels.Any()),
+                    MI("History", K("view.history"), () => ShowDock("History")), "-",
+                    MI("Cut", K("edit.cut"), () => CopyClips(true), enabled: sel), MI("Copy", K("edit.copy"), () => CopyClips(false), enabled: sel),
+                    MI("Paste", K("edit.paste"), () => PasteClips(false), enabled: Editor.CanPaste), MI("Paste Insert", K("edit.pasteInsert"), () => PasteClips(true), enabled: Editor.CanPaste),
+                    MI("Paste Attributes…", K("edit.pasteAttr"), PasteAttributesDialog, enabled: Editor.CanPaste && sel),
+                    MI("Remove Attributes…", K("edit.removeAttr"), RemoveAttributesDialog, enabled: sel), "-",
+                    MI("Add Edit", K("edit.addEdit"), () => ed.AddEdit(false)), MI("Add Edit to All Tracks", K("edit.addEditAll"), () => ed.AddEdit(true)),
+                    MI("Delete", K("edit.delete"), () => ed.DeleteSelection(false)), MI("Ripple Delete", K("edit.rippleDelete"), () => ed.DeleteSelection(true)), "-",
+                    MI("Select All", K("edit.selectAll"), ed.SelectAll), MI("Deselect All", K("edit.deselect"), ed.ClearSelection), MI("Link / Unlink", K("edit.link"), ed.ToggleLink),
+                    MI("Group", K("clip.group"), () => RunCommand("clip.group"), enabled: ed.Sel.Count > 1), MI("Ungroup", K("clip.ungroup"), () => RunCommand("clip.ungroup"), enabled: sel), "-",
+                    MI("Mark In", K("edit.markIn"), () => ed.SetMark(true)), MI("Mark Out", K("edit.markOut"), () => ed.SetMark(false)),
+                    MI("Lift", K("edit.lift"), () => ed.LiftExtract(false)), MI("Extract", K("edit.extract"), () => ed.LiftExtract(true)), "-",
+                    MI("Insert from Source", K("src.insert"), () => SourceEdit(true)), MI("Overwrite from Source", K("src.overwrite"), () => SourceEdit(false)), MI("Match Frame", K("src.matchFrame"), MatchFrame),
+                    MI("Reveal in Project", K("clip.reveal"), () => RevealInProject(), enabled: ed.Selected != null), "-",
+                    MI("Keyboard Shortcuts…", "", () => ShowSideView("Settings")));
                 break;
+            }
+            case "Marker":
+            {
+                bool clipHere = ed.Clips.Any(c => ed.IsSel(c) && ed.Time >= c.Start && ed.Time < c.End);
+                Add(MI("Add Marker", K("marker.add"), AddMarkerAtPlayhead), MI("Add Clip Marker", K("marker.addClip"), AddClipMarkerAtPlayhead, enabled: clipHere),
+                    MI("Edit Marker…", K("marker.edit"), EditMarkerAtPlayhead, enabled: MarkerAtPlayhead() != null), "-",
+                    MI("Go to Next Marker", K("marker.next"), () => RunCommand("marker.next")), MI("Go to Previous Marker", K("marker.prev"), () => RunCommand("marker.prev")), "-",
+                    MI("Clear All Markers", K("marker.clear"), ed.ClearMarkers, enabled: ed.AllMarkers().Any()), "-",
+                    MI("Copy YouTube Chapters", K("marker.chapters"), CopyChapters, enabled: ed.Markers.Any(m => m.Chapter)));
+                break;
+            }
             case "View":
                 Add(MI("Command Palette…", "Ctrl+Shift+P", () => OpenPalette()), "-",
                     MI("Project", "", () => ShowSideView("Project"), Showing("Project")),
@@ -239,6 +237,7 @@ public partial class MainWindow
                     MI("Audio Track Mixer", "", () => ShowSideView("Mixer"), Showing("Mixer")),
                     MI("Lumetri Scopes", "", () => ShowSideView("Scopes"), Showing("Scopes")),
                     MI("Captions", "", () => ShowSideView("Captions"), Showing("Captions")),
+                    MI("History", K("view.history"), () => ShowDock("History"), Showing("History")),
                     MI("Settings", "", () => ShowSideView("Settings"), sideVisible && sideView == "Settings"),
                     MI("Side Bar", "Ctrl+B", () => SetSideBar(!sideVisible), sideVisible),
                     MI("Effect Controls", "Ctrl+Alt+B", () => { if (DockOf("Inspector") is { Zone: "Right" }) SetInspector(!inspVisible); else ShowDock("Inspector"); }, Showing("Inspector")), "-",
@@ -249,7 +248,7 @@ public partial class MainWindow
                 WindowMenu(items => Add(items), (h, k, a, c, en) => MI(h, k, a, c, en));
                 break;
             case "Help":
-                Add(MI("Keyboard Shortcuts", "", () => ShowSideView("Settings")), MI("Command Palette…", "Ctrl+Shift+P", () => OpenPalette()), "-",
+                Add(MI("Keyboard Shortcuts", "", () => ShowSideView("Settings")), MI("Command Palette…", K("view.palette"), () => OpenPalette()), "-",
                     MI("About CutPro", "", () => Alert.Show(this, "A Premiere-style video editor.\nWPF · .NET 9 · ffmpeg · ONNX Runtime (MobileSAM)", "About CutPro")));
                 break;
         }
@@ -464,7 +463,7 @@ public partial class MainWindow
     List<Cmd> Commands()
     {
         var r = new RoutedEventArgs();
-        var list = new List<Cmd>
+        var more = new List<Cmd>
         {
             new("File: Import Media…", "Ctrl+I", () => Import_Click(this, r)),
             new("File: Open Project…", "Ctrl+O", () => Open_Click(this, r)),
@@ -519,10 +518,19 @@ public partial class MainWindow
             new("Preferences: Color Theme", "", () => Dispatcher.BeginInvoke(() => OpenPalette(PaletteMode.Theme))),
             new("Help: Keyboard Shortcuts", "", () => ShowSideView("Settings")),
         };
+        // every command with a shortcut (its current keys), then the rest
+        var list = Keymap.All.Select(k => new Cmd(k.Label, string.Join("  ", Keymap.Of(k.Id)), () => RunCommand(k.Id))).ToList();
+        var names = list.Select(c => c.Name).ToHashSet();
+        list.AddRange(more.Where(c => !names.Contains(c.Name)));
+        foreach (var (p, name) in LayoutNames) list.Add(new($"Clip: Layout — {name}", "", () => ApplyLayout(p)));
+        foreach (var m in new[] { "Page", "Smooth", "None" }) list.Add(new($"Preferences: Timeline Scrolling While Playing — {m}", S.PlaybackScroll == m ? "current" : "", () => SetPlaybackScroll(m)));
+        foreach (var (code, name) in Loc.Languages) list.Add(new($"Preferences: Language — {name}", S.Language == code ? "current" : "", () => SetLanguage(code)));
+        list.Add(new("File: Relink Offline Media…", "", () => RelinkOffline()));
+        list.Add(new("Clip: Relink / Replace Media…", "", () => { if (ed.Selected is { } c && ed.MediaOf(c) is { Seq: null } m) RelinkMedia(m); }));
+        list.Add(new("Clip: Media Properties…", "", () => { if (ed.Selected is { } c && ed.MediaOf(c) is { Seq: null } m) ShowProperties(m); }));
         foreach (var w in BuiltInWorkspaces.Concat(S.Workspaces.Keys)) list.Add(new($"Window: Workspace — {w}", "", () => UseWorkspace(w)));
         foreach (var th in ThemeManager.All) list.Add(new($"Preferences: Color Theme: {th.Name}", "", () => SetEditorTheme(th.Name)));
         foreach (var t in Themes.All) list.Add(new($"Title Theme: {t.Name}", "", () => ThemeCombo.SelectedItem = t.Name));
-        list.Add(new("Sequence: New Sequence…", "Ctrl+N", NewSequence));
         list.Add(new("Sequence: Duplicate", "", () => ed.DuplicateSequence(ed.Seq)));
         list.Add(new("Sequence: Rename…", "", () => RenameSeq(ed.Seq)));
         list.Add(new("Sequence: Add Tracks…", "", () => AddTracksDialog()));
@@ -574,12 +582,12 @@ public partial class MainWindow
             : Commands();
         var words = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         PaletteList.Items.Clear();
-        foreach (var c in source.Where(c => words.All(w => c.Name.Contains(w, StringComparison.OrdinalIgnoreCase))))
+        foreach (var c in source.Where(c => words.All(w => c.Name.Contains(w, StringComparison.OrdinalIgnoreCase) || Loc.T(c.Name).Contains(w, StringComparison.OrdinalIgnoreCase))))
         {
             var g = new Grid { Tag = c };
             g.ColumnDefinitions.Add(new ColumnDefinition());
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.Children.Add(new TextBlock { Text = c.Name, VerticalAlignment = VerticalAlignment.Center });
+            g.Children.Add(new TextBlock { Text = Loc.T(c.Name), VerticalAlignment = VerticalAlignment.Center });
             var keys = new TextBlock { Text = c.Keys, Opacity = 0.65, FontSize = 11.5, Margin = new Thickness(16, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(keys, 1); g.Children.Add(keys);
             PaletteList.Items.Add(new ListBoxItem { Content = g, Focusable = false });

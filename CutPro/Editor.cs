@@ -139,7 +139,7 @@ public partial class Editor
         if (c != null && !Editable(c)) return;                           // (a locked track's clips can't be selected)
         Gap = null; SelTrans = null;
         if (!additive) Sel.Clear();
-        if (c != null) { foreach (var x in (withLinks ? Linked(c) : new[] { c }).Where(Editable)) Sel.Add(x.Id); SelectedId = c.Id; }
+        if (c != null) { foreach (var x in (withLinks ? Members(c) : new[] { c }).Where(Editable)) Sel.Add(x.Id); SelectedId = c.Id; }
         else SelectedId = null;
         Raise(Changed);
     }
@@ -147,14 +147,14 @@ public partial class Editor
     {
         if (!Editable(c)) return;
         Gap = null; SelTrans = null;
-        var group = (withLinks ? Linked(c) : new[] { c }).Where(Editable).ToList();
+        var group = (withLinks ? Members(c) : new[] { c }).Where(Editable).ToList();
         if (IsSel(c)) { foreach (var x in group) Sel.Remove(x.Id); if (SelectedId == c.Id) SelectedId = Sel.FirstOrDefault(); }
         else { foreach (var x in group) Sel.Add(x.Id); SelectedId = c.Id; }
         Raise(Changed);
     }
     public void SetSelection(IEnumerable<Clip> clips)
     {
-        Gap = null; SelTrans = null; Sel = clips.SelectMany(Linked).Where(Editable).Select(c => c.Id).ToHashSet();
+        Gap = null; SelTrans = null; Sel = clips.SelectMany(Members).Where(Editable).Select(c => c.Id).ToHashSet();
         if (SelectedId == null || !Sel.Contains(SelectedId)) SelectedId = Sel.FirstOrDefault();
         Raise(Changed);
     }
@@ -174,7 +174,8 @@ public partial class Editor
     // nest) — every sequence. Entries of one sequence carry its id: undoing one while another sequence is open switches to it first
     // (one history for the project, like Premiere).
     sealed record SeqState(int W, int H, double Fps, ReframeMode R, Dictionary<string, MaskTrack.State> Masks);
-    sealed record Hist(string? Clips, string? MaskId = null, MaskTrack.State? Mask = null, SeqState? Seq = null, string? Mix = null, string? SeqId = null, string? Proj = null);
+    sealed record Hist(string? Clips, string? MaskId = null, MaskTrack.State? Mask = null, SeqState? Seq = null, string? Mix = null, string? SeqId = null, string? Proj = null,
+                       string? Marks = null, string? Label = null);
     sealed record ProjState(List<Sequence> Seqs, string Active);
 
     // ---- mixer history: fader / pan / master levels and track automation keys (mute and solo are instant toggles, like hiding a track) ----
@@ -202,7 +203,7 @@ public partial class Editor
     public void MixEnd()
     {
         mixDebounce?.Stop();
-        if (pendingMix != null && pendingMix != SnapMix()) { undo.Push(new Hist(null, Mix: pendingMix, SeqId: seq.Id)); redo.Clear(); }
+        if (pendingMix != null && pendingMix != SnapMix()) Push(new Hist(null, Mix: pendingMix, SeqId: seq.Id), "Audio Track Mixer");
         pendingMix = null;
     }
     /// <summary>After a single mixer change (wheel, typed value): undo entry once the changes pause.</summary>
@@ -225,7 +226,7 @@ public partial class Editor
         SetSequence(w, h, fps, reframe);
         CaptureFormat();
         if (Math.Abs(old - TimeUtil.Fps) > 1e-9) Conform(old);
-        undo.Push(before); redo.Clear();
+        Push(before, "Sequence Settings");
         PruneSelection(); RefreshSeqItems(); Raise(Changed); Raise(MasksChanged);
     }
 
@@ -260,23 +261,42 @@ public partial class Editor
         }
     }
     string Snap() => JsonSerializer.Serialize(Clips);
-    public void Checkpoint() { pending ??= Snap(); }
+    string? pendingLabel;
+    /// <summary>Before a multi-step change (drag, inspector edits): one undo step until <see cref="Commit"/>. The entry's name in the History
+    /// panel comes from the caller (<see cref="HistoryLabels"/>) unless given.</summary>
+    public void Checkpoint([CallerMemberName] string name = "", [CallerFilePath] string file = "")
+    {
+        if (pending != null) return;
+        pending = Snap(); pendingLabel = HistoryLabels.Of(name, file);
+    }
     public void Commit()
     {
-        if (pending != null && pending != Snap()) { undo.Push(new Hist(pending, SeqId: seq.Id)); redo.Clear(); }
-        pending = null;
+        if (pending != null && pending != Snap()) Push(new Hist(pending, SeqId: seq.Id), pendingLabel ?? "Edit");
+        pending = null; pendingLabel = null;
     }
     /// <summary>Call after mutating a clip property from the inspector (debounced undo entry).</summary>
-    public void Touch() { Checkpoint(); debounce?.Stop(); debounce?.Start(); Raise(PropsChanged); }
+    public void Touch([CallerMemberName] string name = "", [CallerFilePath] string file = "") { Checkpoint(name, file); debounce?.Stop(); debounce?.Start(); Raise(PropsChanged); }
 
-    public void Edit(Action a)
+    public void Edit(Action a, [CallerMemberName] string name = "", [CallerFilePath] string file = "")
     {
         Commit();
         var before = Snap();
         a();
-        if (before != Snap()) { undo.Push(new Hist(before, SeqId: seq.Id)); redo.Clear(); }
+        if (before != Snap()) Push(new Hist(before, SeqId: seq.Id), HistoryLabels.Of(name, file));
         PruneSelection(); RefreshSeqItems();
         Raise(Changed);
+    }
+    void Push(Hist h, string label) { undo.Push(h with { Label = label }); redo.Clear(); HistoryChanged?.Invoke(); }
+    /// <summary>An entry was added, undone or redone (the History panel).</summary>
+    public event Action? HistoryChanged;
+    /// <summary>The names of the undo steps, most recent first, and of the redo steps, next first (History panel).</summary>
+    public IEnumerable<string> UndoLabels => undo.Select(h => h.Label ?? "Edit");
+    public IEnumerable<string> RedoLabels => redo.Select(h => h.Label ?? "Edit");
+    /// <summary>History panel: undo (n &lt; 0) or redo (n &gt; 0) that many steps.</summary>
+    public void StepHistory(int n)
+    {
+        for (; n < 0 && undo.Count > 0; n++) Undo();
+        for (; n > 0 && redo.Count > 0; n--) Redo();
     }
     void Restore(string json)
     {
@@ -286,18 +306,20 @@ public partial class Editor
     }
     /// <summary>Raised before undo/redo (running mask tracking stops first).</summary>
     public event Action? HistoryMoving;
-    public void Undo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); if (undo.Count == 0) return; var h = undo.Pop(); Visit(h); redo.Push(Now(h)); Apply(h); }
-    public void Redo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); if (redo.Count == 0) return; var h = redo.Pop(); Visit(h); undo.Push(Now(h)); Apply(h); }
-    public void ResetHistory() { undo.Clear(); redo.Clear(); pending = null; pendingMix = null; }
+    public void Undo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (undo.Count == 0) return; var h = undo.Pop(); Visit(h); redo.Push(Now(h)); Apply(h); HistoryChanged?.Invoke(); }
+    public void Redo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (redo.Count == 0) return; var h = redo.Pop(); Visit(h); undo.Push(Now(h)); Apply(h); HistoryChanged?.Invoke(); }
+    public void ResetHistory() { undo.Clear(); redo.Clear(); pending = null; pendingMix = null; pendingMarks = null; HistoryChanged?.Invoke(); }
     /// <summary>An entry of another sequence: open that sequence first (its state is what the entry restores).</summary>
     void Visit(Hist h) { if (h.SeqId != null && h.SeqId != seq.Id && Sequences.FirstOrDefault(s => s.Id == h.SeqId) is { } s) Activate(s); }
-    Hist Now(Hist h) => h.Proj != null ? new Hist(null, Proj: SnapProj()) : h.Mix != null ? new Hist(null, Mix: SnapMix(), SeqId: seq.Id)
+    Hist Now(Hist h) => (h.Proj != null ? new Hist(null, Proj: SnapProj()) : h.Mix != null ? new Hist(null, Mix: SnapMix(), SeqId: seq.Id)
+                      : h.Marks != null ? new Hist(null, Marks: SnapMarks(), SeqId: seq.Id)
                       : h.Seq != null ? new Hist(Snap(), null, null, CaptureSeq(), SeqId: seq.Id)
-                      : h.MaskId is { } id ? new Hist(null, id, Track(id).Save()) : new Hist(Snap(), SeqId: seq.Id);
+                      : h.MaskId is { } id ? new Hist(null, id, Track(id).Save()) : new Hist(Snap(), SeqId: seq.Id)) with { Label = h.Label };
     void Apply(Hist h)
     {
         if (h.Proj != null) LoadProj(h.Proj);
         else if (h.Mix != null) LoadMix(h.Mix);
+        else if (h.Marks != null) LoadMarks(h.Marks);
         else if (h.Seq is { } s)
         {
             SetSequence(s.W, s.H, s.Fps, s.R); CaptureFormat();
@@ -357,12 +379,12 @@ public partial class Editor
         Raise(TracksChanged); Raise(MixChanged); Raise(Changed);
     }
     /// <summary>One undo step for a change to the project's sequences (new / duplicate / rename / delete / nest).</summary>
-    public void ProjEdit(Action a)
+    public void ProjEdit(Action a, [CallerMemberName] string name = "", [CallerFilePath] string file = "")
     {
         Commit(); MixEnd(); MaskEnd();
         var before = SnapProj();
         a();
-        undo.Push(new Hist(null, Proj: before)); redo.Clear();
+        Push(new Hist(null, Proj: before), HistoryLabels.Of(name, file));
         PruneSelection(); RefreshSeqItems();
         Raise(SequencesChanged); Raise(Changed);
     }
@@ -388,6 +410,7 @@ public partial class Editor
         if (src == seq) CaptureFormat();
         var s = new Sequence { Name = FreeName(src.Name.TrimEnd(' ', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9') is { Length: > 0 } stem ? stem : "Sequence"),
                                SeqW = src.SeqW, SeqH = src.SeqH, SeqFps = src.SeqFps, Reframe = src.Reframe, Mix = src.Mix.Clone(), TrackOff = (bool[])src.TrackOff.Clone(),
+                               Markers = src.Markers?.Select(m => m.Clone()).ToList(),
                                Clips = JsonSerializer.Deserialize<List<Clip>>(JsonSerializer.Serialize(src.Clips))! };
         src.CopyLayout(s);                                                // (its clips keep their rows)
         var links = new Dictionary<string, string>();
@@ -861,9 +884,10 @@ public partial class Editor
     /// sets the speed that fits the same range into it (Premiere's linked speed / duration). Reverse plays the same frames backwards.
     /// Without ripple a longer clip stops at the next clip on its track (it then shows less of its source); with ripple the clips after
     /// it on its track move by the change. Speed keyframes (time remapping) keep their speed; titles and pictures only change duration.</summary>
-    public void SetSpeed(IEnumerable<Clip> targets, double? speed, double? duration, bool reverse, bool pitchLock, bool ripple)
+    public void SetSpeed(IEnumerable<Clip> targets, double? speed, double? duration, bool reverse, bool pitchLock, bool ripple) =>
+        Edit(() => ApplySpeed(targets, speed, duration, reverse, pitchLock, ripple));
+    void ApplySpeed(IEnumerable<Clip> targets, double? speed, double? duration, bool reverse, bool pitchLock, bool ripple)
     {
-        Edit(() =>
         {
             var all = WithPartners(targets);
             var ids = all.Select(c => c.Id).ToHashSet();
@@ -900,7 +924,7 @@ public partial class Editor
                 if (ripple && Math.Abs(delta) > Eps)
                     foreach (var x in Clips.Where(x => x != c && x.Track == c.Track && x.Start >= oldEnd - Eps)) x.Start = Math.Max(0, x.Start + delta);
             }
-        });
+        }
     }
 
     /// <summary>Freezes the clip on the frame at t from there to its end (Premiere's Add Frame Hold); at its start the whole clip
@@ -1004,7 +1028,7 @@ public partial class Editor
         Commit();
         var tr = Track(id); var before = tr.Save(); int v = tr.Version;
         change(tr);
-        if (tr.Version != v) { undo.Push(new Hist(null, id, before)); redo.Clear(); }
+        if (tr.Version != v) Push(new Hist(null, id, before), "Object Mask");
         Raise(MasksChanged);
     }
     // multi-step changes (monitor drags, tracking runs) become one undo entry
@@ -1013,7 +1037,7 @@ public partial class Editor
     public void MaskEnd()
     {
         if (maskOpen is not { } id) return;
-        if (Track(id).Version != maskVersion) { undo.Push(new Hist(null, id, maskBefore)); redo.Clear(); }
+        if (Track(id).Version != maskVersion) Push(new Hist(null, id, maskBefore), "Object Mask");
         maskOpen = null; maskBefore = null;
         Raise(MasksChanged);
     }

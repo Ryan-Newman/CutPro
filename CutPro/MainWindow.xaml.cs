@@ -32,7 +32,7 @@ public partial class MainWindow : Window
         // (the playhead lives on the overlay: no full timeline redraw per scrub step)
         ed.Seeked += () => { if (playing) { audio.Stop(); clockRunning = false; playWall = Environment.TickCount64; } Ph.InvalidateVisual(); };
         ScrubCache.Updated += _ => Dispatcher.BeginInvoke(() => { binRef = null; OnChanged(); });
-        Tl.ViewChanged += () => { UpdateScrollBar(); UpdateVScroll(); Ph.InvalidateVisual(); };
+        Tl.ViewChanged += () => { UpdateScrollBar(); UpdateVScroll(); SyncZoomSlider(); Ph.InvalidateVisual(); };
         Tl.OverlayChanged += () => Ph.InvalidateVisual();
         Tl.ScrubStarted += Pause;
         CompositionTarget.Rendering += OnRendering;
@@ -107,8 +107,7 @@ public partial class MainWindow : Window
             {
                 ed.Time = audio.Ok ? audio.Clock : t0 + sw.Elapsed.TotalSeconds;
                 if (ed.Time >= ed.End) { ed.Time = ed.End; Pause(); }
-                double x = Tl.T2X(ed.Time);
-                if (x > Tl.ActualWidth - 30) Tl.ScrollX = ed.Time * Tl.Pps - 20;
+                FollowPlayhead();
             }
         }
         Pv.ClockRunning = playing && clockRunning;
@@ -187,7 +186,10 @@ public partial class MainWindow : Window
     void Lift_Click(object s, RoutedEventArgs e) => ed.LiftExtract(false);
     void Extract_Click(object s, RoutedEventArgs e) => ed.LiftExtract(true);
     void Snap_Changed(object s, RoutedEventArgs e) { if (ready) { Tl.SnapEnabled = SnapChk.IsChecked == true; UpdateStatus(); } }
-    void Zoom_Changed(object s, RoutedPropertyChangedEventArgs<double> e) { if (ready) Tl.Pps = e.NewValue; }
+    /// <summary>The zoom slider is logarithmic (pixels per second = 2^value: from a whole hour down to single frames).</summary>
+    bool zoomSync;
+    void Zoom_Changed(object s, RoutedPropertyChangedEventArgs<double> e) { if (ready && !zoomSync) Tl.Pps = Math.Pow(2, e.NewValue); }
+    void SyncZoomSlider() { zoomSync = true; ZoomSlider.Value = Math.Log2(Tl.Pps); zoomSync = false; }
     void ToolSelect_Click(object s, RoutedEventArgs e) => SetTool(false);
     void ToolRazor_Click(object s, RoutedEventArgs e) => SetTool(true);
     void SetTool(bool razor)
@@ -197,69 +199,6 @@ public partial class MainWindow : Window
         ToolRazor.IsChecked = razor;
     }
 
-    void Window_PreviewKeyDown(object s, KeyEventArgs e)
-    {
-        bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control), shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift),
-             alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt);
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
-        // shell shortcuts (VS Code): work even while typing in a field
-        if ((key == Key.P && ctrl && shift) || key == Key.F1) { OpenPalette(); e.Handled = true; return; }
-        if (Palette.Visibility == Visibility.Visible) return;                 // the palette handles its own keys
-        if (key == Key.B && ctrl && alt) { SetInspector(!inspVisible); e.Handled = true; return; }
-        if (key == Key.B && ctrl && !shift) { SetSideBar(!sideVisible); e.Handled = true; return; }
-        if (key == Key.F11) { ToggleFullScreen(); e.Handled = true; return; }
-        if (Keyboard.FocusedElement is TextBox or ComboBox or ComboBoxItem) return;
-        if (key == Key.Oem3 && !ctrl && !alt) { ToggleMaximizePanel(); e.Handled = true; return; }    // ` = maximize the panel under the mouse (Premiere)
-        if (Kfe.IsVisible && Kfe.IsKeyboardFocused && Kfe.HandleKey(key, ctrl)) { e.Handled = true; return; }
-        if (SourceKey(key, ctrl, shift)) { e.Handled = true; return; }      // the source monitor has the keyboard (clicked last)
-        bool used = true;
-        switch (e.Key)
-        {
-            // Premiere Pro default shortcuts
-            case Key.Z when ctrl: if (shift) ed.Redo(); else ed.Undo(); break;
-            case Key.Y when ctrl: ed.Redo(); break;
-            case Key.S when ctrl: Save_Click(this, e); break;
-            case Key.O when ctrl: Open_Click(this, e); break;
-            case Key.N when ctrl: NewSequence(); break;                           // New Sequence
-            case Key.I when ctrl: Import_Click(this, e); break;
-            case Key.U when ctrl && shift: OpenPublish(null); break;
-            case Key.E when ctrl: Export_Click(this, e); break;
-            case Key.K when ctrl: ed.AddEdit(shift); break;            // Add Edit / Add Edit to All Tracks
-            case Key.L when ctrl: ed.ToggleLink(); break;
-            case Key.D when ctrl: ApplyTransitions(!shift, shift); break;   // Ctrl+D video / Ctrl+Shift+D audio transition
-            case Key.R when ctrl: SpeedDialog(); break;                         // Ctrl+R Clip Speed / Duration
-            case Key.D when shift: ApplyTransitions(true, true); break;      // Shift+D both
-            case Key.A when ctrl: if (shift) ed.ClearSelection(); else ed.SelectAll(); break;
-            case Key.Escape: if (trackCts != null) trackCts.Cancel(); else if (Mo.Tool != ObjectTool.None) SetObjectTool(ObjectTool.None); else ed.ClearSelection(); break;
-            case Key.Space: TogglePlay(); break;
-            case Key.K: Pause(); break;
-            case Key.L: Play(); break;
-            case Key.J: Pause(); Step(-1); break;
-            case Key.S: SnapChk.IsChecked = SnapChk.IsChecked != true; break;
-            case Key.Q: Pause(); ed.RippleTrim(true); break;             // ripple trim previous edit to playhead
-            case Key.W: Pause(); ed.RippleTrim(false); break;            // ripple trim next edit to playhead
-            case Key.I: ed.SetMark(true); break;
-            case Key.O: ed.SetMark(false); break;
-            case Key.X: ed.ClearMarks(); break;
-            case Key.OemComma: SourceEdit(true); break;                     // Insert (source monitor → timeline)
-            case Key.OemPeriod: SourceEdit(false); break;                   // Overwrite
-            case Key.F when !shift && !ctrl: MatchFrame(); break;                   // Match Frame
-            case Key.OemSemicolon: Pause(); ed.LiftExtract(false); break;
-            case Key.OemQuotes: Pause(); ed.LiftExtract(true); break;
-            case Key.C: SetTool(true); break;
-            case Key.V: SetTool(false); break;
-            case Key.Delete: case Key.Back: ed.DeleteSelection(shift); break;
-            case Key.Left: Step(shift ? -1 : -1.0 / TimeUtil.Fps); break;
-            case Key.Right: Step(shift ? 1 : 1.0 / TimeUtil.Fps); break;
-            case Key.Up: if (ed.PrevEdit(ed.Time) is double pe) ed.Seek(pe); break;
-            case Key.Down: if (ed.NextEdit(ed.Time) is double ne) ed.Seek(ne); break;
-            case Key.Home: ed.Seek(0); break;
-            case Key.End: ed.Seek(ed.End); break;
-            case Key.LeftShift: case Key.RightShift: case Key.System: Tl.UpdateHover(); used = false; break;
-            default: used = false; break;
-        }
-        if (used) e.Handled = true;
-    }
     void Window_PreviewKeyUp(object s, KeyEventArgs e) { if (e.Key is Key.LeftShift or Key.RightShift or Key.System or Key.LeftAlt or Key.RightAlt) Tl.UpdateHover(); }
 
     // ---------- bin ----------
@@ -313,6 +252,11 @@ public partial class MainWindow : Window
 
     // ---------- inspector ----------
     void BuildInspector()
+    {
+        BuildInspectorCore();
+        if (Loc.Current != "en") Loc.Apply(Inspector);                   // (fixed labels in the interface language)
+    }
+    void BuildInspectorCore()
     {
         Inspector.Children.Clear(); liveKeys.Clear(); liveProps.Clear();
         if (BuildTrackFxInspector()) return;                          // a track's effects (mixer strip fx button)
@@ -409,13 +353,18 @@ public partial class MainWindow : Window
             if (dlg.ShowDialog(this) != true) return;
             projectPath = dlg.FileName;
         }
+        File.WriteAllText(projectPath, JsonSerializer.Serialize(BuildProjectFile(), new JsonSerializerOptions { WriteIndented = true }));
+        Title = "CutPro — " + Path.GetFileName(projectPath);
+        histStale = true; RefreshHistory();
+    }
+    /// <summary>The project as saved (Save, Collect Files).</summary>
+    ProjectFile BuildProjectFile()
+    {
         ed.Commit(); ed.CaptureFormat();
         var used = ed.Sequences.SelectMany(s => s.Clips).SelectMany(c => c.Masks).Select(m => m.Id).ToHashSet();
-        var pf = new ProjectFile { Media = ed.Media, Theme = ed.ThemeName, MaskTracks = ed.MaskTracks.Where(kv => used.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value),
-                                  SeqW = Editor.OutW, SeqH = Editor.OutH, SeqFps = TimeUtil.Fps, Reframe = Editor.Reframe, Publish = ed.Publish,
-                                  Sequences = ed.Sequences, Active = ed.Seq.Id, Open = openSeqs.ToList() };
-        File.WriteAllText(projectPath, JsonSerializer.Serialize(pf, new JsonSerializerOptions { WriteIndented = true }));
-        Title = "CutPro — " + Path.GetFileName(projectPath);
+        return new ProjectFile { Media = ed.Media, Theme = ed.ThemeName, MaskTracks = ed.MaskTracks.Where(kv => used.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value),
+                                 SeqW = Editor.OutW, SeqH = Editor.OutH, SeqFps = TimeUtil.Fps, Reframe = Editor.Reframe, Publish = ed.Publish,
+                                 Sequences = ed.Sequences, Active = ed.Seq.Id, Open = openSeqs.ToList() };
     }
 
     async void Open_Click(object s, RoutedEventArgs e)
@@ -435,7 +384,10 @@ public partial class MainWindow : Window
             foreach (var m in ed.Media) { await MediaProbe.FillAsync(m); }
             binRef = null; ed.RaiseChanged();
             var missing = ed.Media.Where(m => m.Offline).Select(m => m.Path).ToList();
-            if (missing.Count > 0) Alert.Show(this, string.Join("\n", missing), "Some media files are missing", AlertKind.Warning);
+            if (missing.Count > 0 && Alert.Show(this, string.Join("\n", missing.Take(12)) + (missing.Count > 12 ? $"\n… and {missing.Count - 12} more" : "") +
+                                                "\n\nFind them now? (Locate one and the others in the same folder are found too.)",
+                                                "Some media files are missing", AlertKind.Warning, "Relink…", "Later") == 0)
+                RelinkOffline();
         }
         catch (Exception ex) { Alert.Show(this, ex.Message, "Could not open the project", AlertKind.Error); }
     }
@@ -1057,6 +1009,45 @@ public partial class MainWindow : Window
                 await Task.Delay(600); Shot(Path.ChangeExtension(path, ".tracks.png"));
                 for (int i = 0; i < 5; i++) ed.Undo();                                   // (clips, three names, the tracks: back to 3 + 2)
                 Tl.ScrollY = 0; ShowSideView("Project");
+            }
+            // markers (sequence: named, coloured, a chapter-less one, one with a length; a clip marker), the History panel, the Markers menu,
+            // the shortcuts list, a menu in German, and the marker / Paste Attributes / Properties / shortcut dialogs
+            {
+                vc = ed.Clips.First(c => c.Id == vc.Id);                         // (the undos above replaced the clip objects)
+                ed.AddMarker(0, "Intro"); ed.AddMarker(1.2, "Welcome");
+                var mk2 = ed.AddMarker(2.6, "Song"); ed.UpdateMarker(mk2, null, m => { m.Color = MarkerColor.Purple; m.Dur = 1.2; });
+                var mk3 = ed.AddMarker(4.2, "Note"); ed.UpdateMarker(mk3, null, m => { m.Color = MarkerColor.Yellow; m.Chapter = false; m.Note = "fix the colour here"; });
+                ed.AddClipMarker(vc, vc.Start + 0.8);
+                ed.Select(vc); ed.CopySelection(); ed.Seek(1.9);
+                ShowDock("History"); Tl.ZoomTo(0, ed.End);
+                await Task.Delay(900); Shot(Path.ChangeExtension(path, ".markers.png"));
+                var mkBtn = FindVisualChildren<Button>(RootGrid).First(b => (b.Tag as string) == "Marker");
+                Menu_Click(mkBtn, new RoutedEventArgs()); await Task.Delay(400);
+                if (lastMenu != null) { var r = new System.Windows.Media.Imaging.RenderTargetBitmap((int)lastMenu.ActualWidth, (int)lastMenu.ActualHeight, 96, 96, PixelFormats.Pbgra32); r.Render(lastMenu); Save(r, Path.ChangeExtension(path, ".markermenu.png")); lastMenu.IsOpen = false; }
+                ShowSideView("Settings"); await Task.Delay(300);
+                if (shortcutFilter != null)
+                {   // (scrolled so the preferences and the filtered shortcut list fill the view)
+                    shortcutFilter.Text = "mark"; await Task.Delay(200);
+                    DependencyObject? up = shortcutFilter; while (up != null && up is not ScrollViewer) up = VisualTreeHelper.GetParent(up);
+                    if (up is ScrollViewer sv && sv.Content is UIElement content) sv.ScrollToVerticalOffset(shortcutFilter.TranslatePoint(new Point(0, 0), content).Y - 150);
+                }
+                await Task.Delay(500); Shot(Path.ChangeExtension(path, ".shortcuts.png"));
+                if (shortcutFilter != null) shortcutFilter.Text = "";
+                SetLanguage("de");
+                var editBtn = FindVisualChildren<Button>(RootGrid).First(b => (b.Tag as string) == "Edit");
+                Menu_Click(editBtn, new RoutedEventArgs()); await Task.Delay(500);
+                if (lastMenu != null) { var r = new System.Windows.Media.Imaging.RenderTargetBitmap((int)lastMenu.ActualWidth, (int)lastMenu.ActualHeight, 96, 96, PixelFormats.Pbgra32); r.Render(lastMenu); Save(r, Path.ChangeExtension(path, ".german.png")); lastMenu.IsOpen = false; }
+                await Task.Delay(300); Shot(Path.ChangeExtension(path, ".germanwin.png"));
+                SetLanguage("en");
+                ShowSideView("Project");
+                string dshot = "";
+                Alert.Shown = async w => { await Task.Delay(900); Save(ScreenGrab.Window(this), Path.ChangeExtension(path, dshot)); w.Close(); };
+                dshot = ".marker.png"; EditMarker(mk2, null);
+                dshot = ".pasteattr.png"; vc.Scale = 80; vc.Grade = new ColorGrade { Exposure = 0.3 }; ed.CopySelection(); PasteAttributesDialog();
+                dshot = ".properties.png"; if (ed.MediaOf(vc) is { } pm2) ShowProperties(pm2);
+                dshot = ".shortcutedit.png"; EditShortcut(Keymap.Get("marker.add")!);
+                Alert.Shown = null;
+                ShowDock("Inspector");
             }
             // Shorts: 9:16, Fill (crop + pan) then Fit + blurred background
             Format_Click(Fmt916, new RoutedEventArgs()); ed.Select(vc); BuildInspector();
