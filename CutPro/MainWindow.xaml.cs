@@ -89,9 +89,14 @@ public partial class MainWindow : Window
         UpdateMeters();
         UpdateScopes();
         SourceTick();
+        if (!playing)
+        {   // audio scrubbing: grains of the sound under the playhead while it is dragged
+            if (Tl.Scrubbing && S.AudioScrub && audio.Ok) audio.Scrub(ed.Time);
+            else if (audio.Scrubbing) audio.Stop();
+        }
         if (playing)
         {
-            if (!clockRunning)
+            if (!clockRunning && playRate == 1)
             {
                 // prime decoders + audio, then start the clock once the first frame is ready (max 1.5 s)
                 Pv.ClockRunning = false;
@@ -105,16 +110,18 @@ public partial class MainWindow : Window
             }
             else
             {
-                ed.Time = audio.Ok ? audio.Clock : t0 + sw.Elapsed.TotalSeconds;
+                ed.Time = audio.Ok ? audio.Clock : t0 + sw.Elapsed.TotalSeconds * playRate;
                 if (ed.Time >= ed.End) { ed.Time = ed.End; Pause(); }
+                else if (ed.Time <= 0 && playRate < 0) { ed.Time = 0; Pause(); }
                 FollowPlayhead();
             }
         }
-        Pv.ClockRunning = playing && clockRunning;
-        Pv.Sync(ed.Time, playing);
+        Pv.ClockRunning = playing && clockRunning && playRate == 1;
+        Pv.Sync(ed.Time, playing && playRate == 1);                            // (shuttling: the scrub machinery — cached frames while the time moves)
         if (Mo.Playing != playing) { Mo.Playing = playing; Mo.InvalidateVisual(); }
         if (Po.Playing != playing) { Po.Playing = playing; Po.InvalidateVisual(); }
         if (ed.Time != lastDrawnT && ed.Selected is { Pin: not null }) Po.InvalidateVisual();
+        if (meshOverlay != null && (meshOverlay.Playing != playing || ed.Time != lastDrawnT && ed.Selected is { Distort.Kind: DistortKind.Mesh })) { meshOverlay.Playing = playing; meshOverlay.InvalidateVisual(); }
         if (ed.Time != lastDrawnT && (Mo.Tool != ObjectTool.None || Mo.Target is { Masks.Count: > 0 })) Mo.InvalidateVisual();
         if (ed.Time != lastDrawnT && liveKeys.Count > 0) RefreshMaskKeys();
         if (ed.Time != lastDrawnT) { if (liveProps.Count > 0) RefreshProps(); if (Kfe.IsVisible) Kfe.InvalidateVisual(); UpdateCaptionHighlight(); }
@@ -126,7 +133,8 @@ public partial class MainWindow : Window
         if (playing || ed.Clips.Count == 0) return;
         SrcPause();                                                          // (one monitor plays at a time)
         if (ed.Time >= ed.End - 0.01) ed.Time = 0;
-        playing = true; clockRunning = false; playWall = Environment.TickCount64; UpdatePlayArt();
+        playRate = 1;
+        playing = true; clockRunning = false; playWall = Environment.TickCount64; UpdatePlayArt(); ShuttleBadge();
     }
 
     /// <summary>Play / pause button: the theme's art (leaf, glass orb, sapphire, metal disc) or the classic glyph.</summary>
@@ -149,7 +157,7 @@ public partial class MainWindow : Window
     {
         if (!playing) return;
         audio.Stop();
-        playing = false; clockRunning = false; UpdatePlayArt();
+        playing = false; clockRunning = false; playRate = 1; UpdatePlayArt(); ShuttleBadge();
         ed.Time = Math.Floor(ed.Time * TimeUtil.Fps + 1e-3) / TimeUtil.Fps;   // park on the frame that is showing
     }
     void Res_Changed(object s, SelectionChangedEventArgs e) { Pv.ResDiv = ResCombo.SelectedIndex switch { 1 => 2, 2 => 4, _ => 1 }; UpdateStatus(); }
@@ -192,12 +200,8 @@ public partial class MainWindow : Window
     void SyncZoomSlider() { zoomSync = true; ZoomSlider.Value = Math.Log2(Tl.Pps); zoomSync = false; }
     void ToolSelect_Click(object s, RoutedEventArgs e) => SetTool(false);
     void ToolRazor_Click(object s, RoutedEventArgs e) => SetTool(true);
-    void SetTool(bool razor)
-    {
-        Tl.Razor = razor;
-        ToolSelect.IsChecked = !razor;
-        ToolRazor.IsChecked = razor;
-    }
+    void SetTool(bool razor) => SetTool(razor ? TrimTool.Razor : TrimTool.Select);
+
 
     void Window_PreviewKeyUp(object s, KeyEventArgs e) { if (e.Key is Key.LeftShift or Key.RightShift or Key.System or Key.LeftAlt or Key.RightAlt) Tl.UpdateHover(); }
 
@@ -217,6 +221,7 @@ public partial class MainWindow : Window
         var failed = new List<string>();
         foreach (var p in paths)
         {
+            if (Path.GetExtension(p).ToLowerInvariant() is ".otio" or ".edl" or ".xml" or ".aaf") { await ImportSequenceAsync(p); continue; }   // (a timeline from another editor)
             if (ed.Media.Any(m => string.Equals(m.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
             var m = await MediaProbe.ProbeAsync(p);
             if (m == null) { failed.Add($"{Path.GetFileName(p)}: {MediaProbe.LastError}"); continue; }
@@ -302,6 +307,7 @@ public partial class MainWindow : Window
             PropRow(c, AnimProp.Scale); PropRow(c, AnimProp.X); PropRow(c, AnimProp.Y); PropRow(c, AnimProp.Rotation);
             if (c.Kind != ClipKind.Text) { PropRow(c, AnimProp.AnchorX); PropRow(c, AnimProp.AnchorY); }
             if (Editor.CoversFrame(c)) PropRow(c, AnimProp.Pan);
+            BuildFollowRow(c);
             Group("Opacity"); PropRow(c, AnimProp.Opacity); BuildBlendRow(c); BuildMatteRow(c);
             Group("Gaussian blur"); PropRow(c, AnimProp.Blur);
         }
@@ -309,6 +315,7 @@ public partial class MainWindow : Window
         BuildCropInspector(c);
         BuildPinInspector(c);
         BuildLensInspector(c);
+        BuildDistortInspector(c);
         BuildColorInspector(c);
         BuildToonInspector(c);
         BuildLooksInspector(c);
@@ -318,6 +325,7 @@ public partial class MainWindow : Window
         BuildAudioFxInspector(c);
         BuildTimeInspector(c);
         BuildStabInspector(c);
+        BuildDenoiseInspector(c);
         Group("Transitions (fade)");
         Slider("Fade in (s)", 0, 5, 0.1, c.FadeIn, v => c.FadeIn = v);
         Slider("Fade out (s)", 0, 5, 0.1, c.FadeOut, v => c.FadeOut = v);
@@ -399,7 +407,12 @@ public partial class MainWindow : Window
             ed.Sel.Clear(); ed.SelectedId = null; ed.Gap = null; ed.ResetHistory();
             projectPath = asPath; ed.RaiseChanged();
             MarkSaved(file == asPath);
-            foreach (var m in ed.Media) { await MediaProbe.FillAsync(m); }
+            foreach (var m in ed.Media)
+            {
+                if (m.Gen != null && !File.Exists(m.Path))                          // (a generated item: rendered again from its settings)
+                    try { m.Path = await Generators.EnsureAsync(m.Gen); } catch { }
+                await MediaProbe.FillAsync(m);
+            }
             binRef = null; ed.RaiseChanged();
             var missing = ed.Media.Where(m => m.Offline).Select(m => m.Path).ToList();
             if (missing.Count > 0 && Alert.Show(this, string.Join("\n", missing.Take(12)) + (missing.Count > 12 ? $"\n… and {missing.Count - 12} more" : "") +
@@ -1098,6 +1111,8 @@ public partial class MainWindow : Window
                 foreach (var m in media) { m.Words = null; m.Label = null; m.Rating = 0; m.Keywords = ""; }
                 ShowDock("Inspector");
             }
+            // the extra-high features: trim tools, opacity band, render queue, HSL secondary, distort, text animation, New Item
+            await ExtraShots(path, vc, Shot, Save);
             // Shorts: 9:16, Fill (crop + pan) then Fit + blurred background
             Format_Click(Fmt916, new RoutedEventArgs()); ed.Select(vc); BuildInspector();
             await Task.Delay(1500); Shot(Path.ChangeExtension(path, ".shorts.png"));
@@ -1119,7 +1134,7 @@ public partial class MainWindow : Window
 
     void Window_Closing(object? s, System.ComponentModel.CancelEventArgs e)
     {
-        if (!ConfirmDiscard()) { e.Cancel = true; return; }
+        if (!ConfirmQueueExit() || !ConfirmDiscard()) { e.Cancel = true; return; }
         AutoSave.EndSession();
         CompositionTarget.Rendering -= OnRendering; audio.Dispose(); Pv.DisposeAll();
     }

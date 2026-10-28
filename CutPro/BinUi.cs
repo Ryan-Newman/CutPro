@@ -307,6 +307,7 @@ public partial class MainWindow
         Item("Import Media…", () => Import_Click(this, new RoutedEventArgs()));
         Item("New Bin", NewBinHere);
         Item("New Sequence…", NewSequence);
+        cm.Items.Add(NewItemMenu());
         if (binPath.Length > 0) { cm.Items.Add(new Separator()); Item("Up One Bin", () => OpenBin(Bins.Parent(binPath))); }
         cm.PlacementTarget = BinList; cm.IsOpen = true;
     }

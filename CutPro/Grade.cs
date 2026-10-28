@@ -17,6 +17,30 @@ public sealed class Wheel
     public bool IsZero => Math.Abs(Amount) < 1e-9 && Math.Abs(Luma) < 1e-9;
 }
 
+/// <summary>Lumetri's HSL Secondary: a colour range picked by hue, saturation and luminance (soft edges), and a correction applied only there.
+/// It depends on the colour alone, so it is baked into the grade's LUT like everything else (preview = export).</summary>
+public sealed class HslKey
+{
+    public double Hue { get; set; } = 30;            // centre of the hue range, degrees
+    public double HueWidth { get; set; } = 25;       // ± degrees fully selected (180 = every hue)
+    public double SatMin { get; set; } = 15;         // % (chroma: max − min of R G B)
+    public double SatMax { get; set; } = 100;
+    public double LumMin { get; set; }               // % (Rec. 709 luma)
+    public double LumMax { get; set; } = 100;
+    public double Soft { get; set; } = 30;           // edge softness, %
+    public bool Invert { get; set; }
+    /// <summary>Show the selection as grey (white = selected) instead of the correction — for setting the range.</summary>
+    public bool ShowMask { get; set; }
+    // the correction inside the selection
+    public double Temperature { get; set; }
+    public double Tint { get; set; }
+    public double Exposure { get; set; }
+    public double Contrast { get; set; }
+    public double Saturation { get; set; } = 100;
+    public double HueShift { get; set; }             // degrees
+    public bool IsZero => !ShowMask && Temperature == 0 && Tint == 0 && Exposure == 0 && Contrast == 0 && Math.Abs(Saturation - 100) < 1e-9 && HueShift == 0;
+}
+
 /// <summary>Colour correction of a clip, like Premiere's Lumetri Color (null on the clip = untouched).</summary>
 public sealed class ColorGrade
 {
@@ -50,13 +74,15 @@ public sealed class ColorGrade
     public double VigMidpoint { get; set; } = 50;
     public double VigFeather { get; set; } = 50;
     public double VigRoundness { get; set; }
+    /// <summary>HSL Secondary (null = none).</summary>
+    public HslKey? Hsl { get; set; }
 
     public ColorGrade Clone() => JsonSerializer.Deserialize<ColorGrade>(JsonSerializer.Serialize(this))!;
     /// <summary>True when the colours pass through unchanged (no LUT needed).</summary>
     public bool ColorIdentity =>
         Temperature == 0 && Tint == 0 && Exposure == 0 && Contrast == 0 && Highlights == 0 && Shadows == 0 && Whites == 0 && Blacks == 0
         && Math.Abs(Saturation - 100) < 1e-9 && Vibrance == 0 && (string.IsNullOrEmpty(Look) || LookAmount <= 0) && Faded == 0
-        && Lift.IsZero && Gamma.IsZero && Gain.IsZero && Curve == null && CurveR == null && CurveG == null && CurveB == null;
+        && Lift.IsZero && Gamma.IsZero && Gain.IsZero && Curve == null && CurveR == null && CurveG == null && CurveB == null && (Hsl == null || Hsl.IsZero);
     public bool HasVignette => Math.Abs(Vignette) > 1e-9;
 }
 
@@ -198,7 +224,58 @@ public static class Grade
         if (curves[1] is { } cr) r = cr(C01(r));
         if (curves[2] is { } cg) gg = cg(C01(gg));
         if (curves[3] is { } cb) b = cb(C01(b));
+        // 7. HSL secondary: a correction weighted by how much the colour is in the picked range
+        if (g.Hsl is { } hk && !hk.IsZero)
+        {
+            r = C01(r); gg = C01(gg); b = C01(b);
+            double m = Matte(hk, r, gg, b);
+            if (hk.ShowMask) return (m, m, m);
+            var (sr, sg, sb) = Secondary(hk, r, gg, b);
+            r += (sr - r) * m; gg += (sg - gg) * m; b += (sb - b) * m;
+        }
         return (C01(r), C01(gg), C01(b));
+    }
+
+    /// <summary>Hue (degrees), chroma and Rec. 709 luma of a colour (0…1).</summary>
+    public static (double h, double s, double l) Hsl(double r, double g, double b)
+    {
+        double mx = Math.Max(r, Math.Max(g, b)), mn = Math.Min(r, Math.Min(g, b)), c = mx - mn, h = 0;
+        if (c > 1e-9) h = mx == r ? 60 * (((g - b) / c % 6 + 6) % 6) : mx == g ? 60 * ((b - r) / c + 2) : 60 * ((r - g) / c + 4);
+        return (h, c, Luma(r, g, b));
+    }
+    /// <summary>How much a colour is in the HSL range (0…1): hue distance, chroma and luma, each with soft edges, multiplied.</summary>
+    public static double Matte(HslKey k, double r, double g, double b)
+    {
+        var (h, s, l) = Hsl(r, g, b);
+        double soft = Math.Max(0.5, k.Soft) / 100;
+        double d = Math.Abs(((h - k.Hue) % 360 + 540) % 360 - 180);              // (angular distance, 0 … 180)
+        double wh = k.HueWidth >= 180 ? 1 : 1 - Smooth(k.HueWidth, k.HueWidth + 1 + 60 * soft, d);
+        double s100 = s * 100, l100 = l * 100, es = 1 + 30 * soft;
+        double ws = (k.SatMin <= 0 ? 1 : Smooth(k.SatMin - es, k.SatMin, s100)) * (k.SatMax >= 100 ? 1 : 1 - Smooth(k.SatMax, k.SatMax + es, s100));
+        double wl = (k.LumMin <= 0 ? 1 : Smooth(k.LumMin - es, k.LumMin, l100)) * (k.LumMax >= 100 ? 1 : 1 - Smooth(k.LumMax, k.LumMax + es, l100));
+        double m = wh * ws * wl;
+        return k.Invert ? 1 - m : m;
+    }
+    /// <summary>The secondary correction on one colour: white balance and exposure in linear light, contrast, saturation, hue rotation.</summary>
+    static (double r, double g, double b) Secondary(HslKey k, double r, double g, double b)
+    {
+        if (k.Temperature != 0 || k.Tint != 0 || k.Exposure != 0)
+        {
+            double t = k.Temperature / 100, m = k.Tint / 100;
+            double kr = 1 + 0.30 * t + 0.10 * m, kg = 1 - 0.20 * m, kb = 1 - 0.30 * t + 0.10 * m;
+            double e = Math.Pow(2, k.Exposure) / Luma(kr, kg, kb);
+            r = ToSrgb(ToLin(r) * kr * e); g = ToSrgb(ToLin(g) * kg * e); b = ToSrgb(ToLin(b) * kb * e);
+        }
+        if (k.Contrast != 0) { double c = 1 + k.Contrast / 100; r = 0.5 + (r - 0.5) * c; g = 0.5 + (g - 0.5) * c; b = 0.5 + (b - 0.5) * c; }
+        double L = Luma(r, g, b);
+        if (k.HueShift != 0)
+        {   // rotate the colour difference (Cb, Cr) about the grey axis
+            double cbv = b - L, crv = r - L, a = k.HueShift * Math.PI / 180, cs = Math.Cos(a), sn = Math.Sin(a);
+            double cb2 = cbv * cs - crv * sn, cr2 = cbv * sn + crv * cs;
+            r = L + cr2; b = L + cb2; g = (L - 0.2126 * r - 0.0722 * b) / 0.7152;
+        }
+        if (Math.Abs(k.Saturation - 100) > 1e-9) { double s = k.Saturation / 100; r = L + (r - L) * s; g = L + (g - L) * s; b = L + (b - L) * s; }
+        return (C01(r), C01(g), C01(b));
     }
 
     /// <summary>A wheel as an RGB offset: the hue's colour (luma removed) × amount, plus the luminance slider (scaled by k).</summary>

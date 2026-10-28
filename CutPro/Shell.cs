@@ -45,7 +45,7 @@ public partial class MainWindow
         InitMixer();
         InitTracks();
         InitMarkers();
-        InitBins(); InitAutoSave(); InitTranscript(); InitHigh();
+        InitBins(); InitAutoSave(); InitTranscript(); InitHigh(); InitTrimUi();
         InitSpeed(); InitStab();
         InitDock();                                          // (panels where the saved layout / workspace puts them)
         if (forceView != null) ShowSideView(forceView);
@@ -123,13 +123,14 @@ public partial class MainWindow
         switch ((string)b.Tag)
         {
             case "File":
-                Add(MI("Import Media…", K("file.import"), () => Import_Click(this, e)), MI("Open Project…", K("file.open"), () => Open_Click(this, e)),
+                Add(MI("Import Media…", K("file.import"), () => Import_Click(this, e)), MI("Import Sequence (XML, OTIO, EDL)…", "", () => _ = ImportSequenceAsync()),
+                    MI("Open Project…", K("file.open"), () => Open_Click(this, e)),
                     MI("Save Project", K("file.save"), () => Save_Click(this, e)), MI("Auto-Save Versions…", K("file.autosaves"), AutoSaveVersions), "-",
-                    MI("New Bin", K("bin.new"), () => RunCommand("bin.new")),
+                    MI("New Bin", K("bin.new"), () => RunCommand("bin.new")), NewItemMenu(),
                     MI("Relink Offline Media…", "", () => RelinkOffline(), enabled: ed.Media.Any(m => m.Offline)),
                     MI("Collect Files…", K("file.collect"), () => _ = CollectFilesAsync(), enabled: ed.Media.Count > 0), "-",
                     MI("Record Voice-over…", K("audio.voiceover"), () => VoiceOverDialog()), "-",
-                    MI("Export…", K("file.export"), () => Export_Click(this, e)),
+                    MI("Export…", K("file.export"), () => Export_Click(this, e)), MI("Render Queue", "", () => ShowDock("Queue")),
                     MI("Export EDL…", K("file.exportEdl"), () => ExportInterchange(false), enabled: ed.Clips.Count > 0),
                     MI("Export OpenTimelineIO…", K("file.exportOtio"), () => ExportInterchange(true), enabled: ed.Clips.Count > 0),
                     MI("Publish…", K("file.publish"), () => OpenPublish(null)), "-",
@@ -153,6 +154,8 @@ public partial class MainWindow
                 foreach (var (id, h) in new[] { ("tl.zoomIn", "Zoom In"), ("tl.zoomOut", "Zoom Out"), ("tl.zoomSeq", "Zoom to Sequence"), ("tl.zoomSel", "Zoom to Selection") })
                     zoom.Items.Add(MI(h, K(id), () => RunCommand(id)));
                 Add("-", gap, zoom, LayoutMenu());
+                Add("-", MI("Audio Scrubbing", K("tl.audioScrub"), () => RunCommand("tl.audioScrub"), S.AudioScrub),
+                    MI("Audio Time Units", K("tl.audioUnits"), ToggleAudioUnits, S.AudioUnits));
                 Add("-", MI("Add Tracks…", "", () => AddTracksDialog()), MI("Delete Empty Tracks", "", DeleteEmptyTracks),
                     "-", MI("Add Adjustment Layer", "", AddAdjustment), MI("Nest…", "", NestSelected, enabled: ed.Sel.Count > 0),
                     MI("Open Nested Sequence", "", () => { if (ed.Selected is { } nc) OpenNested(nc); }, enabled: ed.Selected is { } sc && ed.SeqOf(sc) != null), "-",
@@ -508,6 +511,8 @@ public partial class MainWindow
             new("Playback: Resolution Full", "", () => ResCombo.SelectedIndex = 0), new("Playback: Resolution 1/2", "", () => ResCombo.SelectedIndex = 1),
             new("Playback: Resolution 1/4", "", () => ResCombo.SelectedIndex = 2),
             new("Tools: Selection Tool", "V", () => SetTool(false)), new("Tools: Razor Tool", "C", () => SetTool(true)),
+            new("Tools: Ripple Edit Tool", "B", () => SetTool(TrimTool.Ripple)), new("Tools: Rolling Edit Tool", "N", () => SetTool(TrimTool.Roll)),
+            new("Tools: Rate Stretch Tool", "R", () => SetTool(TrimTool.Rate)), new("Tools: Slip Tool", "Y", () => SetTool(TrimTool.Slip)), new("Tools: Slide Tool", "U", () => SetTool(TrimTool.Slide)),
             new("Timeline: Toggle Snapping", "S", () => SnapChk.IsChecked = SnapChk.IsChecked != true),
             new("Title: Add Title", "", () => ed.AddTitle(TextRole.Title)), new("Title: Add Subtitle", "", () => ed.AddTitle(TextRole.Subtitle)),
             new("Title: Add Lower Third", "", () => ed.AddTitle(TextRole.LowerThird)), new("Title: Add Caption", "", () => ed.AddTitle(TextRole.Caption)),

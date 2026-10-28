@@ -183,7 +183,7 @@ public class Preview : Canvas
             if (Stab.Ready(c, m, ss, se) is { } sf)
                 return new Need(c, m, active, Math.Clamp(t - ss, 0, Math.Max(0, se - ss - 0.5 / TimeUtil.Fps)), w, h, sf, 0, SrcAt(c, m, t), false, se - ss, vf, alpha);
         }
-        if (!TimeMap.IsRemapped(c)) { double s = SrcAt(c, m, t); return new Need(c, m, active, s, w, h, m.Path, 0, s, false, m.Duration, vf, alpha); }
+        if (!TimeMap.IsRemapped(c)) { double s = SrcAt(c, m, t); return new Need(c, m, active, s, w, h, Proxies.PathOf(m), 0, s, false, m.Duration, vf, alpha); }   // (proxies on: the small copy)
         var (rs, re) = plan.Range(c);
         double fps = TimeMap.NativeFps(m);
         long i = TimeMap.NativeIndex(c, m, t);
@@ -694,7 +694,7 @@ public class Preview : Canvas
             Place(L.El, c.Track, c);
             if (L.Tv != null)
             {
-                L.Tv.Update(c, false, look.Apply(TitleVisual.MotionAt(c, t)));          // (a Move transition moves the title's own motion)
+                L.Tv.Update(c, false, look.Apply(TitleVisual.MotionAt(c, t)), t - c.Start);   // (a Move transition moves the title's own motion; text animation by clip time)
                 double lx = look.Moves ? 0 : look.Dx, ly = look.Moves ? 0 : look.Dy;
                 Set(L.El, LeftProperty, lx); Set(L.El, TopProperty, ly);                 // a title is a full-frame canvas
                 ApplyLook(L.El, null, look, lx, ly, Editor.W, Editor.H, 0);

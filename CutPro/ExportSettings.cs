@@ -9,7 +9,7 @@ public sealed class ExportSettings
 {
     public string Name { get; set; } = "Match sequence (H.264)";
     public string Container { get; set; } = "mp4";        // mp4 mov mkv webm | wav mp3 m4a (audio only)
-    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores none
+    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores prores4444 | with alpha: prores4444a vp9a qtrle png | none
     public string Encoder { get; set; } = "software";     // software nvenc qsv amf
     public bool ConstantQuality { get; set; } = true;
     public int Quality { get; set; } = 18;                // CRF / CQ (lower = better)
@@ -42,8 +42,20 @@ public sealed class ExportSettings
     [System.Text.Json.Serialization.JsonIgnore] public bool Background { get; set; }
     /// <summary>Captions (caption-role titles) drawn into the picture; and / or written as an .srt next to the file (<see cref="Captioning"/>).</summary>
     public bool BurnCaptions { get; set; } = true;
+    /// <summary>Sound channels in the file: "stereo", "mono" (the stereo mix folded to one channel) or "5.1" (tracks to front / centre / surround /
+    /// LFE by their 5.1 output, <see cref="TrackMix.Surround"/>).</summary>
+    public string Channels { get; set; } = "stereo";
+    /// <summary>Filled by <see cref="Exporter.RunAsync"/> for a 5.1 export: the rendered 6-channel float file the exporter reads.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? SurroundFile { get; set; }
     public bool CaptionFile { get; set; }
     public bool AudioOnly => Video == "none";
+    /// <summary>A codec that keeps transparency (ProRes 4444 with alpha, VP9 with alpha, QuickTime Animation, PNG sequence): the export composites
+    /// on a transparent background like a nested render (<see cref="Alpha"/>) — where nothing is drawn the file is see-through.</summary>
+    public bool WantsAlpha => Video is "prores4444a" or "vp9a" or "qtrle" or "png";
+    /// <summary>A numbered picture per frame (name_00000.png …) instead of one file.</summary>
+    public bool ImageSequence => Video == "png";
+    /// <summary>The ffmpeg output name: an image sequence gets its frame number pattern.</summary>
+    public string OutputPath(string file) => ImageSequence && !file.Contains('%') ? Path.Combine(Path.GetDirectoryName(file) ?? "", Path.GetFileNameWithoutExtension(file) + "_%05d" + Path.GetExtension(file)) : file;
     public int OutH => Height > 0 ? Even(Height) : Editor.OutH;
     public int OutW => Height > 0 ? Even(Editor.W * (double)Height / Editor.H) : Editor.OutW;
     /// <summary>Output pixels per logical (preview) pixel.</summary>
@@ -73,11 +85,15 @@ public sealed class ExportSettings
         new ExportSettings { Name = "ProRes 422 HQ master (.mov)", Video = "prores", Container = "mov", Audio = "pcm", Note = "Large files for further editing" },
         new ExportSettings { Name = "ProRes 4444 master (.mov)", Video = "prores4444", Container = "mov", Audio = "pcm", Note = "Full colour (4:4:4, 10-bit) for mastering and further editing; very large files" },
         new ExportSettings { Name = "WebM (VP9)", Video = "vp9", Container = "webm", Audio = "opus", Quality = 31 },
+        new ExportSettings { Name = "ProRes 4444 with alpha (.mov)", Video = "prores4444a", Container = "mov", Audio = "pcm", Note = "Transparent where nothing is drawn — titles, lower thirds, overlays for other editors" },
+        new ExportSettings { Name = "WebM VP9 with alpha", Video = "vp9a", Container = "webm", Audio = "opus", Quality = 31, Note = "Transparent video for the web and OBS" },
+        new ExportSettings { Name = "QuickTime Animation with alpha (.mov)", Video = "qtrle", Container = "mov", Audio = "pcm", Note = "Lossless RGB + alpha; very large files" },
+        new ExportSettings { Name = "PNG sequence with alpha", Video = "png", Container = "png", Audio = "none", Note = "One picture per frame (name_00000.png …), transparent background, no sound" },
         new ExportSettings { Name = "Audio only — WAV", Video = "none", Container = "wav", Audio = "pcm" },
         new ExportSettings { Name = "Audio only — MP3 320 kbps", Video = "none", Container = "mp3", Audio = "mp3", AudioKbps = 320 },
     };
 
-    public static readonly string[] Containers = { "mp4", "mov", "mkv", "webm" };
+    public static readonly string[] Containers = { "mp4", "mov", "mkv", "webm", "png" };
     public static readonly string[] AudioContainers = { "wav", "mp3", "m4a" };
 
     /// <summary>ffmpeg video encoder name for a codec + encoder choice.</summary>
@@ -86,7 +102,8 @@ public sealed class ExportSettings
         ("h264", "nvenc") => "h264_nvenc", ("hevc", "nvenc") => "hevc_nvenc", ("av1", "nvenc") => "av1_nvenc",
         ("h264", "qsv") => "h264_qsv", ("hevc", "qsv") => "hevc_qsv", ("av1", "qsv") => "av1_qsv",
         ("h264", "amf") => "h264_amf", ("hevc", "amf") => "hevc_amf", ("av1", "amf") => "av1_amf",
-        ("hevc", _) => "libx265", ("av1", _) => "libsvtav1", ("vp9", _) => "libvpx-vp9", ("prores", _) or ("prores4444", _) => "prores_ks", ("ffv1", _) => "ffv1",
+        ("hevc", _) => "libx265", ("av1", _) => "libsvtav1", ("vp9", _) or ("vp9a", _) => "libvpx-vp9", ("prores", _) or ("prores4444", _) or ("prores4444a", _) => "prores_ks", ("ffv1", _) => "ffv1",
+        ("qtrle", _) => "qtrle", ("png", _) => "png",
         _ => "libx264",
     };
 
@@ -120,10 +137,16 @@ public sealed class ExportSettings
                     break;
                 case "libvpx-vp9":
                     if (ConstantQuality) a.AddRange(new[] { "-crf", Quality.ToString(), "-b:v", "0" }); else a.AddRange(new[] { "-b:v", kbps });
-                    a.AddRange(new[] { "-row-mt", "1", "-deadline", "good", "-cpu-used", Speed is "slow" or "slower" or "veryslow" ? "1" : "3", "-pix_fmt", "yuv420p" });
+                    a.AddRange(new[] { "-row-mt", "1", "-deadline", "good", "-cpu-used", Speed is "slow" or "slower" or "veryslow" ? "1" : "3", "-pix_fmt", Video == "vp9a" ? "yuva420p" : "yuv420p" });
+                    if (Video == "vp9a") a.AddRange(new[] { "-auto-alt-ref", "0" });           // (libvpx: alt-ref frames and alpha don't mix)
+                    break;
+                case "qtrle": a.AddRange(new[] { "-pix_fmt", "argb" }); break;
+                case "png":
+                    a.AddRange(new[] { "-pix_fmt", "rgba", "-start_number", "0", "-f", "image2" });
                     break;
                 case "prores_ks":
-                    a.AddRange(Video == "prores4444" ? new[] { "-profile:v", "4", "-vendor", "apl0", "-pix_fmt", "yuv444p10le" }     // (4444: full chroma)
+                    a.AddRange(Video == "prores4444a" ? new[] { "-profile:v", "4", "-vendor", "apl0", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16" }
+                             : Video == "prores4444" ? new[] { "-profile:v", "4", "-vendor", "apl0", "-pix_fmt", "yuv444p10le" }     // (4444: full chroma)
                                                      : new[] { "-profile:v", "3", "-vendor", "apl0", "-pix_fmt", "yuv422p10le" });
                     break;
                 case "ffv1":       // lossless, every frame a key frame (instant seeks), slices for threaded decoding
@@ -167,7 +190,7 @@ public sealed class ExportSettings
     {
         double vMbps = AudioOnly ? 0 : ConstantQuality ? Video switch
         {
-            "prores" => 220 * Math.Pow(OutH / 1080.0, 2), "prores4444" => 330 * Math.Pow(OutH / 1080.0, 2), "hevc" => 6 * Math.Pow(OutH / 1080.0, 1.6), "av1" => 4.5 * Math.Pow(OutH / 1080.0, 1.6),
+            "prores" => 220 * Math.Pow(OutH / 1080.0, 2), "prores4444" or "prores4444a" => 330 * Math.Pow(OutH / 1080.0, 2), "qtrle" => 400 * Math.Pow(OutH / 1080.0, 2), "png" => 600 * Math.Pow(OutH / 1080.0, 2), "hevc" => 6 * Math.Pow(OutH / 1080.0, 1.6), "av1" => 4.5 * Math.Pow(OutH / 1080.0, 1.6),
             _ => 10 * Math.Pow(OutH / 1080.0, 1.6) * Math.Pow(2, (18 - Quality) / 6.0),
         } : BitrateMbps;
         double aMbps = Audio == "pcm" ? 1.536 : Audio == "none" ? 0 : AudioKbps / 1000.0;

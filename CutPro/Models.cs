@@ -84,7 +84,15 @@ public class MediaItem
     /// <summary>What is said in the file (Whisper, by SOURCE time — text-based editing maps it through each clip: <see cref="Transcript"/>).</summary>
     public List<Word>? Words { get; set; }
 
-    [JsonIgnore] public string Name => FolderName ?? SeqName ?? System.IO.Path.GetFileName(Path);
+    /// <summary>A generated item (colour matte, gradient, bars and tone, counting leader: <see cref="Generators"/>) and the name it shows.</summary>
+    public Generator? Gen { get; set; }
+    /// <summary>A small copy the preview plays instead when proxies are on (<see cref="Proxies"/>); null = none.</summary>
+    public string? Proxy { get; set; }
+    /// <summary>The proxy file is there (checked with <see cref="RefreshOnline"/>, never per frame).</summary>
+    [JsonIgnore] public bool ProxyOk { get; private set; }
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore] public string Name => FolderName ?? SeqName ?? DisplayName ?? System.IO.Path.GetFileName(Path);
     /// <summary>Set on the Project panel's stand-in for a bin (its full path in <see cref="Folder"/>).</summary>
     [JsonIgnore] public string? Folder { get; set; }
     [JsonIgnore] public string? FolderName { get; set; }
@@ -103,7 +111,12 @@ public class MediaItem
     /// Refreshed on import/open and periodically by the main window.</summary>
     [JsonIgnore] public bool Offline { get; private set; }
     /// <summary>Re-checks the file; returns true if the online/offline state changed.</summary>
-    public bool RefreshOnline() { if (Seq != null) return false; bool o = !File.Exists(Path); if (o == Offline) return false; Offline = o; return true; }
+    public bool RefreshOnline()
+    {
+        if (Seq != null) return false;
+        bool p = Proxy != null && File.Exists(Proxy), pc = p != ProxyOk; ProxyOk = p;
+        bool o = !File.Exists(Path); if (o == Offline) return pc; Offline = o; return true;
+    }
     // filled by MediaProbe (ffprobe) / Decoders.Calibrate on import and project open
     [JsonIgnore] public int Rotation { get; set; }
     [JsonIgnore] public string Codec { get; set; } = "";
@@ -125,8 +138,12 @@ public class MediaItem
         (Offline ? "OFFLINE  " : "") + Type + (Type == ClipKind.Image ? "" : "  " + TimeUtil.Format(Duration, false))
         + (Type == ClipKind.Video && Width > 0 ? $"  {Width}×{Height} {Codec.ToUpperInvariant()}{(TenBit ? " 10-bit" : "")}" : "")
         + (Timecode != null ? "  TC " + Timecode : "") + (Reel != null ? "  Reel " + Reel : "") + (Rating > 0 ? "  " + Stars : "") + (Keywords.Length > 0 ? "  #" + Keywords : "")
+        + (Proxy != null ? (ProxyOk ? "  · proxy" : "  · proxy missing") : "")
         + (Decoders.IsHardware(PlayDecoder) || Decoders.IsHardware(SeekDecoder) ? $"  · {Decoders.Label(Decoders.IsHardware(PlayDecoder) ? PlayDecoder : SeekDecoder)} decode" : "");
 }
+
+public enum ChannelMap { Stereo, Left, Right, Mono, Swap }
+public enum VoiceClean { None, ReduceNoise, IsolateVoice }
 
 public class Clip
 {
@@ -214,12 +231,29 @@ public class Clip
     public DropShadow? Shadow { get; set; }
     /// <summary>Corner pin (null = off): <see cref="CutPro.Pin"/>.</summary>
     public CornerPin? Pin { get; set; }
+    /// <summary>Twirl / wave / spherize / mesh warp (null = none; not with a corner pin or lens distortion): <see cref="Distorts"/>.</summary>
+    public Distort? Distort { get; set; }
+    /// <summary>Video noise reduction (null = off) and how slow motion fills frames (sampling / blending / optical flow): both rendered in the
+    /// background with stabilization's machinery (<see cref="CutPro.Stab"/>), read by preview and export alike.</summary>
+    public VideoDenoise? Denoise { get; set; }
+    public FrameInterp Interp { get; set; }
+    /// <summary>Titles: text animation (in / out by letter, word or line; roll / crawl) — <see cref="TitleAnim"/>.</summary>
+    public TextAnim? TextFx { get; set; }
+    /// <summary>Attached to a tracked object (null = not): its Position / Scale keys were baked from it (<see cref="Editor.AttachToObject"/>).</summary>
+    public Follow? Follow { get; set; }
     /// <summary>Audio effects on the clip's sound, in order (null = none): <see cref="AudioDsp"/>.</summary>
     public List<AudioEffect>? AudioFx { get; set; }
     public double Speed { get; set; } = 100;
     public bool Reverse { get; set; }
     public bool Hold { get; set; }
     public bool PitchLock { get; set; } = true;
+    /// <summary>Which source channels the clip plays (Premiere's Modify ▸ Audio Channels): stereo as recorded, the left or right channel on both
+    /// sides (a mic on one channel), both mixed to mono, or swapped — rendered like a speed change (<see cref="AudioCache.Derives"/>).</summary>
+    public ChannelMap Channels { get; set; }
+    /// <summary>Sound clean-up (Premiere's Enhance Speech / DeNoise): background noise reduced, or the voice isolated (its band kept, the rest
+    /// pushed down) — rendered like a speed change; <see cref="VoiceAmount"/> 0 … 100.</summary>
+    public VoiceClean Voice { get; set; }
+    public double VoiceAmount { get; set; } = 60;
     /// <summary>Pitch shift in semitones (0 = none; the sound is rendered like a speed change: <see cref="AudioCache.Derives"/>).</summary>
     public double Pitch { get; set; }
     /// <summary>Keep the voice's character (formants) when shifting the pitch.</summary>

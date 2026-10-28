@@ -99,6 +99,13 @@ public partial class MainWindow
             Check("Keep pitch", c.PitchLock, "Faster or slower sound keeps its pitch (off: it rises or falls like a tape)",
                   on => ed.SetSpeed(new[] { c }, null, null, c.Reverse, on, false));
         Inspector.Children.Add(checks);
+        if (c.Kind == ClipKind.Video && !c.Hold && ed.SeqOf(c) == null)
+        {   // Premiere's Time Interpolation: how slow motion fills the frames between the media's own
+            var ti = new ComboBox { ItemsSource = new[] { "Frame sampling", "Frame blending", "Optical flow" }, SelectedIndex = (int)c.Interp, Margin = new Thickness(0, 2, 0, 2),
+                                    ToolTip = "Slow motion: repeat frames (sampling), cross-fade neighbours (blending) or make new in-between frames from the motion (optical flow, rendered in the background)" };
+            ti.SelectionChanged += (_, _) => { ed.Edit(() => { foreach (var x in ed.WithPartners(new[] { c }).Where(x => x.Kind == ClipKind.Video)) x.Interp = (FrameInterp)ti.SelectedIndex; }, "Time Interpolation"); BuildInspector(); Tl.InvalidateVisual(); };
+            Row(Inspector, "Interpolation", ti);
+        }
         var btn = new Button { Content = "Speed/Duration…", HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(22, 4, 0, 2),
                                ToolTip = "Ctrl+R: speed and duration together (the clip keeps its source range), ripple" };
         btn.Click += (_, _) => SpeedDialog();

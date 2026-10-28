@@ -114,6 +114,78 @@ public partial class MainWindow
         Slider("Midpoint", 0, 100, 1, g.VigMidpoint, v => SetGrade(c, x => x.VigMidpoint = v), body);
         Slider("Feather", 0, 100, 1, g.VigFeather, v => SetGrade(c, x => x.VigFeather = v), body);
         Slider("Roundness", 0, 100, 1, g.VigRoundness, v => SetGrade(c, x => x.VigRoundness = v), body);
+        BuildHslSecondary(c, g, body);
+    }
+
+    /// <summary>Lumetri's HSL Secondary: pick a colour range (eyedropper on the monitor, or a preset), see it as a mask, correct only it.</summary>
+    void BuildHslSecondary(Clip c, ColorGrade g, Panel body)
+    {
+        SubHead("HSL Secondary", body);
+        var k = g.Hsl;
+        var on = new CheckBox { Content = "Correct one colour range (skin, sky, leaves…)", IsChecked = k != null, Margin = new Thickness(0, 2, 0, 4) };
+        on.Click += (_, _) => { SetGrade(c, x => x.Hsl = on.IsChecked == true ? x.Hsl ?? new HslKey() : null); Dispatcher.BeginInvoke(BuildInspector); };
+        body.Children.Add(on);
+        if (k == null) return;
+        void H(Action<HslKey> f) => SetGrade(c, x => f(x.Hsl ??= new HslKey()));
+        var bar = new WrapPanel { Margin = new Thickness(86, 0, 0, 4) };
+        Button B(string text, string tip, Action a) { var b = new Button { Content = text, ToolTip = tip, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 4, 4) }; b.Click += (_, _) => a(); bar.Children.Add(b); return b; }
+        var pick = B("Pick from monitor", "Click the colour in the program monitor", () => { });
+        pick.Click += (_, _) =>
+        {
+            ed.Seek(Math.Clamp(ed.Time, c.Start, c.End - 1 / TimeUtil.Fps));
+            pick.Content = "Click a colour in the monitor…";
+            Mo.Cursor = System.Windows.Input.Cursors.Cross;
+            Mo.PickColor = (tc, nx, ny) => { if (tc.Id == c.Id) _ = SampleHslAsync(tc, tc.FlipH ? 1 - nx : nx, tc.FlipV ? 1 - ny : ny); else BuildInspector(); };
+        };
+        foreach (var (name, hue, width, s0, s1, l0, l1) in new[] { ("Skin", 25.0, 18.0, 10.0, 65.0, 15.0, 92.0), ("Sky", 212.0, 25.0, 12.0, 100.0, 25.0, 100.0), ("Leaves", 100.0, 35.0, 12.0, 100.0, 5.0, 95.0) })
+            B(name, $"Select {name.ToLowerInvariant()} tones", () => { H(x => { x.Hue = hue; x.HueWidth = width; x.SatMin = s0; x.SatMax = s1; x.LumMin = l0; x.LumMax = l1; }); BuildInspector(); });
+        body.Children.Add(bar);
+        Slider("Hue", 0, 360, 1, k.Hue, v => H(x => x.Hue = v), body);
+        Slider("Hue range", 0, 180, 1, k.HueWidth, v => H(x => x.HueWidth = v), body);
+        Slider("Sat. min", 0, 100, 1, k.SatMin, v => H(x => x.SatMin = v), body);
+        Slider("Sat. max", 0, 100, 1, k.SatMax, v => H(x => x.SatMax = v), body);
+        Slider("Luma min", 0, 100, 1, k.LumMin, v => H(x => x.LumMin = v), body);
+        Slider("Luma max", 0, 100, 1, k.LumMax, v => H(x => x.LumMax = v), body);
+        Slider("Softness", 0, 100, 1, k.Soft, v => H(x => x.Soft = v), body);
+        var flags = new WrapPanel { Margin = new Thickness(86, 2, 0, 4) };
+        var inv = new CheckBox { Content = "Invert", IsChecked = k.Invert, Margin = new Thickness(0, 0, 12, 0) };
+        inv.Click += (_, _) => H(x => x.Invert = inv.IsChecked == true);
+        var mask = new CheckBox { Content = "Show mask", IsChecked = k.ShowMask, ToolTip = "White = selected (turn it off before exporting)" };
+        mask.Click += (_, _) => H(x => x.ShowMask = mask.IsChecked == true);
+        flags.Children.Add(inv); flags.Children.Add(mask); body.Children.Add(flags);
+        Slider("Temperature", -100, 100, 1, k.Temperature, v => H(x => x.Temperature = v), body);
+        Slider("Tint", -100, 100, 1, k.Tint, v => H(x => x.Tint = v), body);
+        Slider("Exposure", -4, 4, 0.05, k.Exposure, v => H(x => x.Exposure = v), body);
+        Slider("Contrast", -100, 100, 1, k.Contrast, v => H(x => x.Contrast = v), body);
+        Slider("Saturation", 0, 200, 1, k.Saturation, v => H(x => x.Saturation = v), body);
+        Slider("Hue shift", -180, 180, 1, k.HueShift, v => H(x => x.HueShift = v), body);
+    }
+
+    /// <summary>The eyedropper: the colour under the click as the grade so far shows it (the clip's grade without the secondary) → a range around it.</summary>
+    async Task SampleHslAsync(Clip c, float nx, float ny)
+    {
+        var f = await Task.Run(() => KeySourceFrame(c, 960));
+        if (f is { } fr)
+        {
+            int cx = Math.Clamp((int)(nx * fr.w), 3, fr.w - 4), cy = Math.Clamp((int)(ny * fr.h), 3, fr.h - 4);
+            long r = 0, gs = 0, b = 0; int n = 0;
+            for (int y = cy - 3; y <= cy + 3; y++) for (int x = cx - 3; x <= cx + 3; x++) { int o = (y * fr.w + x) * 4; b += fr.px[o]; gs += fr.px[o + 1]; r += fr.px[o + 2]; n++; }
+            var px = new byte[] { (byte)(b / n), (byte)(gs / n), (byte)(r / n), 255 };
+            var primary = c.Grade?.Clone(); if (primary != null) primary.Hsl = null;
+            if (Grade.For(primary) is { } lut) Grade.Apply(lut, px, 1, 1, 4);
+            var (h, s, l) = Grade.Hsl(px[2] / 255.0, px[1] / 255.0, px[0] / 255.0);
+            ed.Edit(() =>
+            {
+                foreach (var x in GradeTargets(c))
+                {
+                    var k = (x.Grade ??= new ColorGrade()).Hsl ??= new HslKey();
+                    k.Hue = Math.Round(h); k.HueWidth = 15;
+                    k.SatMin = Math.Max(0, Math.Round(s * 100 - 20)); k.SatMax = Math.Min(100, Math.Round(s * 100 + 30));
+                    k.LumMin = Math.Max(0, Math.Round(l * 100 - 30)); k.LumMax = Math.Min(100, Math.Round(l * 100 + 30));
+                }
+            });
+        }
+        BuildInspector();
     }
 
     /// <summary>Auto: from the frame at the playhead (graded basics reset first) — exposure to a mid-grey average, white and black points to

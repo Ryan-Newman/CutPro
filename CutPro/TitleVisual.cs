@@ -33,10 +33,11 @@ public class TitleVisual : Canvas
 
     /// <summary>What the drawing depends on, except motion (applied separately).</summary>
     public static string Signature(Clip c, bool matte) =>
-        $"{matte}|{c.Text}|{c.Mask}|{c.MaskFeather}|{JsonSerializer.Serialize(c.Look)}";
+        $"{matte}|{c.Text}|{c.Mask}|{c.MaskFeather}|{JsonSerializer.Serialize(c.Look)}|{(TitleAnim.Units(c.TextFx) ? JsonSerializer.Serialize(c.TextFx) : "")}";
 
     /// <summary>Rebuilds the drawing if anything that affects it changed (cheap when nothing did).</summary>
-    public void Update(Clip c, bool matte = false, Motion? motion = null)
+    /// <param name="local">seconds since the clip's start (text animation and roll / crawl; null = the text fully shown, in place)</param>
+    public void Update(Clip c, bool matte = false, Motion? motion = null, double? local = null)
     {
         Fit();
         var s = Signature(c, matte);
@@ -45,6 +46,24 @@ public class TitleVisual : Canvas
         if (msc.ScaleX != mo.Scale / 100) { msc.ScaleX = msc.ScaleY = mo.Scale / 100; }
         if (mro.Angle != mo.Rotation) mro.Angle = mo.Rotation;
         double tx = W / 2.0 + mo.X * W / 100, ty = H / 2.0 + mo.Y * H / 100;
+        if (local is double lt && c.TextFx is { Roll: not TextRoll.None } fx && !matte)
+        {   // roll: the block's top enters at the bottom edge, its bottom leaves at the top; crawl: right edge in, left edge out
+            double u = TitleAnim.RollU(lt, c.Dur), k = mo.Scale / 100;
+            if (fx.Roll == TextRoll.Roll) ty = H + blockR.Height / 2 * k + u * (-blockR.Height * k - H);
+            else tx = W - (blockR.Left - anchorX) * k + u * (-(blockR.Right - anchorX) * k - W + (blockR.Left - anchorX) * k);
+        }
+        if (units != null && c.TextFx is { } ta)
+        {
+            double em = Math.Max(1, c.Look.Size);
+            for (int i = 0; i < units.Count; i++)
+            {
+                var u = units[i];
+                var (op, dy, scl) = local is double lu ? TitleAnim.State(ta, u.Idx, unitCounts, lu, c.Dur) : (1.0, 0.0, 1.0);
+                if (u.El.Opacity != op) u.El.Opacity = op;
+                if (u.Sc.ScaleX != scl) { u.Sc.ScaleX = u.Sc.ScaleY = scl; }
+                if (u.Tr.Y != dy * em) u.Tr.Y = dy * em;
+            }
+        }
         if (mtr.X != tx) mtr.X = tx; if (mtr.Y != ty) mtr.Y = ty;
         if (!matteBuilt)
         {
@@ -54,12 +73,48 @@ public class TitleVisual : Canvas
         }
     }
 
+    /// <summary>Text animation: each unit (letter / word / line) on its own canvas with its own layers, opacity and transform (null = whole text).</summary>
+    sealed record Unit(Canvas El, ScaleTransform Sc, TranslateTransform Tr, (int c, int w, int l) Idx);
+    List<Unit>? units;
+    (int c, int w, int l) unitCounts;
+    Rect blockR; double anchorX;
+
     void Build(Clip c, bool matte, string s)
     {
         sig = s;
-        Children.Clear(); Effect = null;
+        Children.Clear(); Effect = null; units = null;
         var st = c.Look;
+        if (!matte && TitleAnim.Units(c.TextFx))
+        {
+            var parts = UnitLayout(c.Text, st, out var ub);
+            blockR = ub;
+            var uxf = Placement(st, ub);
+            matteBuilt = false;
+            var ul = new Canvas { RenderTransform = uxf };
+            Children.Add(ul);
+            if (st.Box)
+            {
+                var r = ub; r.Inflate(st.BoxPadding, st.BoxPadding);
+                ul.Children.Add(new Path { Data = new RectangleGeometry(r, st.BoxRadius, st.BoxRadius), Fill = Solid(st.BoxColor, st.BoxOpacity / 100) });
+            }
+            units = new();
+            // letters scale about the centre of the unit the animation uses (a popping word grows as a whole)
+            var kind = TitleAnim.UnitOf(c.TextFx!);
+            Rect GroupBounds(int w, int l) => parts.Where(p => kind == TextUnit.Word ? p.w == w : p.l == l).Select(p => p.b).Aggregate(Rect.Union);
+            foreach (var (g, b, ci, wi, li) in parts)
+            {
+                var gb = kind == TextUnit.Char ? b : GroupBounds(wi, li);
+                var sc = new ScaleTransform(1, 1, gb.X + gb.Width / 2, gb.Y + gb.Height / 2); var tr = new TranslateTransform();
+                var u = new Canvas { RenderTransform = new TransformGroup { Children = { sc, tr } } };
+                Layers(u, g, st);
+                ul.Children.Add(u);
+                units.Add(new Unit(u, sc, tr, (ci, wi, li)));
+            }
+            unitCounts = parts.Count == 0 ? (1, 1, 1) : (parts.Count, parts.Max(p => p.w) + 1, parts.Max(p => p.l) + 1);
+            return;
+        }
         var geom = Layout(c.Text, st, out var block);
+        blockR = block;
         var xf = Placement(st, block);
         matteBuilt = matte;
         Geometry outlined = st.Stroke && st.StrokeWidth > 0 ? Group(geom, geom.GetWidenedPathGeometry(new Pen(Brushes.Black, st.StrokeWidth * 2) { LineJoin = PenLineJoin.Round })) : geom;
@@ -82,6 +137,13 @@ public class TitleVisual : Canvas
             var r = block; r.Inflate(st.BoxPadding, st.BoxPadding);
             layer.Children.Add(new Path { Data = new RectangleGeometry(r, st.BoxRadius, st.BoxRadius), Fill = Solid(st.BoxColor, st.BoxOpacity / 100) });
         }
+        Layers(layer, geom, st);
+    }
+
+    /// <summary>The text's layers (shadow, glow, outline, fill) for a geometry, into a panel.</summary>
+    void Layers(Panel layer, Geometry geom, TextStyle st)
+    {
+        Geometry outlined = st.Stroke && st.StrokeWidth > 0 ? Group(geom, geom.GetWidenedPathGeometry(new Pen(Brushes.Black, st.StrokeWidth * 2) { LineJoin = PenLineJoin.Round })) : geom;
         if (st.Shadow && st.ShadowOpacity > 0)
         {
             double a = st.ShadowAngle * Math.PI / 180;
@@ -100,7 +162,58 @@ public class TitleVisual : Canvas
         if (st.Stroke && st.StrokeWidth > 0)   // centred stroke drawn under the fill = an outline of StrokeWidth outside the letters
             layer.Children.Add(new Path { Data = geom, Stroke = Solid(st.StrokeColor, 1), StrokeThickness = st.StrokeWidth * 2, StrokeLineJoin = PenLineJoin.Round });
         layer.Children.Add(new Path { Data = geom, Fill = FillBrush(st) });
+    }
 
+    /// <summary>Text geometry split into letters in block coordinates, laid out letter by letter (with tracking) like <see cref="Layout"/>: each
+    /// letter's bounds and its letter / word / line number (an animation by word or line moves its letters together).</summary>
+    static List<(Geometry g, Rect b, int c, int w, int l)> UnitLayout(string text, TextStyle st, out Rect block)
+    {
+        var tf = new Typeface(new FontFamily(st.Font), st.Italic ? FontStyles.Italic : FontStyles.Normal,
+                              FontWeight.FromOpenTypeWeight(Math.Clamp(st.Weight, 1, 999)), FontStretches.Normal);
+        var lines = (st.AllCaps ? text.ToUpper(CultureInfo.CurrentCulture) : text).Replace("\r", "").Split('\n');
+        double size = Math.Max(1, st.Size), lh = size * Math.Max(10, st.Leading) / 100, extra = st.Tracking / 1000 * size;
+        var laid = new List<(List<(Geometry g, bool space)> els, double w, FormattedText probe)>();
+        foreach (var line in lines)
+        {
+            var els = new List<(Geometry g, bool space)>();
+            var probe = FT(line.Length > 0 ? line : " ", tf, size);
+            double x = 0; bool first = true;
+            var e = StringInfo.GetTextElementEnumerator(line);
+            while (e.MoveNext())
+            {
+                if (!first) x += extra;
+                first = false;
+                var s = (string)e.Current;
+                var ft = FT(s, tf, size);
+                els.Add((ft.BuildGeometry(new Point(x, 0)), string.IsNullOrWhiteSpace(s)));
+                x += ft.WidthIncludingTrailingWhitespace;
+            }
+            laid.Add((els, Math.Max(0, x), probe));
+        }
+        double maxW = Math.Max(1, laid.Max(l => l.w));
+        var result = new List<(Geometry g, Rect b, int c, int w, int l)>();
+        int word = 0, lineNo = 0;
+        for (int i = 0; i < laid.Count; i++)
+        {
+            var (els, w, probe) = laid[i];
+            double dx = st.Align == "Left" ? 0 : st.Align == "Right" ? maxW - w : (maxW - w) / 2;
+            double dy = i * lh + (lh - probe.Height) / 2;
+            var move = new TranslateTransform(dx, dy);
+            bool inWord = false, any = false;
+            foreach (var (g, space) in els)
+            {
+                if (space) { if (inWord) word++; inWord = false; continue; }
+                inWord = true; any = true;
+                var gg = new GeometryGroup { FillRule = FillRule.Nonzero, Transform = move };
+                gg.Children.Add(g);
+                var b = gg.Bounds;
+                result.Add((gg, b.IsEmpty ? new Rect(dx, dy, 1, 1) : b, result.Count, word, lineNo));
+            }
+            if (inWord) word++;
+            if (any) lineNo++;                                                  // (empty lines count for nothing)
+        }
+        block = new Rect(0, 0, maxW, laid.Count * lh);
+        return result;
     }
 
     /// <summary>Text geometry in block coordinates (0,0 = top-left of the text block) with tracking, leading, alignment, underline.</summary>
@@ -156,6 +269,7 @@ public class TitleVisual : Canvas
     Transform Placement(TextStyle st, Rect block)
     {
         double ax = st.Align == "Left" ? block.Left : st.Align == "Right" ? block.Right : block.Left + block.Width / 2;
+        anchorX = ax;
         var g = new TransformGroup();
         g.Children.Add(new TranslateTransform(-ax, -(block.Top + block.Height / 2)));
         g.Children.Add(msc);
@@ -231,15 +345,16 @@ public class TitleVisual : Canvas
         var stdin = p.StandardInput.BaseStream;
         var (root, tv) = Root(matte, outW, outH);
         var px = new byte[outW * outH * 4];
-        (Motion mo, double op)? last = null;
+        (Motion mo, double op, int k)? last = null;
+        bool textAnim = TitleAnim.Active(c.TextFx) && !matte;                  // (text animation: every frame drawn)
         for (int k = 0; k < n; k++)
         {
             double t = c.Start + k / TimeUtil.Fps;
             var lk = plan != null && !matte ? Transitions.Look(plan, c, t, _ => null) : default;   // (a Move transition: moved and faded like the preview)
-            var cur = (lk.Moves ? lk.Apply(MotionAt(c, t)) : MotionAt(c, t), Math.Clamp(Anim.Value(c, AnimProp.Opacity, t) / 100 * (lk.Moves ? lk.Opacity : 1), 0, 1));
+            var cur = (lk.Moves ? lk.Apply(MotionAt(c, t)) : MotionAt(c, t), Math.Clamp(Anim.Value(c, AnimProp.Opacity, t) / 100 * (lk.Moves ? lk.Opacity : 1), 0, 1), textAnim ? k : 0);
             if (last != cur)
             {
-                tv.Update(c, matte, cur.Item1);
+                tv.Update(c, matte, cur.Item1, k / TimeUtil.Fps);
                 new FormatConvertedBitmap(Snap(root, cur.Item2, outW, outH), PixelFormats.Bgra32, null, 0).CopyPixels(px, outW * 4, 0);   // straight alpha for ffmpeg
                 last = cur;
             }
@@ -261,7 +376,7 @@ public class TitleVisual : Canvas
         foreach (var c in Transitions.Extended(ed.Clips, plan).Where(c => c.Kind == ClipKind.Text && !ed.TrackOff[c.Track] && !(skipCaptions && Captioning.IsCaption(c))))   // (lengthened by transitions; captions not burned in: none)
         {
             bool matte = c.Mask != MaskMode.None;
-            if ((Anim.AnyAnimated(c, Anim.Visual) || Transitions.Moves(plan, c)) && Exporter.FindFfmpeg() is { } ff)
+            if ((Anim.AnyAnimated(c, Anim.Visual) || Transitions.Moves(plan, c) || TitleAnim.Active(c.TextFx) && !matte) && Exporter.FindFfmpeg() is { } ff)
             {
                 // animated: every frame through this renderer (motion + opacity baked in) → lossless BGRA video
                 var mkv = System.IO.Path.Combine(dir, c.Id + ".mkv");

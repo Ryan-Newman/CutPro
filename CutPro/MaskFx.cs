@@ -60,6 +60,8 @@ public sealed class MaskFxHost
     /// A flip is done by the shader (the picture is turned back inside the flip box): WPF's software renderer resamples an effect drawn under a mirror.</summary>
     public void Pin(Clip c, double t, MediaItem? m, int w = 0, int h = 0)
     {
+        if (Distorts.Active(c) && Warp.InShader(c)) { DistortOn(c, t, m); return; }
+        if (distortOn) DistortOff();
         if (!Warp.InShader(c))
         {
             if (pinM == null) return;
@@ -84,6 +86,31 @@ public sealed class MaskFxHost
         pinTurn = flipX || flipY ? new ScaleTransform(flipX ? -1 : 1, flipY ? -1 : 1) : null;
         pinTurn?.Freeze();
         PinOn(Img); foreach (var o in overlays.Values) if (o.Pic != null) PinOn(o.Pic);
+    }
+    bool distortOn;
+    /// <summary>The picture's distortion (twirl / wave / spherize / mesh) as its shader at the clip's export size — on the picture and on picture mask
+    /// overlays, like the pin; t − start drives the wave.</summary>
+    void DistortOn(Clip c, double t, MediaItem? m)
+    {
+        if (pinM != null) { pinM = null; pinKey = ""; PinOff(Img); foreach (var o in overlays.Values) if (o.Pic != null) PinOff(o.Pic); }
+        var (w, h) = Exporter.ClipSize(m, c, Editor.OutH / 720.0);
+        w = Math.Max(2, w); h = Math.Max(2, h);
+        var d = c.Distort!;
+        void On(Image im)
+        {
+            var e = im.Effect as DistortEffect;
+            if (e == null || e.Kind != d.Kind) e = new DistortEffect(d.Kind, Distorts.Shader(d.Kind)!);
+            e.Set(d, w, h, CutPro.Pin.Half, t - c.Start);
+            if (!ReferenceEquals(im.Effect, e)) im.Effect = e;
+        }
+        On(Img); foreach (var o in overlays.Values) if (o.Pic != null) On(o.Pic);
+        distortOn = true;
+    }
+    void DistortOff()
+    {
+        distortOn = false;
+        if (Img.Effect is DistortEffect) Img.Effect = null;
+        foreach (var o in overlays.Values) if (o.Pic?.Effect is DistortEffect) o.Pic.Effect = null;
     }
     void PinOn(Image im)
     {
@@ -155,7 +182,7 @@ public sealed class MaskFxHost
                 o = new Overlay { Fx = m.Effect };
                 o.El = m.Effect switch
                 {
-                    MaskFx.Blur or MaskFx.Pixelate or MaskFx.Desaturate => new Grid { Children = { (o.Pic = new Image { Stretch = Stretch.Fill }) } },
+                    MaskFx.Blur or MaskFx.Pixelate or MaskFx.Desaturate or MaskFx.Grade => new Grid { Children = { (o.Pic = new Image { Stretch = Stretch.Fill }) } },
                     _ => new Rectangle(),
                 };
                 overlays[m.Id] = o;
@@ -176,6 +203,9 @@ public sealed class MaskFxHost
                 case MaskFx.Desaturate:
                     o.Pic!.Source = Derived(false, stamp, vw, 0);
                     break;
+                case MaskFx.Grade:
+                    o.Pic!.Source = Graded(m.Id, CutPro.Grade.For(m.Grade), stamp);
+                    break;
                 case MaskFx.Darken: ((Rectangle)o.El).Fill = Brushes.Black; o.El.Opacity = Math.Clamp(m.Amount / 100, 0, 1); break;
                 case MaskFx.Redact: ((Rectangle)o.El).Fill = Brushes.Black; o.El.Opacity = 1; break;
                 case MaskFx.Tint:
@@ -185,7 +215,7 @@ public sealed class MaskFxHost
             }
             if (key != o.Key) { o.Key = key; o.El.OpacityMask = MaskBrush(); }
         }
-        foreach (var id in overlays.Keys.Where(k => !live.Contains(k)).ToList()) { fx.Children.Remove(overlays[id].El); overlays.Remove(id); }
+        foreach (var id in overlays.Keys.Where(k => !live.Contains(k)).ToList()) { fx.Children.Remove(overlays[id].El); overlays.Remove(id); graded.Remove(id); }
         if (!cutDone) { cutKey = null; cutBrush = null; }
         var want = cutBrush ?? Extra;                                          // a cut-out wins over a transition mask
         if (!ReferenceEquals(Host.OpacityMask, want)) Host.OpacityMask = want;
@@ -259,5 +289,26 @@ public sealed class MaskFxHost
         return grayBmp;
     }
 
-    public void Clear() { fx.Children.Clear(); overlays.Clear(); Host.OpacityMask = Extra; }
+    /// <summary>A power window's picture: the shown frame through the window's LUT (lut3d's arithmetic, as the export applies it after the
+    /// clip's grade). One reused bitmap and buffer per mask; recomputed only when the frame or the grade changes.</summary>
+    sealed class GradedPic { public WriteableBitmap? Wb; public byte[]? Buf; public object? From; public long Stamp = -1; public string Sig = ""; }
+    readonly Dictionary<string, GradedPic> graded = new();
+    BitmapSource? Graded(string id, Grade.Lut? lut, long stamp)
+    {
+        if (Img.Source is not BitmapSource src) return null;
+        if (lut == null) return src;
+        if (!graded.TryGetValue(id, out var gp)) graded[id] = gp = new GradedPic();
+        if (ReferenceEquals(gp.From, src) && gp.Stamp == stamp && gp.Sig == lut.Sig && gp.Wb != null) return gp.Wb;
+        int w = src.PixelWidth, h = src.PixelHeight, stride = w * 4;
+        if (gp.Buf == null || gp.Buf.Length != stride * h) gp.Buf = new byte[stride * h];
+        var bgr = src.Format == PixelFormats.Bgr32 || src.Format == PixelFormats.Bgra32 || src.Format == PixelFormats.Pbgra32 ? src : new FormatConvertedBitmap(src, PixelFormats.Bgr32, null, 0);
+        bgr.CopyPixels(gp.Buf, stride, 0);
+        CutPro.Grade.Apply(lut, gp.Buf, w, h, stride);
+        if (gp.Wb == null || gp.Wb.PixelWidth != w || gp.Wb.PixelHeight != h) gp.Wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr32, null);
+        gp.Wb.WritePixels(new Int32Rect(0, 0, w, h), gp.Buf, stride, 0);
+        gp.From = src; gp.Stamp = stamp; gp.Sig = lut.Sig;
+        return gp.Wb;
+    }
+
+    public void Clear() { fx.Children.Clear(); overlays.Clear(); graded.Clear(); Host.OpacityMask = Extra; }
 }

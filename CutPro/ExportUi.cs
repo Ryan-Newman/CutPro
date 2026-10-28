@@ -11,6 +11,7 @@ namespace CutPro;
 public partial class MainWindow
 {
     ExportSettings exportChoice = ExportSettings.Presets[0];
+    bool exportToQueue;
     string? lastExportPath;
 
     async void Export_Click(object s, RoutedEventArgs e) => await ExportFlowAsync();
@@ -42,6 +43,14 @@ public partial class MainWindow
             InitialDirectory = lastExportPath != null ? Path.GetDirectoryName(lastExportPath) : null,
         };
         if (save.ShowDialog(this) != true) return null;
+        if (exportToQueue)
+        {   // the sequence as it is now renders in the background; editing goes on
+            lastExportPath = save.FileName;
+            var job = RenderQueue.Add(ed, opts, save.FileName);
+            ShowDock("Queue");
+            SetTask($"“{job.Name}” added to the render queue — it renders in the background while you edit", 4000);
+            return null;
+        }
         var err = await RenderAsync(ff, opts, save.FileName);
         if (err == null)
         {
@@ -117,6 +126,9 @@ public partial class MainWindow
         var audio = new ComboBox { ItemsSource = new[] { "AAC", "Opus", "MP3", "PCM (uncompressed)", "None" } };
         var akbps = new ComboBox { ItemsSource = new[] { "128", "192", "256", "320", "384" }, Width = 80 };
         var aRow = new StackPanel { Orientation = Orientation.Horizontal }; aRow.Children.Add(audio); aRow.Children.Add(new TextBlock { Text = "  " }); aRow.Children.Add(akbps); aRow.Children.Add(Dim("  kbps", 12));
+        var chans = new ComboBox { ItemsSource = new[] { "Stereo", "Mono", "5.1 surround" }, Width = 130, Margin = new Thickness(10, 0, 0, 0),
+                                   ToolTip = "Mono folds the stereo mix to one channel; 5.1 puts each audio track where its header's 5.1 Output says (front, centre, surround, LFE)" };
+        aRow.Children.Add(chans);
         var inout = new CheckBox { Content = "In to Out only", IsEnabled = ed.MarkIn != null && ed.MarkOut != null };
         var full = new CheckBox { Content = "Full colour composite (4:4:4)", IsChecked = o.Full444, ToolTip = "Titles, keys and overlays keep their full colour detail until the encoder; off = 4:2:0 throughout (a little faster, softer colour edges)" };
         int nChapters = ed.ChaptersFor(0, ed.End).Count;
@@ -145,7 +157,9 @@ public partial class MainWindow
 
         bool busy = false;
         HashSet<string>? usable = null;
-        var codecs = new[] { ("h264", "H.264 (AVC)"), ("hevc", "H.265 (HEVC)"), ("av1", "AV1"), ("vp9", "VP9"), ("prores", "Apple ProRes 422 HQ"), ("prores4444", "Apple ProRes 4444 (full colour)"), ("none", "None — audio only") };
+        var codecs = new[] { ("h264", "H.264 (AVC)"), ("hevc", "H.265 (HEVC)"), ("av1", "AV1"), ("vp9", "VP9"), ("prores", "Apple ProRes 422 HQ"), ("prores4444", "Apple ProRes 4444 (full colour)"),
+                             ("prores4444a", "ProRes 4444 with alpha (transparent)"), ("vp9a", "VP9 with alpha (transparent)"), ("qtrle", "QuickTime Animation with alpha"), ("png", "PNG sequence with alpha"),
+                             ("none", "None — audio only") };
         var encoders = new[] { ("software", "CPU (best compatibility)"), ("nvenc", "NVIDIA NVENC (GPU)"), ("qsv", "Intel Quick Sync (GPU)"), ("amf", "AMD AMF (GPU)") };
         int[] heights = { 0, 720, 1080, 1440, 2160 };
         string ResLabel(int hh) { var t = new ExportSettings { Height = hh }; return hh == 0 ? $"Sequence ({Editor.OutW}×{Editor.OutH})" : $"{t.OutW}×{t.OutH}"; }
@@ -167,6 +181,8 @@ public partial class MainWindow
             speed.SelectedItem = p.Speed;
             audio.SelectedIndex = p.Audio switch { "opus" => 1, "mp3" => 2, "pcm" => 3, "none" => 4, _ => 0 };
             akbps.SelectedItem = p.AudioKbps.ToString();
+            chans.SelectedIndex = p.Channels switch { "mono" => 1, "5.1" => 2, _ => 0 };
+            chans.IsEnabled = p.Audio is not ("none" or "mp3");
             inout.IsChecked = p.InOutOnly && inout.IsEnabled;
             norm.IsChecked = p.Normalize; norm.IsEnabled = lufs.IsEnabled = p.Audio != "none";
             lufs.SelectedIndex = Math.Max(0, Array.FindIndex(Loudness.Targets, x => Math.Abs(x.lufs - p.Lufs) < 0.01));
@@ -186,6 +202,7 @@ public partial class MainWindow
             o.Speed = speed.SelectedItem as string ?? "medium";
             o.Audio = audio.SelectedIndex switch { 1 => "opus", 2 => "mp3", 3 => "pcm", 4 => "none", _ => "aac" };
             if (akbps.SelectedItem is string k && int.TryParse(k, out int kb)) o.AudioKbps = kb;
+            o.Channels = o.Audio == "mp3" ? (chans.SelectedIndex == 1 ? "mono" : "stereo") : chans.SelectedIndex switch { 1 => "mono", 2 => "5.1", _ => "stereo" };
             o.InOutOnly = inout.IsChecked == true;
             o.Full444 = full.IsChecked == true;
             o.Chapters = chapters.IsChecked == true;
@@ -233,13 +250,14 @@ public partial class MainWindow
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
         preset.SelectionChanged += (_, _) => { if (preset.SelectedIndex >= 0) { o = presets[preset.SelectedIndex].Clone(); Load(o); } };
-        foreach (var cb in new[] { container, codec, encoder, res, speed, audio, akbps }) cb.SelectionChanged += (_, _) => Changed();
+        foreach (var cb in new[] { container, codec, encoder, res, speed, audio, akbps, chans }) cb.SelectionChanged += (_, _) => Changed();
         codec.SelectionChanged += (_, _) =>
         {
             if (busy || codec.SelectedIndex < 0) return;
             var v = codecs[codec.SelectedIndex].Item1;
-            o.Container = v == "none" ? "wav" : v is "prores" or "prores4444" ? "mov" : v == "vp9" ? "webm" : o.Container is "wav" or "mp3" or "m4a" or "webm" ? "mp4" : o.Container;
-            if (v == "none") o.Audio = "pcm"; else if (o.Container == "webm") o.Audio = "opus";
+            o.Container = v == "none" ? "wav" : v is "prores" or "prores4444" or "prores4444a" or "qtrle" ? "mov" : v is "vp9" or "vp9a" ? "webm" : v == "png" ? "png"
+                        : o.Container is "wav" or "mp3" or "m4a" or "webm" or "png" ? "mp4" : o.Container;
+            if (v == "none") o.Audio = "pcm"; else if (v == "png") o.Audio = "none"; else if (o.Container == "webm") o.Audio = "opus";
             Load(o);
         };
         cq.Checked += (_, _) => Changed(); br.Checked += (_, _) => Changed();
@@ -255,9 +273,11 @@ public partial class MainWindow
             var u = await ExportSettings.UsableEncodersAsync();
             await Dispatcher.InvokeAsync(() => { usable = u; Read(); Load(o); });
         });
-        int r = Alert.Show(this, "", "Export", AlertKind.Progress, new[] { "Export…", "Cancel" }, form);
+        var buttons = quietExport ? new[] { "Export…", "Cancel" } : new[] { "Export…", "Add to Queue…", "Cancel" };
+        int r = Alert.Show(this, "", "Export", AlertKind.Progress, buttons, form);
         mcts?.Cancel();
-        if (r != 0) return null;
+        if (r >= buttons.Length - 1) return null;
+        exportToQueue = r == 1 && !quietExport;
         Read();
         if (o.Video != "none" && usable != null && !usable.Contains(o.VideoEncoder))
         {

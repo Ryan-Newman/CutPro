@@ -19,7 +19,7 @@ public sealed class AudioOut : IDisposable
                                       AudioDsp.TrackBus? Bus = null,            // Bus: its track has effects (summed before the fader, which the bus applies)
                                       Mixer.SubBus? Sub = null);                // Sub: its track goes to this submix instead of the master
     public const double GainStep = 0.005;
-    readonly AudioDsp.FxState fxState = new();          // clip audio effects: their state from block to block (mixer thread only)
+    readonly AudioDsp.FxState fxState = new(), shuttleFx = new();   // clip audio effects: their state from block to block (mixer thread only; shuttle / scrub keep their own)
     /// <summary>Replaced (not mutated) by the UI thread whenever the timeline changes.</summary>
     public volatile Src[] Sources = Array.Empty<Src>();
     /// <summary>Master fader (linear).</summary>
@@ -42,6 +42,19 @@ public sealed class AudioOut : IDisposable
     volatile bool running;
     double startT;
     long mixedFrames;
+    /// <summary>Playback rate (J / L shuttle: ±1, 2, 4, 8 — negative = backwards). The timeline span a buffer covers is mixed at its own speed
+    /// and resampled to the buffer (the pitch moves with the speed, like a tape), backwards for reverse.</summary>
+    double rate = 1;
+    public double PlayRate => rate;
+    public const int MaxShuttle = 8;
+    readonly float[] bigMix = new float[(BufFrames * MaxShuttle + 4) * 2];
+    readonly float[][] bigBus = Mixer.Bus(BufFrames * MaxShuttle + 4);
+    readonly short[] bigTmp = new short[(BufFrames * MaxShuttle + 4) * 2];
+    // audio scrubbing: short grains of the sound at the playhead while it is dragged (Premiere's audio scrub)
+    volatile bool scrubbing;
+    double scrubT, grainT = double.NaN; long scrubAt;
+    float scrubGain;
+    public bool Scrubbing => scrubbing && running;
     public bool Ok { get; }
     public bool Running => running;
 
@@ -59,12 +72,12 @@ public sealed class AudioOut : IDisposable
         }
     }
 
-    /// <summary>Starts playing the timeline from time t (restarts cleanly if already running).</summary>
-    public void Start(double t)
+    /// <summary>Starts playing the timeline from time t at a rate (1 = normal; restarts cleanly if already running).</summary>
+    public void Start(double t, double rate = 1)
     {
         Stop();
         if (!Ok) return;
-        startT = t; mixedFrames = 0;
+        startT = t; mixedFrames = 0; this.rate = Math.Abs(rate) < 1e-9 ? 1 : Math.Clamp(rate, -MaxShuttle, MaxShuttle); scrubbing = false;
         Array.Clear(queued);
         Array.Fill(meterT, double.PositiveInfinity); meterW = 0;
         running = true;
@@ -72,9 +85,26 @@ public sealed class AudioOut : IDisposable
         thread.Start();
     }
 
+    /// <summary>Scrubbing: plays a short grain of the sound at t whenever t moves (call it each frame while the playhead is dragged); silence when it
+    /// stops moving. Starts the output if needed; <see cref="Stop"/> ends it.</summary>
+    public void Scrub(double t)
+    {
+        if (!Ok) return;
+        if (!running || !scrubbing)
+        {
+            Stop();
+            startT = t; mixedFrames = 0; rate = 1; scrubbing = true; grainT = double.NaN; scrubGain = 0;
+            Array.Clear(queued);
+            running = true;
+            thread = new Thread(Loop) { IsBackground = true, Priority = ThreadPriority.Highest, Name = "AudioOut" };
+            thread.Start();
+        }
+        if (Math.Abs(t - scrubT) > 1e-6) { scrubT = t; scrubAt = Environment.TickCount64; }
+    }
+
     public void Stop()
     {
-        running = false;
+        running = false; scrubbing = false;
         thread?.Join(); thread = null;
         if (Ok) waveOutReset(hwo);
     }
@@ -88,7 +118,7 @@ public sealed class AudioOut : IDisposable
             var mt = new MmTime { wType = TIME_SAMPLES };
             waveOutGetPosition(hwo, ref mt, Marshal.SizeOf<MmTime>());
             double played = mt.wType == TIME_BYTES ? mt.u / 4.0 : mt.u;
-            return startT + played / Rate;
+            return startT + played / Rate * rate;
         }
     }
 
@@ -112,7 +142,7 @@ public sealed class AudioOut : IDisposable
     /// <summary>Peak levels of the sound being heard now (<see cref="Mixer.Slots"/>: track L/R pairs, then master; 1 = 0 dBFS). False when stopped.</summary>
     public bool Levels(float[] dst)
     {
-        if (!running) return false;
+        if (!running || rate != 1 || scrubbing) return false;                // (meters: normal playback only)
         double now = Clock; int w = meterW;
         for (int i = 1; i < Ring - NBuf; i++)
         {
@@ -124,13 +154,55 @@ public sealed class AudioOut : IDisposable
 
     void Fill(int i)
     {
+        if (scrubbing) { FillScrub(); Out(i); return; }
+        if (rate != 1) { FillShuttle(); Out(i); return; }
         double T0 = startT + mixedFrames / (double)Rate;
         int slot = meterW % Ring;
         Mixer.Mix(Sources, Master, T0, BufFrames, mix, bus, tmp, meterPk[slot], fxState);
         meterT[slot] = T0; meterW++;
+        Out(i);
+    }
+    void Out(int i)
+    {
         for (int k = 0; k < mix.Length; k++) outBuf[k] = (short)Math.Clamp(mix[k], short.MinValue, short.MaxValue);
         Marshal.Copy(outBuf, 0, data[i], outBuf.Length);
         mixedFrames += BufFrames;
+    }
+
+    /// <summary>A buffer at a shuttle rate: the span it covers mixed at normal speed (effects with their own state: backwards they warm up every buffer
+    /// backwards), read at the rate with linear interpolation — backwards for reverse; a little quieter past 2×.</summary>
+    void FillShuttle()
+    {
+        double T0 = startT + mixedFrames / (double)Rate * rate, span = BufFrames * rate / Rate;
+        int m = (int)Math.Ceiling(BufFrames * Math.Abs(rate)) + 2;
+        double from = rate > 0 ? T0 : T0 + span;
+        Mixer.Mix(Sources, Master, from, m, bigMix, bigBus, bigTmp, null, shuttleFx);
+        float g = Math.Abs(rate) > 2 ? 0.5f : 1;
+        for (int k = 0; k < BufFrames; k++)
+        {
+            double x = (T0 + k * rate / Rate - from) * Rate;
+            int j = Math.Clamp((int)Math.Floor(x), 0, m - 2); float f = (float)Math.Clamp(x - j, 0, 1);
+            mix[k * 2] = g * (bigMix[j * 2] + (bigMix[j * 2 + 2] - bigMix[j * 2]) * f);
+            mix[k * 2 + 1] = g * (bigMix[j * 2 + 1] + (bigMix[j * 2 + 3] - bigMix[j * 2 + 1]) * f);
+        }
+    }
+
+    /// <summary>A scrub buffer: the sound from the playhead on (continuing the last grain while the playhead stays near it), faded in when it
+    /// jumps and out when the playhead has rested for 80 ms.</summary>
+    void FillScrub()
+    {
+        bool moving = Environment.TickCount64 - scrubAt < 80;
+        double t = scrubT;
+        if (double.IsNaN(grainT) || Math.Abs(grainT - t) > 0.12) { grainT = t; scrubGain = 0; }   // (a jump: start there, faded in)
+        Mixer.Mix(Sources, Master, grainT, BufFrames, mix, bus, tmp, null, shuttleFx);
+        float target = moving ? 1 : 0, g0 = scrubGain;
+        for (int k = 0; k < BufFrames; k++)
+        {
+            float g = g0 + (target - g0) * (k + 1) / BufFrames;
+            mix[k * 2] *= g; mix[k * 2 + 1] *= g;
+        }
+        scrubGain = target;
+        grainT += BufFrames / (double)Rate;
     }
 
     public void Dispose()

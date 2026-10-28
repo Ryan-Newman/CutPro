@@ -1,6 +1,10 @@
 namespace CutPro;
 
 /// <summary>One track's channel in the Audio Track Mixer.</summary>
+/// <summary>Where a track goes in a 5.1 export: front left / right (stereo as mixed), the centre (its mix in mono), the surrounds (left / right),
+/// the LFE (mono). Stereo exports and the monitors play the ordinary stereo mix.</summary>
+public enum SurroundOut { Front, Centre, Surround, Lfe }
+
 public sealed class TrackMix
 {
     /// <summary>Fader in dB (≤ <see cref="Mixer.MinDb"/> = −∞, silent).</summary>
@@ -19,7 +23,8 @@ public sealed class TrackMix
     public List<AudioEffect>? Fx { get; set; }
     /// <summary>Where the track goes: −1 = the master, else a submix (<see cref="MixState.Subs"/> index).</summary>
     public int Output { get; set; } = -1;
-    public TrackMix Clone() => new() { Gain = Gain, Pan = Pan, Solo = Solo, Output = Output, GainKeys = GainKeys?.Select(k => k.Clone()).ToList(), PanKeys = PanKeys?.Select(k => k.Clone()).ToList(), Fx = Fx?.Select(e => e.Clone()).ToList() };
+    public SurroundOut Surround { get; set; }
+    public TrackMix Clone() => new() { Gain = Gain, Pan = Pan, Solo = Solo, Output = Output, Surround = Surround, GainKeys = GainKeys?.Select(k => k.Clone()).ToList(), PanKeys = PanKeys?.Select(k => k.Clone()).ToList(), Fx = Fx?.Select(e => e.Clone()).ToList() };
 }
 
 /// <summary>A submix bus in the Audio Track Mixer: the tracks routed to it are summed, run through its effects, then its fader / pan /
@@ -384,6 +389,42 @@ public static class Mixer
             int n = (int)Math.Min(N, total - f);
             Mix(srcs, master, (first + f) / (double)Rate, n, mix, bus, tmp, null, fxs);
             sink(mix, n);
+        }
+    }
+
+    /// <summary>A 5.1 mix of [t0, t1) as 32-bit float FL FR FC LFE BL BR: each group of tracks (<see cref="TrackMix.Surround"/>) mixed by the playback
+    /// mixer on its own (faders, pan, effects, master), front = its stereo, centre / LFE = its mono, surrounds = its stereo; × gain.</summary>
+    public static void RenderSurround(AudioOut.Src[] srcs, MasterMix master, Func<int, SurroundOut> groupOf, double t0, double t1, double gain, string file, CancellationToken ct = default)
+    {
+        const int N = Rate / 10;
+        var groups = Enum.GetValues<SurroundOut>().Select(g => (g, srcs: srcs.Where(s => groupOf(s.Track) == g).ToArray())).Where(x => x.srcs.Length > 0)
+                         .Select(x => (x.g, x.srcs, mix: new float[N * 2], bus: Bus(N), tmp: new short[N * 2], fx: new AudioDsp.FxState())).ToList();
+        long first = (long)Math.Round(t0 * Rate), total = (long)Math.Round(t1 * Rate) - first;
+        var o = new float[N * 6]; var bytes = new byte[N * 6 * 4];
+        float k = (float)(gain / 32768);
+        using var fs = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
+        for (long f = 0; f < total; f += N)
+        {
+            ct.ThrowIfCancellationRequested();
+            int n = (int)Math.Min(N, total - f);
+            Array.Clear(o);
+            foreach (var g in groups)
+            {
+                Mix(g.srcs, master, (first + f) / (double)Rate, n, g.mix, g.bus, g.tmp, null, g.fx);
+                for (int i = 0; i < n; i++)
+                {
+                    float l = g.mix[i * 2] * k, r = g.mix[i * 2 + 1] * k;
+                    switch (g.g)
+                    {
+                        case SurroundOut.Front: o[i * 6] += l; o[i * 6 + 1] += r; break;
+                        case SurroundOut.Centre: o[i * 6 + 2] += (l + r) / 2; break;
+                        case SurroundOut.Lfe: o[i * 6 + 3] += (l + r) / 2; break;
+                        default: o[i * 6 + 4] += l; o[i * 6 + 5] += r; break;
+                    }
+                }
+            }
+            Buffer.BlockCopy(o, 0, bytes, 0, n * 6 * 4);
+            fs.Write(bytes, 0, n * 6 * 4);
         }
     }
 

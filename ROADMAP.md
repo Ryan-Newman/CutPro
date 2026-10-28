@@ -18,9 +18,9 @@ reframe) · **export settings** (18 platform presets, H.264/HEVC/AV1/VP9/ProRes,
 captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bible references) · **Thumbnail Studio** (YouTube / Shorts covers, AI subject cut-out) · **Intro & Hook** (best opening moments, 5 intro templates) · VS Code-style UI with 3 themes, command palette, glass dialogs.
 
 ## Suggested order (most value for the effort first)
-1. **Distort**: lens distortion done (keyframable, preview shader = lenscorrection); mesh warp / twirl / wave / spherize later (geq: ffmpeg's remap is nearest-only). (Keyframed corner pin with monitor handles, adjustment layers, crop, flip, blend modes, chroma / luma key, track mattes, anchor point, captions from speech + SRT / VTT, multiple sequences and nested sequences are done.)
-2. **Slip / slide / roll / rate-stretch tools, sync-lock / track targeting**. (Markers + chapters, every "medium" convenience (history, shortcut editor, relink / collect, paste attributes, groups, layouts, zoom modes, languages), source monitor with Insert / Overwrite and Match Frame, and any number of tracks — names, locks, heights — are done.)
-3. **Channel mapping / 5.1**, VST3 hosting (clip EQ, compressor, gate, de-esser, hum removal, reverb, pitch shift, track effects, submixes, volume rubber bands, track and master automation are done).
+1. **Automatic face blur** (needs a face-detection model download), AI voice isolation / upscaling / interpolation models, sync lock and track targeting, VST3 hosting. (Every "extra high" item but face blur is done: trim tools, shuttle, scrubbing, sample edits, proxies, opacity bands, distort, generators, denoise, frame interpolation, animated text, follow an object, HSL secondary / power windows, channel maps / 5.1, alpha exports, render queue, XML / OTIO / EDL import.)
+2. **Max-effort items**: multicam, HDR / 10-bit pipeline, GPU export compositing, smart rendering, motion graphics templates, object removal.
+3. **Live keyframes for distort**, keyboard trimming, a Markers list panel.
 
 ## 1. Project, media and sequences
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -28,10 +28,10 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Multiple sequences in a project; nested sequences / compound clips | P R F A V K | done: sequences with tabs, per-sequence format / mixer / playhead, Nest, drag a sequence in; nested clips rendered in the background (FFV1 with alpha + mix) and read by preview and export alike (`Nest`) | L |
 | Source monitor with in/out marking; 3-point / 4-point editing | P R A V K | done: Source panel (own Preview + AudioOut), I / O marks per clip, Insert (,) / Overwrite (.) at the playhead with V / A track targets, video-only / audio-only drags, Match Frame (F); not yet 4-point fit-to-fill | M |
 | Bins / folders, labels (colour), ratings, keywords, search & filters, list view with metadata | all | done: bins (folders in folders), colour labels, ratings (0–5 keys), keywords, search (name, keywords, label, metadata, transcript), filters, sort, icon / list view | M |
-| Proxy workflow (generate low-res proxies, toggle, relink) | P R F A V K | partial: scrub cache is a hidden proxy; add user proxies for editing 4K/8K and RAW | M |
+| Proxy workflow (generate low-res proxies, toggle, relink) | P R F A V K | done: Project panel ▸ Proxy ▸ Create Proxies (540p / 720p, background) / Attach / Detach, the Proxies button under the monitor; frame-exact; exports and renders always read the originals; not RAW (ffmpeg can't decode BRAW / R3D) | M |
 | Relink / replace media, consolidate / archive project (collect files) | all | done: Relink (offline files; the others found in the same folder), Replace Footage, Collect Files (project + media + .cube looks copied, the copy's paths rewritten) | S |
 | Auto-save with versions, crash recovery | all | done: recovery copy every 30 s + from the crash handler, offered on the next start; versions every 5 min (20 kept, File ▸ Auto-Save Versions…); "save changes?" on open / close | S |
-| Interchange: XML (FCP7/FCPXML), EDL, AAF, OpenTimelineIO | P R F A V K | partial: EDL (CMX 3600) and OpenTimelineIO export done; FCP XML / AAF and any import later | M |
+| Interchange: XML (FCP7/FCPXML), EDL, AAF, OpenTimelineIO | P R F A V K | done: EDL (CMX 3600) and OpenTimelineIO export; import of OpenTimelineIO, Final Cut Pro 7 / Premiere XML and EDL as a new sequence (cuts, gaps, linear speed, dissolves, markers, media by path); not FCPXML or AAF (binary — export XML or OTIO instead) | M |
 | Scene edit detection (cut a clip at its shot changes) | P R C | done: Clip ▸ Scene Edit Detection (ffmpeg scene score, sensitivity, shortest shot) → cuts with the linked sound, or clip markers | S |
 | Multicam (sync angles by audio/timecode, live angle switching) | P R F A V | needs audio-sync + a multi-view monitor | L |
 | Sync / merge clips by audio waveform (external recorder) | P R F A | done: Clip ▸ Synchronize (GCC-PHAT on the conformed PCM, 4 kHz then 48 kHz; ±0.03 ms on the test), start on a frame + sub-frame In | M |
@@ -44,19 +44,19 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 |---|---|---|---|
 | Add / remove tracks, track names, heights, lock, solo, target, sync-lock | all | done: 1 … 32 video + 1 … 32 audio tracks per sequence (add above / below / several, delete with clips, delete empty), names, locks, heights, vertical scrolling, hide / mute / solo; not yet sync-lock toggles or track targeting | M |
 | Overwrite vs insert edits, replace edit, fit-to-fill | P R F A V K | done: drop = overwrite, Ctrl+drop = insert, Alt+drop onto a clip = replace; Clip ▸ Replace with Clip from Project; Fit to Fill (source In–Out into the sequence In–Out at the fitting speed) | M |
-| Rolling, slip, slide, rate-stretch tools | P R F A V K | ripple trim exists (Q/W); these reuse TryTrim | M |
+| Rolling, slip, slide, rate-stretch tools | P R F A V K | done: Ripple Edit (B), Rolling Edit (N), Rate Stretch (R), Slip (Y), Slide (U) — toolbar Trim menu, edits from the drag's start clamped to what the media allows, linked sound along (Alt: alone), the monitor's two-up view; not yet keyboard trimming or sync lock | M |
 | Markers (sequence + clip), marker comments, chapter markers | all | done: sequence markers (name, comment, colour, length, chapter; drag / double-click / menu) and clip markers (source time); chapters into MP4 / MOV / MKV, YouTube chapter list (copy, Publish description) | S |
 | Clip speed / duration, reverse, frame blending / optical flow | all | done: Speed/Duration (Ctrl+R, linked speed / duration, ripple), reverse, pitch-kept or tape-style sound; rendered frame-exact (`Remap`). Next: frame blending / optical flow for slow motion (`minterpolate`), Rate Stretch tool (R) | M |
 | Time remapping / speed ramps (keyframed speed) | P R F V C | done: Speed keyframes (Effect Controls → Time; keyed by source time, eased like any key), picture only like Premiere | M |
 | Freeze frame / frame hold, still from frame | all | done: Add Frame Hold, Insert Frame Hold Segment, Freeze frame toggle | S |
 | Audio waveforms on clips | all | done: rectified, dB scale, from the AudioCache PCM (`Peaks`: 256-frame max + ×4 levels, `.peaks` file per conformed file) | S |
-| Volume / opacity rubber bands on the clip (keyframes drawn as a line) | P R F V K | done (volume): the clip volume band on audio clips — drag the line / keys, Ctrl+click adds, Alt+click removes; track volume / pan automation bands too; not yet opacity bands on video clips | S |
+| Volume / opacity rubber bands on the clip (keyframes drawn as a line) | P R F V K | done: clip volume band on audio clips, track volume / pan automation bands, opacity bands on video clips (the header's Opacity button) — drag the line / keys, Ctrl+click adds, Alt+click removes | S |
 | Magnetic timeline, connected clips, auditions | F | different editing model — optional | L |
 | Clip groups, copy / paste attributes (effects, motion, keyframes) | all | done: groups (Ctrl+G), copy / cut / paste / paste insert, Paste / Remove Attributes (keyframes moved to the target's source times) | S |
 | Match frame, reveal in project, go to next/previous edit or gap | P R A V | done: Reveal in Project / File Explorer, Go to Gap (sequence / track) | S |
 | Undo history panel | P R V | done: History panel (named steps, click to go back / forward) | S |
 | Keyboard shortcut editor | all | done: every command in a keymap; Settings lists them (search, change, add, remove, reset) | S |
-| JKL shuttle at 2×/4×/8×, reverse playback | all | partial: J/K/L; reverse decode needs chunked decoding (like backward tracking) | M |
+| JKL shuttle at 2×/4×/8×, reverse playback | all | done: J / L 1×, 2×, 4×, 8× (each press doubles), backwards too, K stops on a frame — the audio clock runs at the rate (tape-style sound), the picture via the scrub cache | M |
 | Timeline zoom to sequence / to selection, scroll with playback modes | all | done:  zoom to sequence, zoom to selection, = / -, log zoom slider (an hour fits); Page / Smooth / None while playing | S |
 
 ## 3. Effects, compositing and motion graphics
@@ -64,17 +64,17 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 |---|---|---|---|
 | More transitions: zoom, slide (one shot over the other), clock wipe, morph cut, film dissolve, 3D (cube spin, page peel), transition presets | all | done (29): dissolve, dips, wipes, push, iris (xfade) + Clock Wipe, Diagonal Wipe, Venetian Blinds, Inset, Iris Box / Diamond, Barn Doors ×2 (shape masks) + Slide ×4, Cross Zoom, Zoom In / Out, Spin In / Away (moved clips); not yet morph cut, film dissolve, 3D, presets | M |
 | Blend modes (multiply, screen, overlay, add, …) | P R F V K C | done: 19 per-channel modes (Opacity → Blend mode; preview = ps_2_0 shader over a brush of the tracks below, export = lut2, one formula); not yet Dissolve, Darker / Lighter Color, Hue / Saturation / Color / Luminosity | M |
-| Crop, flip / mirror, anchor point, corner pin, distort | all | done: crop (keyframable sides, edge feather), horizontal / vertical flip, anchor point (keyframable pivot), corner pin (keyframable corners, drag them on the monitor; preview = a perspective shader equal to the export's ffmpeg perspective, keyframes = per-frame expressions), lens distortion (keyframable; preview shader = lenscorrection); not yet mesh warp | S–M |
+| Crop, flip / mirror, anchor point, corner pin, distort | all | done: crop (keyframable sides, edge feather), horizontal / vertical flip, anchor point (keyframable pivot), corner pin (keyframable corners, drag them on the monitor; preview = a perspective shader equal to the export's ffmpeg perspective, keyframes = per-frame expressions), twirl / wave / spherize / 4 × 4 mesh warp (Effect Controls ▸ Distort, mesh points on the monitor; export geq = the preview's shader), lens distortion (keyframable; preview shader = lenscorrection); not yet mesh warp | S–M |
 | Adjustment layers | P R V K | done: Opacity (keyframes), Gaussian blur, Lumetri (grade, look, curves, wheels, vignette) and fades applied to everything below on V3 / V2 (preview = a ps_2_0 LUT shader over the tracks below, export = lut3d on the same 17³ cube); not yet masks, looks, keys or transforms on an adjustment layer | M |
 | Chroma key (green screen), luma key, spill suppression | all | done: Ultra key (green / blue screen, eyedropper, auto colour, tolerance, softness, spill, choke, soften) and luma key (black / white backgrounds) — ffmpeg in the preview's decoder and the export; not yet garbage matte, matte view | M |
 | Track matte key from any clip (video as matte) | P R F V | done: any video / picture as a brightness or alpha matte, reveal or cut-out, for everything below it (plus text and object masks) | M |
 | Stabilization (warp stabilizer), rolling-shutter repair | P R F V K C | done: Effect Controls → Stabilize (smooth motion / tripod, smoothness, shakiness, zoom in / zoom as needed / show edges) — vid.stab in two passes, rendered in the background like speed changes, speed-changed and reversed clips too; preview and export read the same file; not yet rolling-shutter repair | M |
-| Attach titles / graphics / effects to a tracked object (point / planar tracking) | P R F V C | object tracking exists: expose the track as a position source (e.g. formula `track(“Object 1”).x`) | M |
+| Attach titles / graphics / effects to a tracked object (point / planar tracking) | P R F V C | done: Effect Controls ▸ Motion ▸ Attach to object… (position, or position and size) — the object's path baked into keys, Update after re-tracking, Detach; effects follow objects through object masks | M |
 | Effect stack: reorder, enable/disable, presets, copy between clips | all | partial: effect presets (Save Preset…, built-ins, Effects panel, drag onto clips), copy between clips (Paste Attributes), audio effects move up / down, on / off; the video chain keeps its fixed (parity) order | M |
-| Generators: colour matte, solid, gradient, noise, bars & tone, countdown | all | ffmpeg lavfi sources; preview draws them | S |
+| Generators: colour matte, solid, gradient, noise, bars & tone, countdown | all | done: File ▸ New Item ▸ Colour Matte, Gradient (linear / radial), Bars and Tone (SMPTE HD bars + reference tone), Counting Leader (8 … 2, beep at 2) — rendered once to media files, editable | S |
 | Look effects: sharpen, vignette, film grain, glow, drop shadow on clips, lens distortion, glitch, VHS | P R F V K C | done: sharpen, glow, film grain (ffmpeg in the decoder and the export), drop shadow (composited from the clip's alpha), vignette (Lumetri), lens distortion; not yet glitch, VHS | M |
-| Noise reduction (spatial / temporal) | R P V | ffmpeg `hqdn3d` / `nlmeans` (slow) | M |
-| Animated title presets (fly in, typewriter, fade per word), rolling / crawling credits | P R F V C | keyframes + formulas exist; add per-character animation and presets | M |
+| Noise reduction (spatial / temporal) | R P V | done: Effect Controls ▸ Noise reduction (fast hqdn3d / high quality nlmeans / temporal atadenoise), rendered in the background with the stabilizer's machinery so preview and export show the same frames | M |
+| Animated title presets (fly in, typewriter, fade per word), rolling / crawling credits | P R F V C | done: Effect Controls ▸ Text animation — typewriter, fade by letter / word / line, rise and pop by word, in and out separately; roll (credits) and crawl (ticker) over the clip | M |
 | Motion graphics templates, shape layers, arrows, stickers | P F C | | L |
 | 3D titles, particles, Fusion-style node compositing | R (F) | | L |
 | Picture-in-picture / split-screen layout presets | V C F | done: picture in picture (4 corners), side by side, top / bottom, three across, 2 × 2 grid, full frame | S |
@@ -85,12 +85,12 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Speech-to-text transcription, captions, text-based editing | P R F C | done: captions from speech; text-based editing (Transcript panel: media transcribed on this PC, words follow cuts, Delete ripples, fillers, pauses, search) | M |
 | Auto reframe (smart crop for vertical / square) | P R C | done: Fill reframe (tracked mask or saliency → Pan keys) and Auto Reframe with Push-in (Scale keys, pan for the zoomed width) | S |
 | Background removal for people, automatically for the whole clip | R C (P) | done: Clip ▸ Remove Background (AI picks the subject in the middle, cut-out mask tracked through the clip); click selection for anything else | S |
-| Automatic face detection → blur all faces | R C | a face detector ONNX model + the object-mask pipeline | M |
+| Automatic face detection → blur all faces | R C | not yet: needs a face-detector model (e.g. YuNet, MIT, ~230 KB) downloaded with consent → tracked object masks with blur / pixelate | M |
 | Object removal / inpainting, clean plate | R (P) | video inpainting model | L |
-| Voice isolation, dialogue enhance, AI noise removal | P R F C | ONNX audio denoiser | M |
+| Voice isolation, dialogue enhance, AI noise removal | P R F C | partial: Audio ▸ Clean up — reduce background noise / isolate the voice (FFT denoiser with the clip's measured noise floor, voice band; latency compensated); an AI model (DeepFilterNet / DTLN) would do better — needs a model download | M |
 | Auto-ducking music under dialogue | P R F C | done: Clip ▸ Auto Ducking (voice activity of the speech tracks → volume keys on the music: amount, fades) | S |
 | Scene / shot detection, auto-tagging, search by content | P R F | | M |
-| Super scale (upscaling), frame interpolation (slow motion) | R C | ONNX models; ffmpeg `minterpolate` as a basic version | M |
+| Super scale (upscaling), frame interpolation (slow motion) | R C | partial: Time ▸ Interpolation = frame sampling / frame blending / optical flow (minterpolate, rendered) for slow motion; Create Upscaled Copy 2× / 4× (Lanczos + sharpening); AI models (RIFE, Real-ESRGAN) not added | M |
 | Smart colour match / auto colour | P R F | done: Auto Colour (exposure, white / black points, grey world) and Colour Match (to another clip's frame: R / G / B curves) | M |
 | Beat detection → markers / auto-cut to music | C (P R) | done: Detect Beats (onsets, tempo, downbeats → sequence markers every beat / bar) and Cut to the Beat (edits moved onto them) | S |
 
@@ -100,7 +100,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Basic correction: exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, vibrance | all | done: the whole grade bakes into one 33³ LUT (preview = lut3d arithmetic in C#, export = `lut3d`) | M |
 | LUT import (.cube), creative looks | all | done: 10 built-in looks + .cube files with intensity; no .cube export of a grade from the UI yet | S |
 | Curves (RGB, hue vs sat, luma vs sat), colour wheels (lift / gamma / gain) | all | done: RGB + R/G/B curves, lift / gamma / gain wheels; not yet hue vs sat / luma vs sat (need per-pixel HSL, outside a 3D LUT only partly) | M |
-| Secondary correction: HSL qualifier, power windows | P R F A V | object masks can serve as windows | M |
+| Secondary correction: HSL qualifier, power windows | P R F A V | done: Lumetri ▸ HSL Secondary (hue / saturation / luma ranges with softness, eyedropper, skin / sky / leaves, show mask, invert; correction baked into the LUT) and power windows (object mask effect "Colour-correct object / background" — tracked shapes) | M |
 | Scopes: waveform, vectorscope, histogram, RGB parade | all | done (Lumetri Scopes side view) | S–M |
 | HDR (PQ / HLG), colour management (Rec.709 / 2020, ACES), 10-bit pipeline | P R F A | export composite is 8-bit 4:4:4 (ProRes 4444 master keeps it); H.264 / HEVC out 4:2:0 | L |
 | Node-based grading, grade versions, stills gallery, shot matching | R | | L |
@@ -112,9 +112,9 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Loudness meter (LUFS) and normalize to a target (−14 YouTube / −23 broadcast) | P R F A V | done: BS.1770 integrated loudness + true peak in-app (= ffmpeg ebur128 within 0.05 LU), export normalization (one gain + 4× oversampled limiter only when peaks need it), Match Clips. Next: live momentary / short-term LUFS meter, loudness range | S |
 | Audio crossfades: exponential fade, crossfade over gaps | all | done: constant power / constant gain crossfades (afade qsin / tri, preview mixer uses the same curve) | S |
 | Audio effects: parametric EQ, compressor, limiter, de-esser, reverb, pitch shift, noise gate | all | done: parametric EQ, compressor, noise gate, de-esser, hum removal, reverb (Freeverb), pitch shift (rubberband, formants kept or not, kept in sync), Voice clean-up / Room / Hall presets — on clips, tracks and submixes (pre-fader, reverb tails ring on past the clips); one C# chain run live by the mixer and rendered for the export; not yet a limiter as an effect | M–L |
-| Channel mapping, stereo / mono / 5.1 | P R A V | | M |
+| Channel mapping, stereo / mono / 5.1 | P R A V | done: Audio ▸ Channels per clip (left or right on both, mono, swap), export Stereo / Mono / 5.1 (each audio track's header ▸ 5.1 Output: front, centre, surround, LFE); monitoring stays stereo | M |
 | VST3 / AU plugin hosting | P R F V (K) | | L |
-| Audio scrubbing, sample-accurate audio edits | P R F A V | | M |
+| Audio scrubbing, sample-accurate audio edits | P R F A V | done: sound under the playhead while dragging (Shift+S), Sequence ▸ Audio Time Units (audio-only clips trim / move / cut at single samples, deeper zoom) | M |
 | Music remix / retime to a duration | P (R) | | L |
 
 ## 7. Export and delivery
@@ -123,9 +123,9 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Export settings: DNxHR, 10-bit (HEVC Main10 / ProRes 4444) | all | done: resolution, frame rate, CRF / bitrate, H.264, HEVC, AV1, VP9, ProRes 422 HQ (ExportSettings.cs); 10-bit needs a 16-bit compositing path | M |
 | Presets: broadcast (XDCAM / IMX), podcast (audio loudness) | P R F V C | done: YouTube 1080p/4K/Shorts, TikTok, Reels, IG feed, Facebook, X, LinkedIn, Vimeo, HEVC, AV1, ProRes, WebM, WAV, MP3 | S |
 | Export a frame (PNG), image sequence, GIF | all | done: In/Out range, audio only (WAV / MP3); the publish window already grabs the playhead frame as a thumbnail | S |
-| Alpha-channel export (ProRes 4444, QT-RLE, PNG sequence, WebM VP9 alpha) | P R F A V | | S |
+| Alpha-channel export (ProRes 4444, QT-RLE, PNG sequence, WebM VP9 alpha) | P R F A V | done: presets ProRes 4444 with alpha, WebM VP9 with alpha, QuickTime Animation, PNG sequence — transparent where nothing is drawn | S |
 | Captions: SRT / VTT sidecar, burn-in, embedded 608/708 | all | done: burn-in + .srt beside the export, SRT / VTT export / import; embedded 608/708 not yet | S |
-| Render queue / batch export, background export while editing | P R F A V | | M |
+| Render queue / batch export, background export while editing | P R F A V | done: export dialog ▸ Add to Queue… renders a snapshot of the sequence in the background while editing goes on (Render Queue panel: progress, cancel, pause, render again, show the file) | M |
 | Render previews / timeline render cache, smart rendering (no re-encode of unchanged parts) | P R F A V | | L |
 | Upload: resumable after a network drop, upload queue in the background, post analytics | P R F C | done: direct upload to YouTube, TikTok, Instagram, Facebook, X, LinkedIn, Pinterest, Vimeo (+ Threads share), auto-upload after export | M |
 

@@ -90,6 +90,19 @@ public partial class MainWindow
         cm.Items.Add(new Separator());
         if (m.HasAudio) Item(m.Words == null ? "Transcribe (text-based editing)" : "Transcribe Again", () => { m.Words = null; ShowDock("Transcript"); _ = TranscribeAsync(new() { m }); });
         Item("Replace Selected Clip with This", () => { BinList.SelectedItem = m; ReplaceFromBin(); }, ed.Selected != null);
+        if (m.Gen != null) Item("Edit " + m.Gen.Title + "…", () => _ = EditGenerated(m));
+        if (m.Type == ClipKind.Video && m.Seq == null) { var sel = SelectedBinMedia(); cm.Items.Add(ProxyMenu(sel.Contains(m) ? sel : new() { m })); }
+        if (m.Type is ClipKind.Video or ClipKind.Image && m.Seq == null && m.Gen == null && !m.Offline)
+        {
+            var up = new MenuItem { Header = "Create Upscaled Copy" };
+            foreach (int f in new[] { 2, 4 })
+            {
+                var mi = new MenuItem { Header = $"{f}× ({m.Width * f}×{m.Height * f})" };
+                mi.Click += (_, _) => _ = UpscaleCopy(m, f);
+                up.Items.Add(mi);
+            }
+            cm.Items.Add(up);
+        }
     }
 
     // ---------------- replace / fit to fill ----------------

@@ -24,9 +24,9 @@ public partial class MainWindow
         stabState.Text = Stab.StateOf(c, m, s, e) switch
         {
             null => "",
-            { ready: true } => "✓ Stabilized — preview and export play the stabilized frames.",
-            { failed: true, error: var err } => "Could not stabilize: " + (err ?? "ffmpeg failed"),
-            _ => (Stab.Status ?? "Waiting to stabilize…") + " The preview shows the clip as shot until it is done.",
+            { ready: true } => "✓ Rendered — preview and export play the processed frames.",
+            { failed: true, error: var err } => "Could not render: " + (err ?? "ffmpeg failed"),
+            _ => (Stab.Status ?? "Waiting to render…") + " The preview shows the clip as shot until it is done.",
         };
     }
 
@@ -67,5 +67,32 @@ public partial class MainWindow
         stabState = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) };
         body.Children.Add(stabState);
         UpdateStabState(c);
+    }
+
+    /// <summary>Effect Controls → Noise reduction: method and strength (rendered in the background with the stabilizer's machinery).</summary>
+    void BuildDenoiseInspector(Clip c)
+    {
+        if (c.Kind != ClipKind.Video || ed.SeqOf(c) != null) return;
+        var targets = GradeTargets(c).Where(x => x.Kind == ClipKind.Video).ToList();
+        var body = Section("Noise reduction", open: Stab.Denoises(c));
+        var on = new CheckBox { Content = "Reduce noise (rendered in the background)", IsChecked = c.Denoise != null, Margin = new Thickness(0, 2, 0, 4) };
+        on.Click += (_, _) => { ed.Edit(() => { foreach (var x in targets) x.Denoise = on.IsChecked == true ? x.Denoise ?? new VideoDenoise() : null; }, "Noise Reduction"); BuildInspector(); };
+        body.Children.Add(on);
+        if (c.Denoise is not { } dn) return;
+        void Set(Action<VideoDenoise> f) { ed.Edit(() => { foreach (var x in targets) if (x.Denoise != null) f(x.Denoise); }, "Noise Reduction"); UpdateStabState(c); Tl.InvalidateVisual(); }
+        var method = new ComboBox { ItemsSource = new[] { "Fast (spatial + temporal)", "High quality (slow)", "Temporal (static shots)" }, SelectedIndex = dn.Method,
+                                    ToolTip = "Fast: hqdn3d. High quality: non-local means, much slower to render. Temporal: averages over 9 frames — best for steady shots" };
+        method.SelectionChanged += (_, _) => Set(x => x.Method = method.SelectedIndex);
+        Row(body, "Method", method);
+        var str = new Slider { Minimum = 1, Maximum = 100, Value = dn.Strength, SmallChange = 1, LargeChange = 10, ToolTip = "How much (50 = the filter's usual strength)" };
+        str.PreviewMouseLeftButtonUp += (_, _) => Set(x => x.Strength = Math.Round(str.Value));
+        str.KeyUp += (_, _) => Set(x => x.Strength = Math.Round(str.Value));
+        Row(body, "Strength", str);
+        if (c.Stab == null)
+        {
+            stabState = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) };
+            body.Children.Add(stabState);
+            UpdateStabState(c);
+        }
     }
 }

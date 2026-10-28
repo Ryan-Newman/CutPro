@@ -26,6 +26,8 @@ public partial class MainWindow
         Po.Ed = ed;
         Po.Enabled = () => Mo.Tool == ObjectTool.None && Mo.PickColor == null;
         Po.Edited = () => { RefreshProps(); Tl.InvalidateVisual(); if (Kfe.IsVisible) Kfe.InvalidateVisual(); };
+        meshOverlay = new MeshOverlay { Ed = ed, Edited = () => Pv.InvalidateVisual() };
+        ((System.Windows.Controls.Grid)Po.Parent).Children.Add(meshOverlay);
         ed.PropsChanged += Po.InvalidateVisual;
         ed.Seeked += Po.InvalidateVisual;
         ed.MasksChanged += () => { Mo.InvalidateVisual(); RefreshMaskKeys(); };
@@ -332,11 +334,22 @@ public partial class MainWindow
             {
                 var p = ObjectMask.Presets[preset.SelectedIndex];
                 if (p.fx != m.Effect) m.Amount = p.fx switch { MaskFx.Pixelate => 20, MaskFx.Darken => 70, MaskFx.Tint => 45, _ => 25 };
+                if (p.fx == MaskFx.Grade && m.Grade == null) m.Grade = p.invert ? new ColorGrade { Exposure = -0.5, Saturation = 60 } : new ColorGrade { Exposure = 0.5, Vibrance = 20 };
                 m.Effect = p.fx; m.Invert = p.invert; ed.Touch(); Dispatcher.BeginInvoke(BuildInspector);
             };
             preset.Margin = new Thickness(0, 6, 0, 2); preset.ToolTip = "What happens to the selected object"; card.Children.Add(preset);
             if (AmountSpec(m.Effect) is { } spec) Slider(spec.label, spec.min, spec.max, spec.step, m.Amount, v => m.Amount = v, card);
             if (m.Effect == MaskFx.Tint) Row(card, "Color", new ColorField(m.TintColor, hex => { m.TintColor = hex; ed.Touch(); }));
+            if (m.Effect == MaskFx.Grade)
+            {   // the power window's correction
+                var wg = m.Grade ??= new ColorGrade();
+                Slider("Temperature", -100, 100, 1, wg.Temperature, v => wg.Temperature = v, card);
+                Slider("Tint", -100, 100, 1, wg.Tint, v => wg.Tint = v, card);
+                Slider("Exposure", -4, 4, 0.05, wg.Exposure, v => wg.Exposure = v, card);
+                Slider("Contrast", -100, 100, 1, wg.Contrast, v => wg.Contrast = v, card);
+                Slider("Saturation", 0, 200, 1, wg.Saturation, v => wg.Saturation = v, card);
+                Slider("Vibrance", -100, 100, 1, wg.Vibrance, v => wg.Vibrance = v, card);
+            }
             Slider("Feather", 0, 100, 0.5, m.Feather, v => m.Feather = v, card);
             Slider("Expand", -60, 60, 0.5, m.Expand, v => m.Expand = v, card);
             var inv = new CheckBox { Content = "Invert (apply outside the object)", IsChecked = m.Invert, Margin = new Thickness(0, 4, 0, 2) };

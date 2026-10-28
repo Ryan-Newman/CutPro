@@ -193,6 +193,29 @@ public partial class MainWindow
         Num(box, "Padding", 0, 200, 1, st.BoxPadding, (s, v) => s.BoxPadding = v);
         Num(box, "Corner radius", 0, 200, 1, st.BoxRadius, (s, v) => s.BoxRadius = v);
 
+        // ---- text animation: in / out by letter, word or line; roll / crawl ----
+        var fx = c.TextFx ?? new TextAnim();
+        var anim = Section("Text animation", TitleAnim.Active(c.TextFx));
+        ComboBox Pick(TextIn v)
+        {
+            var cb = new ComboBox { ItemsSource = TitleAnim.Names.Select(n => n.name).ToList(), SelectedIndex = Math.Max(0, Array.FindIndex(TitleAnim.Names, n => n.v == v)) };
+            return cb;
+        }
+        void FxEdit(Action<TextAnim> f) { TitleEdit(t => { var a = t.TextFx ?? new TextAnim(); f(a); t.TextFx = TitleAnim.Active(a) ? a : null; }); ed.RaiseChanged(); }
+        var inBox = Pick(fx.In); inBox.SelectionChanged += (_, _) => FxEdit(a => a.In = TitleAnim.Names[inBox.SelectedIndex].v);
+        var outBox = Pick(fx.Out); outBox.SelectionChanged += (_, _) => FxEdit(a => a.Out = TitleAnim.Names[outBox.SelectedIndex].v);
+        Row(anim, "In", inBox); Row(anim, "Out", outBox);
+        Slider("In (s)", 0.1, 5, 0.1, fx.InDur, v => { foreach (var t in titles) if (t.TextFx != null) t.TextFx.InDur = v; }, anim);
+        Slider("Out (s)", 0.1, 5, 0.1, fx.OutDur, v => { foreach (var t in titles) if (t.TextFx != null) t.TextFx.OutDur = v; }, anim);
+        var roll = new ComboBox { ItemsSource = new[] { "None", "Roll up (credits)", "Crawl left (ticker)" }, SelectedIndex = (int)fx.Roll };
+        roll.SelectionChanged += (_, _) => FxEdit(a => a.Roll = (TextRoll)roll.SelectedIndex);
+        Row(anim, "Roll / crawl", roll);
+        anim.Children.Add(new TextBlock
+        {
+            Text = "Roll moves the whole text from below the frame to above it over the clip's length (credits: one name per line); crawl moves it from the right edge out to the left. Make the clip longer to slow it down.",
+            TextWrapping = TextWrapping.Wrap, Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 4, 0, 0)
+        });
+
         // ---- mask ----
         var mask = Section("Text mask", c.Mask != MaskMode.None);
         var modes = new ComboBox { ItemsSource = new[] { "None (normal title)", "Reveal video inside text", "Cut text out of video" }, SelectedIndex = (int)c.Mask };

@@ -82,6 +82,7 @@
                     <RadioButton x:Name="ActScopes" Style="{StaticResource Activity}" GroupName="act" Tag="Scopes" Content="&#xE9D2;" Click="Activity_Click" ToolTip="Lumetri Scopes · waveform, RGB parade, vectorscope, histogram"/>
                     <RadioButton x:Name="ActCaptions" Style="{StaticResource Activity}" GroupName="act" Tag="Captions" Content="&#xE7F0;" Click="Activity_Click" ToolTip="Captions · from speech, edit, SRT / VTT"/>
                     <RadioButton x:Name="ActTranscript" Style="{StaticResource Activity}" GroupName="act" Tag="Transcript" Content="&#xE8A4;" Click="Activity_Click" ToolTip="Transcript · edit the video by editing its text"/>
+                    <RadioButton x:Name="ActQueue" Style="{StaticResource Activity}" GroupName="act" Tag="Queue" Content="&#xE896;" Click="Activity_Click" ToolTip="Render Queue · exports rendering in the background"/>
                     <RadioButton x:Name="ActInspector" Style="{StaticResource Activity}" GroupName="act" Tag="Inspector" Content="&#xE70F;" Click="Activity_Click" ToolTip="Effect Controls" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActSource" Style="{StaticResource Activity}" GroupName="act" Tag="Source" Content="&#xE7F4;" Click="Activity_Click" ToolTip="Source monitor" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActHistory" Style="{StaticResource Activity}" GroupName="act" Tag="History" Content="&#xE81C;" Click="Activity_Click" ToolTip="History · every undo step" Visibility="Collapsed"/>
@@ -322,6 +323,7 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <TextBlock x:Name="DurText" Text="00:00:00:00" FontFamily="Consolas" FontSize="13" Foreground="{DynamicResource B.Fg.Dim}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ToggleButton x:Name="ProxyBtn" Style="{StaticResource Tool}" Content="Proxies" Click="ProxyBtn_Click" Margin="0,0,6,0" ToolTip="Play proxies instead of the original files (Project panel ▸ Proxy ▸ Create Proxies). Exports always use the originals"/>
                             <ComboBox x:Name="ResCombo" Width="72" SelectedIndex="0" SelectionChanged="Res_Changed" ToolTip="Playback resolution">
                                 <ComboBoxItem Content="Full"/><ComboBoxItem Content="1/2"/><ComboBoxItem Content="1/4"/>
                             </ComboBox>
@@ -376,6 +378,9 @@
                             </ToggleButton>
                             <ToggleButton x:Name="ToolRazor" Style="{StaticResource Tool}" Click="ToolRazor_Click" ToolTip="Razor tool (C)">
                                 <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8C6;" Style="{StaticResource IconText}" Margin="0,0,5,0"/><TextBlock x:Name="RazorLabel" Text="Razor"/></StackPanel>
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolTrim" Style="{StaticResource Tool}" Click="ToolTrim_Click" ToolTip="Trim tools: Ripple Edit (B), Rolling Edit (N), Rate Stretch (R), Slip (Y), Slide (U)">
+                                <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8AB;" Style="{StaticResource IconText}" Margin="0,0,5,0"/><TextBlock x:Name="TrimLabel" Text="Trim"/><TextBlock Text="&#xE70D;" Style="{StaticResource IconText}" FontSize="8" Margin="4,1,0,0"/></StackPanel>
                             </ToggleButton>
                             <Rectangle Width="{DynamicResource Th.SepW}" Fill="{DynamicResource B.Th.Sep}" Margin="6,6"/>
                             <Button Style="{StaticResource Flat}" Content="Add Edit" Click="Split_Click" ToolTip="Cut selected clips (or all tracks) at the playhead (Ctrl+K; Ctrl+Shift+K = all tracks)"/>

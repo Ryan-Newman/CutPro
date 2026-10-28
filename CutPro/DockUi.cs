@@ -66,6 +66,8 @@ public partial class MainWindow
         Add("Captions", "Captions", CaptionsView, "Left", ActCaptions);
         BuildTranscriptView();
         Add("Transcript", "Transcript", TranscriptView, "Left", ActTranscript);
+        BuildQueueView();
+        Add("Queue", "Render Queue", QueueView, "Left", ActQueue);
         Add("Inspector", "Effect Controls", InspectorView, "Right", ActInspector);
         BuildSourceView();
         Add("Source", "Source", SourceView, "Right", ActSource);

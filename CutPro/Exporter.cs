@@ -175,7 +175,7 @@ public static class Exporter
         string fps = TimeUtil.Rate, tb = TimeUtil.Tb;
         // transparent background (a nested sequence's render): the composite carries alpha (PA); cross-fades and shape wipes mix
         // premultiplied, mattes multiply the alpha instead of putting the result over black
-        bool alpha = o.Alpha;
+        bool alpha = o.Alpha || o.WantsAlpha;
         // the composite: 4:4:4 (full colour: every overlay keeps its chroma, the encoder subsamples once at the end) or 4:2:0 (faster);
         // overlays default to yuv420, so every one onto the composite names the format (OV)
         bool full = o.Full444;
@@ -192,7 +192,7 @@ public static class Exporter
         // same-size clips: the chroma upsampled the way the preview's decoder does it — a plain clip goes to BGR with repeated chroma (swscale's
         // unscaled converter), one whose decoder runs a graph (key, looks, warp) through its bilinear scale, a picture through Windows' decoder
         string Chroma(Clip c) => c.Kind == ClipKind.Image || Looks.InDecoder(c, Warp.InDecoder(c)) ? "bilinear" : "neighbor";
-        output = Path.GetFullPath(output);                // ffmpeg runs in the temp folder
+        output = Path.GetFullPath(o.OutputPath(output));  // ffmpeg runs in the temp folder (an image sequence: its frame number pattern)
         double total = ed.End;
         var args = new List<string> { "-y", "-hide_banner", "-progress", "pipe:1", "-nostats" };
         var temps = new List<string>();
@@ -637,6 +637,11 @@ public static class Exporter
                                 {
                                     sb.AppendLine($"[{mi}:v]format=gray,format=gbrp,settb={tb},setpts=N[mk{tag}]");      // (mkv stores ms: frame times round)
                                     sb.AppendLine($"[{mc}]split[ma{tag}][mf{tag}]");
+                                    if (mk.Effect == MaskFx.Grade && Grade.For(mk.Grade) is { } mlut)
+                                    {   // a power window: its own LUT, after the clip's
+                                        var cube = Path.Combine(Path.GetTempPath(), MaskExport.CubeName(mk));
+                                        Grade.WriteCube(mlut, cube); temps.Add(cube);
+                                    }
                                     sb.AppendLine(MaskExport.Graph(mk, $"mf{tag}", $"mx{tag}", S));
                                     sb.AppendLine($"[ma{tag}][mx{tag}][mk{tag}]maskedmerge[mo{tag}]");
                                 }
@@ -906,6 +911,13 @@ public static class Exporter
             if (!o.AudioOnly) { sb.AppendLine($"[{vout}]trim=start={F(t0)}:end={F(t1)},setpts=PTS-STARTPTS[vr]"); vout = "vr"; }
             if (o.Audio != "none") { sb.AppendLine($"[aout]atrim=start_sample={Smp(t0)}:end_sample={Smp(t1)},asetpts=PTS-STARTPTS[ar]"); aout = "ar"; }
         }
+        if (o.Audio != "none" && o.Channels == "mono") { sb.AppendLine($"[{aout}]pan=mono|c0=0.5*c0+0.5*c1[amono]"); aout = "amono"; }   // (the stereo mix folded down)
+        else if (o.Audio != "none" && o.SurroundFile is { } sf)
+        {   // 5.1: the mixer's own render of each group (range and normalization included), peaks limited like the stereo mix
+            args.AddRange(new[] { "-f", "f32le", "-ar", AR.ToString(), "-ch_layout", "5.1", "-i", sf }); int si = inputs++;
+            string lim = o.Normalize && o.NormLimit ? $",aresample={AR * 4},alimiter=limit={G(Math.Pow(10, (o.TruePeak - 0.3) / 20))}:attack=1:release=50:level=0:latency=1,aresample={AR}" : "";
+            sb.AppendLine($"[{aout}]anullsink"); sb.AppendLine($"[{si}:a]anull{lim}[a51]"); aout = "a51";   // (the stereo mix isn't used)
+        }
         if (alpha && !o.AudioOnly) { sb.AppendLine($"[{vout}]format={PA}[va]"); vout = "va"; }
         else if (full && subOut && outFmt is { } pf)
         {   // 4:4:4 → the encoder's subsampled format by area averaging: a 4:2:0 source's repeated chroma comes back exactly
@@ -1009,7 +1021,26 @@ public static class Exporter
         }
         catch (OperationCanceledException) { return "Cancelled"; }
         catch (Exception ex) { return ex.Message; }
+        string? surround = null;
+        if (opts is { Channels: "5.1" } && opts.Audio != "none")
+        {   // 5.1: the playback mixer renders each group of tracks; the exporter reads the 6 channels
+            status?.Report("Mixing 5.1…");
+            try
+            {
+                var (t0, t1) = Range(ed, opts);
+                var srcs = Mixer.Sources(ed, Transitions.Compute(ed), new()).ToArray();
+                foreach (var pth in srcs.Select(s => s.Path).Distinct(StringComparer.OrdinalIgnoreCase)) while (!AudioCache.IsDone(pth)) { ct.ThrowIfCancellationRequested(); Thread.Sleep(20); }
+                surround = Path.Combine(Path.GetTempPath(), $"cutpro_51_{Guid.NewGuid().ToString("N")[..8]}.f32");
+                var mix = ed.Mix;
+                Mixer.RenderSurround(srcs, Mixer.MasterOf(ed), tr => tr >= 0 && tr < mix.Channels.Length ? mix.Channels[tr].Surround : SurroundOut.Front, t0, t1,
+                                     opts.Normalize ? Math.Pow(10, opts.NormGainDb / 20) : 1, surround, ct);
+            }
+            catch (OperationCanceledException) { return "Cancelled"; }
+            status?.Report("");
+        }
+        if (opts != null) opts.SurroundFile = surround;
         var (args, script, temps) = Build(ed, output, titles, masks, opts, remaps, nests);
+        if (surround != null) temps.Add(surround);
         File.WriteAllText(args[args.IndexOf("-/filter_complex") + 1], script, new UTF8Encoding(false));
         var psi = new ProcessStartInfo(ffmpeg) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
                                              WorkingDirectory = Path.GetTempPath() };      // sendcmd files are referenced by bare name

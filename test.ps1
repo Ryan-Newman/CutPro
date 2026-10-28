@@ -205,3 +205,14 @@ if (-not $p.WaitForExit(400000)) { $p.Kill(); "HIGHTEST TIMEOUT" } else { Get-Co
 $hu = "$env:TEMP\cutpro_highui.txt"; Remove-Item $hu -ErrorAction SilentlyContinue
 $p = Start-Process $exe -ArgumentList '--highui', $hu -PassThru
 if (-not $p.WaitForExit(240000)) { $p.Kill(); "HIGHUI TIMEOUT" } else { Get-Content $hu | ? { $_ -notmatch '^PASS' } }
+# 29. extra-high items: trim tools (roll / slip / slide / ripple / rate stretch), generators, alpha exports, render queue, OTIO / XML / EDL
+#     import, HSL secondary + power windows, attach to a tracked object, text animation, denoise + frame interpolation + upscale, channel
+#     mapping / mono / 5.1, voice clean-up, audio time units, proxies, distort (shader = geq)
+$xt = Join-Path $env:TEMP 'cutpro_extratest'
+$p = Start-Process $exe -ArgumentList '--extratest', $xt -PassThru
+if (-not $p.WaitForExit(600000)) { $p.Kill(); "EXTRATEST TIMEOUT" } else { Get-Content "$xt\extratest.txt" | ? { $_ -notmatch '^PASS' -and $_ -notmatch '^  \(' } }
+# 30. the same through the real window: tool keys, a rolling edit with the two-up view, J / K / L shuttle, scrubbing, the opacity band,
+#     New Item, Import Sequence, the Render Queue panel, proxies
+$xu = "$env:TEMP\cutpro_extraui.txt"; Remove-Item $xu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--extraui', $xu -PassThru
+if (-not $p.WaitForExit(300000)) { $p.Kill(); "EXTRAUI TIMEOUT" } else { Get-Content $xu | ? { $_ -notmatch '^PASS' } }

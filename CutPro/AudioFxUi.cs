@@ -53,6 +53,18 @@ public partial class MainWindow
         Inspector.Children.Add(fm);
         if (Math.Abs(c.Pitch) > 1e-9 && ed.MediaOf(c) is { } m && !AudioCache.IsDone(AudioCache.EnsureDerived(c, m)))
             Inspector.Children.Add(new TextBlock { Text = "Rendering the shifted sound…", FontSize = 11, Foreground = Dim });
+        // channel map (Premiere's Modify ▸ Audio Channels)
+        var ch = new ComboBox { ItemsSource = new[] { "Stereo (as recorded)", "Left channel on both sides", "Right channel on both sides", "Mono (left + right)", "Swap left and right" },
+                                SelectedIndex = (int)c.Channels, ToolTip = "A microphone recorded on one channel: play that channel on both sides" };
+        ch.SelectionChanged += (_, _) => { ed.Edit(() => { foreach (var x in targets) x.Channels = (ChannelMap)ch.SelectedIndex; }, "Audio Channels"); };
+        Row(Inspector, "Channels", ch);
+        // clean-up (Enhance Speech)
+        var vc = new ComboBox { ItemsSource = new[] { "None", "Reduce background noise", "Isolate the voice" }, SelectedIndex = (int)c.Voice,
+                                ToolTip = "Reduce noise: hiss, hum and room tone go down. Isolate the voice: only the voice's range is kept and everything else pushed down (rendered once, like a speed change)" };
+        vc.SelectionChanged += (_, _) => { ed.Edit(() => { foreach (var x in targets) x.Voice = (VoiceClean)vc.SelectedIndex; }, "Clean Up Sound"); BuildInspector(); };
+        Row(Inspector, "Clean up", vc);
+        if (c.Voice != VoiceClean.None)
+            Slider("Amount", 0, 100, 1, c.VoiceAmount, v => Later(x => x.VoiceAmount = v));
     }
 
     ComboBox AddFxBox(Action<string> add)

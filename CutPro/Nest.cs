@@ -417,6 +417,8 @@ public static class Nest
         finally { Trim(); }
     }
 
+    /// <summary>An editor for rendering a snapshot (render queue jobs; the caller sets the sequence's <see cref="SeqScope"/>).</summary>
+    public static Editor EditorFor(Snap s) => MakeEditor(s);
     /// <summary>An editor for rendering a snapshot (this thread; the caller has set the sequence's <see cref="SeqScope"/>).</summary>
     static Editor MakeEditor(Snap s)
     {

@@ -5,7 +5,8 @@ using System.Windows.Media;
 namespace CutPro;
 
 public enum MaskKind { AI, Ellipse, Rectangle, Freehand }
-public enum MaskFx { Blur, Pixelate, Darken, Desaturate, Redact, Tint, CutOut }
+/// <summary>Grade = a power window: a second colour correction (<see cref="ObjectMask.Grade"/>) inside the mask (or outside, inverted).</summary>
+public enum MaskFx { Blur, Pixelate, Darken, Desaturate, Redact, Tint, CutOut, Grade }
 
 /// <summary>A selected object/region on a video or image clip and the effect applied to it (or, inverted, to everything else).
 /// The per-frame outline lives in <see cref="MaskTrack"/> (Editor.MaskTracks[Id]) so undo snapshots stay small.</summary>
@@ -21,6 +22,8 @@ public class ObjectMask
     public bool Invert { get; set; }                  // apply to everything except the object
     public bool Enabled { get; set; } = true;
     public string TintColor { get; set; } = "#FFFFD400";
+    /// <summary>The power window's correction (<see cref="MaskFx.Grade"/>): applied after the clip's own grade, inside the mask.</summary>
+    public ColorGrade? Grade { get; set; }
 
     /// <summary>Premiere-style presets shown in the UI: (label, effect, invert).</summary>
     public static readonly (string label, MaskFx fx, bool invert)[] Presets =
@@ -29,6 +32,7 @@ public class ObjectMask
         ("Tint / highlight object", MaskFx.Tint, false), ("Focus on object (blur background)", MaskFx.Blur, true),
         ("Spotlight (darken background)", MaskFx.Darken, true), ("Color pop (grey background)", MaskFx.Desaturate, true),
         ("Cut out object (remove background)", MaskFx.CutOut, false), ("Remove object area (transparent)", MaskFx.CutOut, true),
+        ("Colour-correct object (power window)", MaskFx.Grade, false), ("Colour-correct background (power window)", MaskFx.Grade, true),
     };
     [JsonIgnore] public int PresetIndex => Array.FindIndex(Presets, p => p.fx == Effect && p.invert == Invert);
 }

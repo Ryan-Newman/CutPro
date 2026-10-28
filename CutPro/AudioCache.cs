@@ -49,7 +49,44 @@ public static class AudioCache
     }
     public static string DerivedFile(Clip x, MediaItem m) => Derived(x, m).file;
     /// <summary>The clip's sound is a rendered file: another speed, backwards, or a pitch shift.</summary>
-    public static bool Derives(Clip c) => !c.Hold && (TimeMap.SoundRemapped(c) || Math.Abs(c.Pitch) > 1e-9);
+    public static bool Derives(Clip c) => !c.Hold && (TimeMap.SoundRemapped(c) || Math.Abs(c.Pitch) > 1e-9 || c.Channels != ChannelMap.Stereo || CleanOf(c) != null);
+    /// <summary>The clean-up as ffmpeg filters (null = none): an FFT denoiser (afftdn) whose noise floor is measured on the clip's own sound when it
+    /// is rendered (nf=AUTO: the quietest tenth of it), harder and inside the voice's band (90 Hz … 7.5 kHz) for "isolate voice".</summary>
+    public static string? CleanOf(Clip c)
+    {
+        if (c.Voice == VoiceClean.None || c.VoiceAmount <= 0) return null;
+        double k = Math.Clamp(c.VoiceAmount, 0, 100) / 100;
+        string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return c.Voice == VoiceClean.IsolateVoice
+            ? $"highpass=f=90:p=2,lowpass=f=7500:p=2,afftdn=nr={F(20 + 40 * k)}:nf=AUTO"
+            : $"afftdn=nr={F(10 + 30 * k)}:nf=AUTO";
+    }
+    /// <summary>The noise floor of a sound (dBFS): the 10th percentile of its 50 ms RMS levels, after the filters before the denoiser.</summary>
+    static double NoiseFloorDb(string ff, string path, string pre)
+    {
+        var psi = new ProcessStartInfo(ff) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-v", "error", "-nostdin", "-i", path, "-vn", "-af", pre.TrimEnd(',') is { Length: > 0 } x ? x : "anull", "-ac", "1", "-ar", Rate.ToString(), "-f", "s16le", "pipe:1" }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        p.ErrorDataReceived += (_, _) => { }; p.BeginErrorReadLine();
+        using var ms = new MemoryStream(); p.StandardOutput.BaseStream.CopyTo(ms); p.WaitForExit();
+        var b = ms.ToArray(); int win = Rate / 20, n = b.Length / 2 / win;
+        if (n < 2) return -60;
+        var levels = new double[n];
+        for (int w = 0; w < n; w++)
+        {
+            double s = 0;
+            for (int i = 0; i < win; i++) { double v = BitConverter.ToInt16(b, (w * win + i) * 2) / 32768.0; s += v * v; }
+            levels[w] = 10 * Math.Log10(Math.Max(1e-12, s / win));
+        }
+        Array.Sort(levels);
+        return levels[(int)(n * 0.1)];
+    }
+    /// <summary>The channel map as an ffmpeg pan (null = stereo as it is).</summary>
+    public static string? PanOf(ChannelMap m) => m switch
+    {
+        ChannelMap.Left => "pan=stereo|c0=c0|c1=c0", ChannelMap.Right => "pan=stereo|c0=c1|c1=c1",
+        ChannelMap.Mono => "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1", ChannelMap.Swap => "pan=stereo|c0=c1|c1=c0", _ => null,
+    };
     /// <summary>rubberband's pitch shifter for semitones (formants kept or shifted).</summary>
     static string PitchFilter(double semis, bool formant) =>
         FormattableString.Invariant($"rubberband=pitch={Math.Pow(2, semis / 12):0.#########}:formant={(formant ? "preserved" : "shifted")}");
@@ -76,6 +113,28 @@ public static class AudioCache
         lock (pitchLag) pitchLag[filter] = lag;
         return lag;
     }
+    static int? denoiseLag;
+    /// <summary>How many samples ffmpeg's FFT denoiser (afftdn) delays its output: an impulse through it, where its peak comes out. Once per run.</summary>
+    static int DenoiseLag(string ff)
+    {
+        if (denoiseLag is int known) return known;
+        int lag = 0;
+        try
+        {
+            var psi = new ProcessStartInfo(ff) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in new[] { "-v", "error", "-nostdin", "-f", "lavfi", "-i", $"aevalsrc=if(eq(n\\,{Rate})\\,0.9\\,0):s={Rate}:d=2", "-af", "afftdn=nr=0.01:nf=-80", "-ac", "1", "-f", "s16le", "pipe:1" })
+                psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi)!;
+            p.ErrorDataReceived += (_, _) => { }; p.BeginErrorReadLine();
+            using var ms = new MemoryStream(); p.StandardOutput.BaseStream.CopyTo(ms); p.WaitForExit();
+            var b = ms.ToArray(); int best = 0, at = Rate;
+            for (int i = 0; i + 1 < b.Length; i += 2) { int v = Math.Abs((int)BitConverter.ToInt16(b, i)); if (v > best) { best = v; at = i / 2; } }
+            lag = at - Rate;
+        }
+        catch { }
+        denoiseLag = lag;
+        return lag;
+    }
     /// <summary>Moves a rendered s16 stereo file's sound by −lag samples in place (same length: silence fills the gap).</summary>
     static void Unshift(string file, int lag)
     {
@@ -93,9 +152,10 @@ public static class AudioCache
         long s0 = (long)Math.Round(lo * Rate), s1 = Math.Max(s0 + 1, (long)Math.Round(hi * Rate));
         double r = TimeMap.Ratio(x);
         // exact length before reversing (silence where the range runs past the media), so the frames stay in place
-        var af = new StringBuilder($"aformat=sample_rates={Rate}:channel_layouts=stereo,atrim=start_sample={Math.Max(0, s0)}:end_sample={Math.Max(1, s1)},asetpts=PTS-STARTPTS");
+        var af = new StringBuilder($"aformat=sample_rates={Rate}:channel_layouts=stereo,{(PanOf(x.Channels) is { } pan ? pan + "," : "")}atrim=start_sample={Math.Max(0, s0)}:end_sample={Math.Max(1, s1)},asetpts=PTS-STARTPTS");
         if (s0 < 0) af.Append($",adelay=delays={-s0}S:all=1");
         af.Append($",apad=whole_len={s1 - s0}");
+        if (CleanOf(x) is { } clean) af.Append($",apad=pad_len=4800," + clean + $",atrim=end_sample={s1 - s0 + 4800}");   // (clean-up on the source range, room for its latency; Conform shifts it back and the reader stops at the clip's end)
         if (x.Reverse) af.Append(",areverse");
         if (Math.Abs(r - 1) > 1e-9)
         {
@@ -161,11 +221,17 @@ public static class AudioCache
                 var tmp = f + ".part";
                 var psi = new ProcessStartInfo(ff) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
                 foreach (var a in new[] { "-y", "-v", "error", "-nostdin", "-i", path, "-vn" }) psi.ArgumentList.Add(a);
+                if (af != null && af.IndexOf("nf=AUTO", StringComparison.Ordinal) >= 0)
+                {   // clean-up: the denoiser's noise floor from this sound's quiet parts (a little above them)
+                    double nf = Math.Clamp(Math.Round(NoiseFloorDb(ff, path, af[..af.IndexOf("afftdn", StringComparison.Ordinal)]) + 4), -80, -20);
+                    af = af.Replace("nf=AUTO", "nf=" + nf.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
                 if (af != null) { psi.ArgumentList.Add("-af"); psi.ArgumentList.Add(af); }
                 foreach (var a in new[] { "-ac", "2", "-ar", Rate.ToString(), "-f", "s16le", tmp }) psi.ArgumentList.Add(a);
                 using var p = Process.Start(psi)!;
                 p.StandardError.ReadToEnd(); p.WaitForExit();
                 if (p.ExitCode != 0 || !File.Exists(tmp)) return;
+                if (af != null && af.Contains("afftdn=", StringComparison.Ordinal)) Unshift(tmp, DenoiseLag(ff));   // (the FFT denoiser's latency)
                 if (af != null && af.IndexOf("rubberband=pitch=", StringComparison.Ordinal) is var ri and >= 0)
                 {   // the pitch shifter moves the sound by a ratio-dependent amount: put it back in sync with the picture
                     int re = af.IndexOf(',', ri); var filter = re < 0 ? af[ri..] : af[ri..re];

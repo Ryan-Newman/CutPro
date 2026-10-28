@@ -142,6 +142,67 @@ public partial class MainWindow
                                           TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
     }
 
+    /// <summary>Effect Controls → Distort: twirl, wave, spherize or a mesh warp (its points dragged on the monitor).</summary>
+    void BuildDistortInspector(Clip c)
+    {
+        if (c.Kind is not (ClipKind.Video or ClipKind.Image)) return;
+        var body = Section("Distort", open: c.Distort != null);
+        var targets = GradeTargets(c).Where(x => x.Kind is ClipKind.Video or ClipKind.Image).ToList();
+        if (c.Pin != null || c.Lens != null)
+        {
+            body.Children.Add(new TextBlock { Text = "Turn off the corner pin and lens distortion to twirl, wave, spherize or mesh-warp this clip.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
+            return;
+        }
+        var kinds = new ComboBox { ItemsSource = new[] { "None", "Twirl", "Wave", "Spherize (bulge / pinch)", "Mesh warp (drag the points)" }, SelectedIndex = c.Distort == null ? 0 : (int)c.Distort.Kind + 1 };
+        kinds.SelectionChanged += (_, _) =>
+        {
+            int i = kinds.SelectedIndex;
+            ed.Edit(() =>
+            {
+                foreach (var x in targets)
+                    x.Distort = i == 0 ? null : new Distort
+                    {
+                        Kind = (DistortKind)(i - 1),
+                        Amount = (DistortKind)(i - 1) switch { DistortKind.Twirl => 180, DistortKind.Wave => 3, DistortKind.Spherize => 50, _ => 0 },
+                    };
+            }, "Distort");
+            BuildInspector();
+        };
+        Row(body, "Effect", kinds);
+        if (c.Distort is not { } d) return;
+        void Set(Action<Distort> f) { foreach (var x in targets) if (x.Distort != null) f(x.Distort); Pv.InvalidateVisual(); }
+        switch (d.Kind)
+        {
+            case DistortKind.Twirl:
+                Slider("Angle (°)", -720, 720, 1, d.Amount, v => Set(x => x.Amount = v), body);
+                Slider("Radius %", 1, 200, 1, d.Radius, v => Set(x => x.Radius = v), body);
+                break;
+            case DistortKind.Spherize:
+                Slider("Amount", -90, 100, 1, d.Amount, v => Set(x => x.Amount = v), body);
+                Slider("Radius %", 1, 200, 1, d.Radius, v => Set(x => x.Radius = v), body);
+                break;
+            case DistortKind.Wave:
+                Slider("Height %", 0, 20, 0.1, d.Amount, v => Set(x => x.Amount = v), body);
+                Slider("Length %", 1, 200, 0.5, d.Wavelength, v => Set(x => x.Wavelength = v), body);
+                Slider("Direction (°)", 0, 360, 1, d.Direction, v => Set(x => x.Direction = v), body);
+                Slider("Speed (/s)", -5, 5, 0.05, d.Speed, v => Set(x => x.Speed = v), body);
+                break;
+            default:
+                var reset = new Button { Content = "Reset the mesh", Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 4) };
+                reset.Click += (_, _) => { ed.Edit(() => { foreach (var x in targets) if (x.Distort != null) x.Distort.Mesh = new double[32]; }, "Mesh Warp"); Pv.InvalidateVisual(); meshOverlay?.InvalidateVisual(); };
+                body.Children.Add(reset);
+                body.Children.Add(new TextBlock { Text = "Pause on the clip and drag the 16 points on the Program monitor: the picture moves with them.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
+                break;
+        }
+        if (d.Kind != DistortKind.Mesh)
+        {
+            Slider("Centre X %", -50, 50, 0.5, d.CenterX, v => Set(x => x.CenterX = v), body);
+            Slider("Centre Y %", -50, 50, 0.5, d.CenterY, v => Set(x => x.CenterY = v), body);
+        }
+        if (Distorts.Shader(d.Kind) == null)
+            body.Children.Add(new TextBlock { Text = "This PC can't distort in the preview with a shader (" + (Distorts.CompileError ?? "no shader compiler") + "): the preview's decoder does it (slower).", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
+    }
+
     static void ClearLensKeys(Clip x)
     {
         if (x.Anim == null) return;

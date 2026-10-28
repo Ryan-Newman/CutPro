@@ -74,9 +74,9 @@ public static class Lens
 /// shader (<see cref="PinEffect"/>).</summary>
 public static class Warp
 {
-    public static bool Active(Clip c) => Pin.Active(c) || Lens.Active(c);
+    public static bool Active(Clip c) => Pin.Active(c) || Lens.Active(c) || Distorts.Active(c);
     /// <summary>The preview's decoder runs the warps (base values): track mattes, or no shader compiler on this PC.</summary>
-    public static bool InDecoder(Clip c) => Active(c) && (c.Mask != MaskMode.None || Pin.Shader() == null);
+    public static bool InDecoder(Clip c) => Active(c) && (c.Mask != MaskMode.None || (Distorts.Active(c) ? Distorts.Shader(c.Distort!.Kind) == null : Pin.Shader() == null));
     public static bool InShader(Clip c) => Active(c) && !InDecoder(c);
 
     /// <summary>The whole graph from the clip's picture (scaled to w×h) to warped RGBA. temps = export: keyframed values (lens commands in
@@ -84,6 +84,7 @@ public static class Warp
     public static string Graph(Clip c, int w, int h, string tag, List<string>? temps)
     {
         var g = new StringBuilder($"scale={w}:{h},setsar=1,format=rgba");
+        if (Distorts.Active(c)) g.Append($",format=gbrap,{Distorts.Geq(c.Distort!, w, h)},format=rgba");   // (twirl / wave / spherize / mesh: one geq, T = time in the clip)
         if (Lens.Active(c))
         {
             string cmd = temps != null && Lens.Animated(c) ? ",sendcmd=f=" + Lens.Commands(c, new[] { $"lc{tag}" }, temps) : "";

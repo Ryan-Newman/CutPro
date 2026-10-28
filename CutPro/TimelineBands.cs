@@ -21,20 +21,25 @@ public partial class TimelineView
     /// <summary>Tracks were added / removed: each row's band mode goes with its track (old row → new row, −1 removed).</summary>
     public void MoveRows(int[] map)
     {
-        var moved = new AutoShow[Tracks.Max];
-        for (int r = 0; r < map.Length && r < autoShow.Length; r++) if (map[r] >= 0 && map[r] < moved.Length) moved[map[r]] = autoShow[r];
-        autoShow = moved; InvalidateVisual();
+        var moved = new AutoShow[Tracks.Max]; var op = new bool[Tracks.Max];
+        for (int r = 0; r < map.Length && r < autoShow.Length; r++) if (map[r] >= 0 && map[r] < moved.Length) { moved[map[r]] = autoShow[r]; op[map[r]] = opacityBand[r]; }
+        autoShow = moved; opacityBand = op; InvalidateVisual();
     }
+    /// <summary>Video tracks: the clips' opacity band (Premiere's "Show Video Keyframes"), off by default â€” the header's "Opacity" button.</summary>
+    bool[] opacityBand = new bool[Tracks.Max];
+    public bool OpacityBand(int track) => opacityBand[track];
+    public void ShowOpacity(int track, bool on) { opacityBand[track] = on; InvalidateVisual(); }
 
     const double ClipHiDb = 12, TrackHiDb = Mixer.MaxDb, LoDb = -48;
 
     Rect BandModeRect(int r) => new(6, RowY(r) + RowHt(r) - 17, 38, 14);
-    void CycleBand(int r) { autoShow[r] = (AutoShow)(((int)autoShow[r] + 1) % 3); InvalidateVisual(); }
+    void CycleBand(int r) { if (Tracks.IsVideo(r)) opacityBand[r] ^= true; else autoShow[r] = (AutoShow)(((int)autoShow[r] + 1) % 3); InvalidateVisual(); }
     void DrawBandMode(DrawingContext dc, int r)
     {
         var rr = BandModeRect(r);
-        string s = autoShow[r] switch { AutoShow.TrackVolume => "Trk vol", AutoShow.TrackPan => "Trk pan", _ => "Clip vol" };
-        bool auto = autoShow[r] != AutoShow.ClipVolume;
+        bool video = Tracks.IsVideo(r);
+        string s = video ? "Opacity" : autoShow[r] switch { AutoShow.TrackVolume => "Trk vol", AutoShow.TrackPan => "Trk pan", _ => "Clip vol" };
+        bool auto = video ? opacityBand[r] : autoShow[r] != AutoShow.ClipVolume;
         dc.DrawRoundedRectangle(auto ? bandBrush : btnBrush, null, rr, 3, 3);
         var ft = Txt(s, 9, auto ? Brushes.Black : btnText);
         dc.DrawText(ft, new Point(rr.X + (rr.Width - ft.Width) / 2, rr.Y + (rr.Height - ft.Height) / 2));
@@ -45,6 +50,7 @@ public partial class TimelineView
     {
         public int Track; public Clip? C;                                   // C: clip volume; null: track automation
         public bool Pan;                                                    // (track balance)
+        public bool Opacity;                                                // (a video clip's opacity, %)
         public Rect R;                                                      // the band area (values top → bottom)
         public double X0, X1;                                               // visible span
     }
@@ -54,9 +60,19 @@ public partial class TimelineView
         double W = ActualWidth;
         for (int r = 0; r < Tracks.Count; r++)
         {
-            if (Tracks.IsVideo(r)) continue;
             double y = RowY(r), rh = RowHt(r);
             if (y > ActualHeight || y + rh < RulerH) continue;                 // (scrolled out of view)
+            if (Tracks.IsVideo(r))
+            {
+                if (!opacityBand[r]) continue;
+                foreach (var c in Ed.Clips.Where(c => c.Track == r && c.Kind != ClipKind.Audio))
+                {
+                    double x1 = T2X(c.Start), x2 = T2X(c.End);
+                    if (x2 < HeaderW || x1 > W || x2 - x1 < 6) continue;
+                    yield return new Band { Track = r, C = c, Opacity = true, R = new Rect(x1, y + 3 + 15, x2 - x1, Math.Max(4, rh - 6 - 18)), X0 = Math.Max(x1, HeaderW), X1 = Math.Min(x2, W) };
+                }
+                continue;
+            }
             if (autoShow[r] == AutoShow.ClipVolume)
             {
                 foreach (var c in Ed.Clips.Where(c => c.Track == r && c.Kind == ClipKind.Audio))
@@ -71,12 +87,13 @@ public partial class TimelineView
     }
 
     // values: clip volume in % (shown in dB), track fader in dB, track balance −100 … 100
-    double ValueAt(Band b, double t) => b.C != null ? Anim.Value(b.C, AnimProp.Volume, t)
+    double ValueAt(Band b, double t) => b.C != null ? Anim.Value(b.C, b.Opacity ? AnimProp.Opacity : AnimProp.Volume, t)
                                        : b.Pan ? Ed.Mix.Channels[b.Track].PanAt(t) : Ed.Mix.Channels[b.Track].GainAt(t);
     double Y(Band b, double v)
     {
         double u;
         if (b.Pan) u = (v + 100) / 200;
+        else if (b.Opacity) u = 1 - Math.Clamp(v, 0, 100) / 100;
         else
         {
             double db = b.C != null ? (v > 0 ? 20 * Math.Log10(v / 100) : double.NegativeInfinity) : v <= Mixer.MinDb ? double.NegativeInfinity : v;
@@ -89,16 +106,17 @@ public partial class TimelineView
     {
         double u = Math.Clamp((y - b.R.Top) / Math.Max(1, b.R.Height), 0, 1);
         if (b.Pan) return Math.Round(u * 200 - 100);
+        if (b.Opacity) return Math.Round((1 - u) * 1000) / 10;
         double hi = b.C != null ? ClipHiDb : TrackHiDb, db = hi - u * (hi - LoDb);
         if (u >= 0.999) return b.C != null ? 0 : Mixer.MinDb;               // (the bottom: silent)
         db = Math.Round(db * 10) / 10;
         return b.C != null ? Math.Clamp(100 * Math.Pow(10, db / 20), 0, 400) : Math.Clamp(db, Mixer.MinDb, Mixer.MaxDb);
     }
-    string Label(Band b, double v) => b.Pan ? PanKnob.Label(v)
+    string Label(Band b, double v) => b.Pan ? PanKnob.Label(v) : b.Opacity ? $"{v:0.#} %"
                                     : b.C != null ? (v <= 0 ? "−∞ dB" : $"{20 * Math.Log10(v / 100):+0.0;−0.0;0.0} dB")
                                     : MixerElement.FormatDb(v) + " dB";
 
-    List<Keyframe>? KeysOf(Band b) => b.C != null ? Anim.Track(b.C, AnimProp.Volume)?.Keys
+    List<Keyframe>? KeysOf(Band b) => b.C != null ? Anim.Track(b.C, b.Opacity ? AnimProp.Opacity : AnimProp.Volume)?.Keys
                                     : b.Pan ? Ed.Mix.Channels[b.Track].PanKeys : Ed.Mix.Channels[b.Track].GainKeys;
     double KeyTime(Band b, Keyframe k) => b.C != null ? Anim.TimelineTime(b.C, k.T) : k.T;
 
@@ -187,7 +205,7 @@ public partial class TimelineView
         if (key == null && ctrl)
         {   // Ctrl+click the line: a key there with the value the line has, then drag it
             double v = ValueAt(b, t);
-            key = b.C != null ? Anim.SetKey(b.C, AnimProp.Volume, Anim.SrcTime(b.C, Math.Clamp(t, b.C.Start, b.C.End)), v)
+            key = b.C != null ? Anim.SetKey(b.C, b.Opacity ? AnimProp.Opacity : AnimProp.Volume, Anim.SrcTime(b.C, Math.Clamp(t, b.C.Start, b.C.End)), v)
                               : AddTrackKey(b, Math.Max(0, Math.Round(t * TimeUtil.Fps) / TimeUtil.Fps), v);
         }
         band = new BandDrag { B = b, Key = key, Start = p };
@@ -243,7 +261,8 @@ public partial class TimelineView
         else
         {
             double v = ValueOf(b, p.Y);
-            if (b.C != null) b.C.Volume = v;
+            if (b.C != null && b.Opacity) b.C.Opacity = v;
+            else if (b.C != null) b.C.Volume = v;
             else if (b.Pan) Ed.Mix.Channels[b.Track].Pan = v;
             else Ed.Mix.Channels[b.Track].Gain = v;
         }
@@ -253,6 +272,7 @@ public partial class TimelineView
     static double Shift(Band b, double v, double v0, double v1)
     {
         if (b.Pan) return Math.Clamp(v + v1 - v0, -100, 100);
+        if (b.Opacity) return Math.Clamp(v + v1 - v0, 0, 100);
         if (b.C == null) return Math.Clamp(v + v1 - v0, Mixer.MinDb, Mixer.MaxDb);
         if (v0 <= 0 || v1 <= 0 || v <= 0) return v1 <= 0 ? 0 : v;
         return Math.Clamp(v * v1 / v0, 0, 400);

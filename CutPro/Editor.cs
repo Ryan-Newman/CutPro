@@ -111,6 +111,11 @@ public partial class Editor
     static string NewId() => Guid.NewGuid().ToString("N");
     /// <summary>Snap a time to the nearest frame boundary (all edits are frame-accurate, like Premiere).</summary>
     public static double Frame(double t) => Math.Round(Math.Max(0, t) * TimeUtil.Fps) / TimeUtil.Fps;
+    /// <summary>Audio Time Units (Premiere's): audio clips without a linked picture edit at single samples (<see cref="Sample"/>) instead of frames.</summary>
+    public static bool AudioUnits;
+    public static double Sample(double t) => Math.Round(Math.Max(0, t) * AudioCache.Rate) / AudioCache.Rate;
+    /// <summary>True when the clip's edits go to samples (audio time units on, an audio clip with no picture linked to it).</summary>
+    public bool SampleEdit(Clip c) => AudioUnits && c.Kind == ClipKind.Audio && (c.LinkId == null || Linked(c).All(x => x.Kind == ClipKind.Audio));
 
     public void RaiseChanged() => Raise(Changed);
     public void RaiseProps() => Raise(PropsChanged);
@@ -759,7 +764,9 @@ public partial class Editor
     /// <summary>Razor cut at t. The right-hand pieces of linked clips stay linked to each other.</summary>
     public void CutClips(IEnumerable<Clip> targets, double t)
     {
-        t = Frame(t);
+        var list = targets.ToList();
+        t = list.Count > 0 && list.All(SampleEdit) ? Sample(t) : Frame(t);
+        targets = list;
         var newLinks = new Dictionary<string, string>();
         foreach (var c in targets.Where(Editable).Distinct().ToList())          // (locked tracks are never cut)
         {

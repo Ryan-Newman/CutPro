@@ -19,8 +19,22 @@ public sealed class Stabilize
     public Stabilize Clone() => (Stabilize)MemberwiseClone();
 }
 
+/// <summary>Video noise reduction (null = off): Effect Controls → Noise reduction. Fast = hqdn3d (spatial + temporal), High quality = nlmeans
+/// (spatial, slow), Temporal = atadenoise (averages similar pixels over 9 frames).</summary>
+public sealed class VideoDenoise
+{
+    public int Method { get; set; }
+    public double Strength { get; set; } = 40;                              // 0 … 100 (50 ≈ twice the filters' defaults)
+    public VideoDenoise Clone() => (VideoDenoise)MemberwiseClone();
+}
+
+/// <summary>How a slowed-down clip fills the frames between the media's own (Premiere's Time Interpolation): repeat the nearest frame,
+/// blend the two around it, or make new in-between frames from the motion (optical flow, ffmpeg minterpolate).</summary>
+public enum FrameInterp { Sample, Blend, OpticalFlow }
+
 /// <summary>
-/// Stabilized video, rendered like <see cref="Remap"/> and read the same way: frame k of the file is the stabilized media frame
+/// Stabilized, denoised or interpolated (slow motion with frame blending / optical flow) video, rendered like <see cref="Remap"/> and read
+/// the same way: frame k of the file is the stabilized media frame
 /// <see cref="TimeMap.NativeIndex"/> picks for output frame k of the clip's range (transition handles included), at the media's display
 /// size, lossless H.264 at the sequence rate. Two ffmpeg passes over the native frames the range uses (vid.stab: vidstabdetect →
 /// motion file, vidstabtransform → smoothed camera path), on the same frame grid as Remap. The preview shows the unstabilized clip until the
@@ -33,17 +47,23 @@ public static class Stab
     const long CacheCap = 20L << 30;
     const string Version = "s3";
 
-    /// <summary>Stabilized video (speed changes too: the media's frames are stabilized first, then picked like Remap does).</summary>
-    public static bool Active(Clip c) => c.Stab != null && c.Kind == ClipKind.Video;
+    /// <summary>Video rendered here (speed changes too: the media's frames are processed first, then picked like Remap does): stabilized,
+    /// denoised, or slowed down with frame blending / optical flow.</summary>
+    public static bool Active(Clip c) => c.Kind == ClipKind.Video && (c.Stab != null || Denoises(c) || Interpolates(c));
+    public static bool Denoises(Clip c) => c.Denoise is { Strength: > 0 };
+    /// <summary>Slower than the media plays (or time remapped) with blending / optical flow chosen.</summary>
+    public static bool Interpolates(Clip c) => c.Interp != FrameInterp.Sample && !c.Hold && (TimeMap.Ramped(c) || TimeMap.IsRemapped(c) && c.Speed < 100 - 1e-9);
 
-    static string Sig(MediaItem m, long[] idx, Stabilize s)
+    static string Sig(MediaItem m, long[] idx, Stabilize? s, VideoDenoise? d, FrameInterp ip, double[]? src)
     {
         var fi = new FileInfo(m.Path);
         var (w, h) = Remap.Size(m);
         var head = Encoding.UTF8.GetBytes(FormattableString.Invariant(
-            $"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|{s.Smooth:0.###}|{s.Tripod}|{s.Edges}|{s.Shake}|{Version}|"));
+            $"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|{s?.Smooth:0.###}|{s?.Tripod}|{s?.Edges}|{s?.Shake}|{s != null}|{d?.Method}|{d?.Strength:0.###}|{ip}|{Version}|"));
         var body = new byte[idx.Length * 8]; Buffer.BlockCopy(idx, 0, body, 0, body.Length);
-        return Convert.ToHexString(SHA1.HashData(head.Concat(body).ToArray()))[..24];
+        var tail = src == null ? Array.Empty<byte>() : new byte[src.Length * 8];
+        if (src != null) Buffer.BlockCopy(src, 0, tail, 0, tail.Length);
+        return Convert.ToHexString(SHA1.HashData(head.Concat(body).Concat(tail).ToArray()))[..24];
     }
     static string FileOf(string sig) => Path.Combine(Dir, sig + ".mkv");
 
@@ -51,7 +71,7 @@ public static class Stab
     sealed class Job
     {
         public string Sig = "", File = "";
-        public MediaItem M = null!; public long[] Idx = Array.Empty<long>(); public Stabilize S = null!;
+        public MediaItem M = null!; public long[] Idx = Array.Empty<long>(); public Stabilize? S; public VideoDenoise? D; public FrameInterp I; public double[]? Src;
         public volatile int Status;              // 0 waiting, 1 rendering, 2 ready, 3 failed
         public long Wanted;
         public string? Error;
@@ -69,7 +89,8 @@ public static class Stab
 
     static string Spec(Clip c, MediaItem m, double s, double e) => string.Join("|", Remap.Spec(c, m, s, e), c.In.ToString("R", CultureInfo.InvariantCulture), c.Start.ToString("R", CultureInfo.InvariantCulture),
         s.ToString("R", CultureInfo.InvariantCulture), e.ToString("R", CultureInfo.InvariantCulture), TimeUtil.Fps.ToString("R", CultureInfo.InvariantCulture),
-        c.Stab!.Smooth.ToString("R", CultureInfo.InvariantCulture), c.Stab.Tripod, c.Stab.Edges, c.Stab.Shake);
+        c.Stab?.Smooth.ToString("R", CultureInfo.InvariantCulture), c.Stab?.Tripod, c.Stab?.Edges, c.Stab?.Shake, c.Stab != null,
+        Denoises(c) ? $"{c.Denoise!.Method}/{c.Denoise.Strength.ToString("R", CultureInfo.InvariantCulture)}" : "", Interpolates(c) ? c.Interp.ToString() : "");
 
 
     /// <summary>The stabilized file for the clip's range [s, e) (<see cref="Transitions.Plan.Range"/>), or null while it is rendered (queued).</summary>
@@ -95,10 +116,13 @@ public static class Stab
         if (!specSig.TryGetValue(spec, out var sig))
         {
             var idx = Remap.Frames(c, m, s, e);
-            sig = Sig(m, idx, c.Stab!);
+            double[]? src = Interpolates(c) ? Sources(c, m, s, e) : null;
+            var dn = Denoises(c) ? c.Denoise!.Clone() : null;
+            var ip = src != null ? c.Interp : FrameInterp.Sample;
+            sig = Sig(m, idx, c.Stab, dn, ip, src);
             if (specSig.Count > 2000) specSig.Clear();
             specSig[spec] = sig;
-            if (!jobs.ContainsKey(sig)) jobs[sig] = new Job { Sig = sig, File = FileOf(sig), M = m, Idx = idx, S = c.Stab!.Clone(), Status = File.Exists(FileOf(sig)) ? 2 : 0 };
+            if (!jobs.ContainsKey(sig)) jobs[sig] = new Job { Sig = sig, File = FileOf(sig), M = m, Idx = idx, S = c.Stab?.Clone(), D = dn, I = ip, Src = src, Status = File.Exists(FileOf(sig)) ? 2 : 0 };
         }
         return jobs[sig];
     }
@@ -123,7 +147,8 @@ public static class Stab
                 if (j == null) continue;
                 j.Status = 1;
             }
-            Run(j, CancellationToken.None, new Progress<double>(p => SetStatus($"Stabilizing… {p * 100:0}%")), background: true);
+            string what = j.S != null ? "Stabilizing" : j.D != null ? "Reducing noise" : "Making in-between frames";
+            Run(j, CancellationToken.None, new Progress<double>(p => SetStatus($"{what}… {p * 100:0}%")), background: true);
             lock (gate) if (!jobs.Values.Any(x => x.Status == 0)) SetStatus(null);
         }
     }
@@ -133,7 +158,7 @@ public static class Stab
     {
         try
         {
-            if (!File.Exists(j.File)) Render(j.M, j.Idx, j.S, j.File, ct, progress, background);
+            if (!File.Exists(j.File)) Render(j.M, j.Idx, j.S, j.File, ct, progress, background, j.D, j.I, j.Src);
             j.Status = File.Exists(j.File) ? 2 : 3;
         }
         catch (OperationCanceledException) { j.Status = 0; throw; }
@@ -180,7 +205,8 @@ public static class Stab
     /// <summary>Pass 1 measures the motion of the native frames idx spans (vidstabdetect), pass 2 renders them stabilized (vidstabtransform)
     /// and the frames are written in idx order (non-decreasing for a 100 % clip: repeats where the sequence rate is higher) into a lossless
     /// file at the sequence rate — Remap's encoder and frame grid.</summary>
-    public static void Render(MediaItem m, long[] idx, Stabilize st, string file, CancellationToken ct, IProgress<double>? progress = null, bool background = false)
+    public static void Render(MediaItem m, long[] idx, Stabilize? st, string file, CancellationToken ct, IProgress<double>? progress = null, bool background = false,
+                              VideoDenoise? dn = null, FrameInterp ip = FrameInterp.Sample, double[]? src = null)
     {
         var ff = Exporter.FindFfmpeg() ?? throw new Exception("ffmpeg not found");
         Directory.CreateDirectory(Dir);
@@ -188,20 +214,49 @@ public static class Stab
         double fpsN = TimeMap.NativeFps(m);
         string rate = TimeUtil.Rational(fpsN);
         long j0 = idx.Min(), j1 = idx.Max();
+        bool interp = src != null && ip != FrameInterp.Sample;
+        long lastN = Math.Max(0, (long)Math.Ceiling(m.Duration * fpsN - 1e-3) - 1);
+        if (interp) { j0 = Math.Max(0, (long)Math.Floor(src!.Min() * fpsN) - 1); j1 = Math.Min(lastN, (long)Math.Ceiling(src!.Max() * fpsN) + 1); }
         int n = (int)(j1 - j0 + 1);
         string seek = Math.Max(0, j0 / fpsN - 1e-4).ToString("0.######", CultureInfo.InvariantCulture);
         string trf = Path.GetFileName(file) + ".trf";                       // (bare name: ffmpeg runs in the cache folder — no drive colon to escape)
         string grid = $"fps={rate},scale={w}:{h}:flags=bicubic,format=yuv420p";
-        int smooth = Math.Clamp((int)Math.Round(st.Smooth / 100 * fpsN), 1, 500);
-        string zoom = st.Edges switch { 2 => ":optzoom=0:crop=black", 1 => ":optzoom=2:zoomspeed=0.25", _ => ":optzoom=1" };
-        string tripodD = st.Tripod ? ":tripod=1" : "", tripodT = st.Tripod ? ":tripod=1" : "";
+        int smooth = st == null ? 1 : Math.Clamp((int)Math.Round(st.Smooth / 100 * fpsN), 1, 500);
+        string zoom = st?.Edges switch { 2 => ":optzoom=0:crop=black", 1 => ":optzoom=2:zoomspeed=0.25", _ => ":optzoom=1" };
+        string tripodD = st?.Tripod == true ? ":tripod=1" : "", tripodT = st?.Tripod == true ? ":tripod=1" : "";
+        // the processing chain on the native grid: noise reduction first (on the pixels as shot), then the stabilizing warp
+        string chain = grid + (dn != null ? "," + DenoiseFilter(dn, h) : "")
+                     + (st != null ? $",vidstabtransform=input={trf}:smoothing={smooth}{(st.Tripod ? "" : ":optalgo=gauss")}{zoom}{tripodT}:interpol=bicubic" : "");
         var tmp = file + ".part.mkv";
         try
         {
             // pass 1: motion
-            RunPass(ff, background, ct, p => progress?.Report(p * 0.45), n, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
-                    "-vf", $"{grid},vidstabdetect=shakiness={Math.Clamp(st.Shake, 1, 10)}:accuracy=15:stepsize=6:result={trf}{tripodD}", "-frames:v", n.ToString(), "-f", "null", "-");
-            if (!File.Exists(Path.Combine(Dir, trf))) throw new Exception("motion analysis failed");
+            if (st != null)
+            {
+                RunPass(ff, background, ct, p => progress?.Report(p * 0.45), n, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
+                        "-vf", $"{grid},vidstabdetect=shakiness={Math.Clamp(st.Shake, 1, 10)}:accuracy=15:stepsize=6:result={trf}{tripodD}", "-frames:v", n.ToString(), "-f", "null", "-");
+                if (!File.Exists(Path.Combine(Dir, trf))) throw new Exception("motion analysis failed");
+            }
+            if (interp)
+            {   // slow motion: the processed native frames → new frames at mult × the native rate (blended / optical flow) → a lossless segment that
+                // Remap reads like media, picking for each output frame the in-between frame nearest its source time
+                int mult = Mult(src!, fpsN);
+                double hi = fpsN * mult;
+                string iseg = file + ".iseg.mkv";
+                string make = ip == FrameInterp.OpticalFlow ? $"minterpolate=fps={TimeUtil.Rational(hi)}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+                                                            : $"framerate=fps={TimeUtil.Rational(hi)}:interp_start=0:interp_end=255:scene=100";
+                RunPass(ff, background, ct, p => progress?.Report(0.45 + 0.35 * p), n * mult, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
+                        "-vf", $"{chain},{make},format=yuv420p", "-frames:v", ((n - 1) * mult + 1).ToString(), "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-g", "15", "-y", iseg);
+                if (!File.Exists(iseg)) throw new Exception("interpolation failed");
+                int count = (n - 1) * mult + 1;
+                var pick = src!.Select(sv => (long)Math.Clamp(Math.Round((sv - j0 / fpsN) * hi), 0, count - 1)).ToArray();
+                var segMedia = new MediaItem { Path = iseg, Width = w, Height = h, Fps = hi, Duration = count / hi, Type = ClipKind.Video };
+                var sub = progress == null ? null : new Progress<double>(p => progress.Report(0.8 + 0.2 * p));
+                try { Remap.Render(segMedia, pick, file, ct, sub, background); }
+                finally { try { File.Delete(iseg); } catch { } }
+                progress?.Report(1);
+                return;
+            }
             // pass 2: the stabilized native frames → idx order → encoder; a speed change / reverse / hold (frames out of order): the stabilized
             // native frames in order into a lossless segment on the native grid, which Remap then reads like media (its frame list, its encoder)
             bool inOrder = idx.Zip(idx.Skip(1)).All(p => p.Second >= p.First);
@@ -210,13 +265,13 @@ public static class Stab
             var enc = Remap.Start(ff, background, "-y", "-hide_banner", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", $"{w}x{h}", "-r", inOrder ? TimeUtil.Rate : rate,
                                   "-i", "-", "-an", "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-tune", "fastdecode", "-g", "15", "-pix_fmt", "yuv420p", outFile);
             var dec = StartIn(ff, background, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
-                              "-vf", $"{grid},vidstabtransform=input={trf}:smoothing={smooth}{(st.Tripod ? "" : ":optalgo=gauss")}{zoom}{tripodT}:interpol=bicubic", "-frames:v", n.ToString(), "-f", "rawvideo", "pipe:1");
+                              "-vf", chain, "-frames:v", n.ToString(), "-f", "rawvideo", "pipe:1");
             try
             {
                 int fb = w * h * 3 / 2;
                 var cur = new byte[fb]; var next = new byte[fb]; long have = j0 - 1; bool any = false;
-                var src = dec.StandardOutput.BaseStream; var dst = enc.StandardInput.BaseStream;
-                bool Read(byte[] b) { int got = 0; while (got < fb) { int r = src.Read(b, got, fb - got); if (r <= 0) return false; got += r; } return true; }
+                var pipe = dec.StandardOutput.BaseStream; var dst = enc.StandardInput.BaseStream;
+                bool Read(byte[] b) { int got = 0; while (got < fb) { int r = pipe.Read(b, got, fb - got); if (r <= 0) return false; got += r; } return true; }
                 for (int k = 0; k < order.Length; k++)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -255,6 +310,35 @@ public static class Stab
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
             Trim();
         }
+    }
+
+    /// <summary>The source time each output frame of the clip's range [s, e) shows (interpolation picks the in-between frame nearest it).</summary>
+    static double[] Sources(Clip c, MediaItem m, double s, double e)
+    {
+        int n = Math.Max(1, (int)Math.Round((e - s) * TimeUtil.Fps));
+        double last = Math.Max(0, m.Duration - 1 / TimeMap.NativeFps(m));
+        var r = new double[n];
+        for (int k = 0; k < n; k++) r[k] = Math.Round(Math.Clamp(TimeMap.Src(c, s + k / TimeUtil.Fps), 0, last), 9);
+        return r;
+    }
+    /// <summary>How many in-between frames per native frame: enough that the nearest one is within ~1/12 frame of every wanted time (2 … 8).</summary>
+    static int Mult(double[] src, double fpsN)
+    {
+        double step = double.MaxValue;
+        for (int k = 1; k < src.Length; k++) { double d = Math.Abs(src[k] - src[k - 1]) * fpsN; if (d > 1e-6) step = Math.Min(step, d); }
+        return step == double.MaxValue ? 2 : Math.Clamp((int)Math.Ceiling(1 / Math.Min(1, step)) * 2, 2, 8);
+    }
+    /// <summary>The ffmpeg filter of a noise reduction (sizes scale with the picture's height like every effect: × h / 720).</summary>
+    public static string DenoiseFilter(VideoDenoise d, int h)
+    {
+        double k = Math.Clamp(d.Strength, 0, 100) / 100, z = Math.Max(0.5, h / 720.0);
+        string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+        return d.Method switch
+        {
+            1 => $"nlmeans=s={F(1 + 15 * k)}:p={(z > 1.2 ? 9 : 7)}:pc=5:r={(z > 1.2 ? 11 : 9)}:rc=7",
+            2 => $"atadenoise=0a={F(0.3 * k)}:0b={F(0.6 * k)}:1a={F(0.3 * k)}:1b={F(0.6 * k)}:2a={F(0.3 * k)}:2b={F(0.6 * k)}:s=9",
+            _ => $"hqdn3d={F(16 * k * z)}:{F(12 * k * z)}:{F(24 * k)}:{F(18 * k)}",
+        };
     }
 
     static Process StartIn(string ff, bool background, params string[] args)

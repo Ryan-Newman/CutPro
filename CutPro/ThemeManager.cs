@@ -301,6 +301,10 @@ public class AppSettings
     /// <summary>How the timeline follows the playhead while playing: Page (jumps a page, Premiere's default), Smooth (the playhead stays in the
     /// middle), None.</summary>
     public string PlaybackScroll { get; set; } = "Page";
+    /// <summary>Dragging the playhead plays the sound under it (Premiere's audio scrubbing, Shift+S).</summary>
+    public bool AudioScrub { get; set; } = true;
+    /// <summary>Audio clips without a linked picture trim, move and cut at single samples (Premiere's Show Audio Time Units).</summary>
+    public bool AudioUnits { get; set; }
     /// <summary>Project panel: icon or list view, sort order.</summary>
     public bool BinListView { get; set; }
     public string BinSort { get; set; } = "Name";

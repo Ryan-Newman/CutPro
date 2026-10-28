@@ -103,6 +103,10 @@ public static class MaskExport
                $"[{inL}a][{inL}c]overlay=format=gbrp,format=gbrp[{outL}]";
     }
 
+    /// <summary>A power window's .cube in %TEMP% (bare name: ffmpeg runs there), named by its grade — the exporter writes it.</summary>
+    public static string CubeName(ObjectMask m) =>
+        "cutpro_mlut_" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(CutPro.Grade.Signature(m.Grade ?? new ColorGrade()))))[..12] + ".cube";
+
     /// <summary>ffmpeg filter that makes the "effected" version of a clip for a mask (input/output gbrp).</summary>
     public static string Filter(ObjectMask m, double scale = 1)
     {
@@ -114,6 +118,7 @@ public static class MaskExport
             case MaskFx.Darken: var k = F(Math.Clamp(1 - m.Amount / 100, 0, 1)); return $"colorchannelmixer=rr={k}:gg={k}:bb={k}";
             case MaskFx.Desaturate: return "colorchannelmixer=rr=0.299:rg=0.587:rb=0.114:gr=0.299:gg=0.587:gb=0.114:br=0.299:bg=0.587:bb=0.114";
             case MaskFx.Redact: return "colorchannelmixer=rr=0:gg=0:bb=0";
+            case MaskFx.Grade: return CutPro.Grade.For(m.Grade) != null ? $"lut3d=file={CubeName(m)}:interp=tetrahedral" : "null";
             case MaskFx.Tint:
                 var col = TitleVisual.ParseColor(m.TintColor, Colors.Yellow);
                 var a = F(Math.Clamp(m.Amount / 100, 0, 1));
