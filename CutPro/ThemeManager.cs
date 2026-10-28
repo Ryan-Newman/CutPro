@@ -301,6 +301,12 @@ public class AppSettings
     /// <summary>How the timeline follows the playhead while playing: Page (jumps a page, Premiere's default), Smooth (the playhead stays in the
     /// middle), None.</summary>
     public string PlaybackScroll { get; set; } = "Page";
+    /// <summary>Project panel: icon or list view, sort order.</summary>
+    public bool BinListView { get; set; }
+    public string BinSort { get; set; } = "Name";
+    /// <summary>Auto-save every N minutes (0 = off), how many versions to keep per project.</summary>
+    public int AutoSaveMinutes { get; set; } = 5;
+    public int AutoSaveKeep { get; set; } = 20;
     /// <summary>Interface language (<see cref="Loc"/>: "en", "de", "es", "fr").</summary>
     public string Language { get; set; } = "en";
     /// <summary>Larger interface text (accessibility): 1 = normal.</summary>

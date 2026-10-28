@@ -45,6 +45,7 @@ public partial class MainWindow
         InitMixer();
         InitTracks();
         InitMarkers();
+        InitBins(); InitAutoSave(); InitTranscript(); InitHigh();
         InitSpeed(); InitStab();
         InitDock();                                          // (panels where the saved layout / workspace puts them)
         if (forceView != null) ShowSideView(forceView);
@@ -123,10 +124,14 @@ public partial class MainWindow
         {
             case "File":
                 Add(MI("Import Media…", K("file.import"), () => Import_Click(this, e)), MI("Open Project…", K("file.open"), () => Open_Click(this, e)),
-                    MI("Save Project", K("file.save"), () => Save_Click(this, e)), "-",
+                    MI("Save Project", K("file.save"), () => Save_Click(this, e)), MI("Auto-Save Versions…", K("file.autosaves"), AutoSaveVersions), "-",
+                    MI("New Bin", K("bin.new"), () => RunCommand("bin.new")),
                     MI("Relink Offline Media…", "", () => RelinkOffline(), enabled: ed.Media.Any(m => m.Offline)),
                     MI("Collect Files…", K("file.collect"), () => _ = CollectFilesAsync(), enabled: ed.Media.Count > 0), "-",
+                    MI("Record Voice-over…", K("audio.voiceover"), () => VoiceOverDialog()), "-",
                     MI("Export…", K("file.export"), () => Export_Click(this, e)),
+                    MI("Export EDL…", K("file.exportEdl"), () => ExportInterchange(false), enabled: ed.Clips.Count > 0),
+                    MI("Export OpenTimelineIO…", K("file.exportOtio"), () => ExportInterchange(true), enabled: ed.Clips.Count > 0),
                     MI("Publish…", K("file.publish"), () => OpenPublish(null)), "-",
                     MI("Exit", "Alt+F4", Close));
                 break;
@@ -171,6 +176,9 @@ public partial class MainWindow
                     MI("Match Loudness of Selected Clips (−14 LUFS)", "", () => _ = MatchLoudnessAsync()));
                 break;
             }
+            case "Clip":
+                ClipMenu(items => Add(items), (h, k, a, c, en) => MI(h, k, a, c, en));
+                break;
             case "Publish":
             {
                 Add(MI("Publish…", "Ctrl+Shift+U", () => OpenPublish(null)), MI("Thumbnail Studio…", "", () => OpenThumbnails()), MI("Intro & Hook…", "", () => OpenHook()), "-");
@@ -237,6 +245,7 @@ public partial class MainWindow
                     MI("Audio Track Mixer", "", () => ShowSideView("Mixer"), Showing("Mixer")),
                     MI("Lumetri Scopes", "", () => ShowSideView("Scopes"), Showing("Scopes")),
                     MI("Captions", "", () => ShowSideView("Captions"), Showing("Captions")),
+                    MI("Transcript", K("view.transcript"), () => ShowDock("Transcript"), Showing("Transcript")),
                     MI("History", K("view.history"), () => ShowDock("History"), Showing("History")),
                     MI("Settings", "", () => ShowSideView("Settings"), sideVisible && sideView == "Settings"),
                     MI("Side Bar", "Ctrl+B", () => SetSideBar(!sideVisible), sideVisible),

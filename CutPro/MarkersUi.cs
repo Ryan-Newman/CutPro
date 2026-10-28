@@ -125,5 +125,6 @@ public partial class MainWindow
             Item("Replace / Relink Media…", () => RelinkMedia(m));
             Item("Properties…", () => ShowProperties(m));
         }
+        ClipMenuHigh(menu, c);
     }
 }

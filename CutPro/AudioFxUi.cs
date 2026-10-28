@@ -81,6 +81,7 @@ public partial class MainWindow
             }
             Tiny("", "Remove", () => { edit(() => setList(list.Where(x => !ReferenceEquals(x, e)).ToList() is { Count: > 0 } l ? l : null)); BuildInspector(); });
             if (idx > 0) Tiny("", "Move up (earlier in the chain)", () => { edit(() => { var l = list.ToList(); l.RemoveAt(idx); l.Insert(idx - 1, e); setList(l); }); BuildInspector(); });
+            if (idx < list.Count - 1) Tiny("", "Move down (later in the chain)", () => { edit(() => { var l = list.ToList(); l.RemoveAt(idx); l.Insert(idx + 1, e); setList(l); }); BuildInspector(); });
             var on = new CheckBox { Content = info.Name, IsChecked = e.On, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, ToolTip = info.Help };
             on.Click += (_, _) => edit(() => e.On = on.IsChecked == true);
             head.Children.Add(on);

@@ -27,23 +27,23 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 |---|---|---|---|
 | Multiple sequences in a project; nested sequences / compound clips | P R F A V K | done: sequences with tabs, per-sequence format / mixer / playhead, Nest, drag a sequence in; nested clips rendered in the background (FFV1 with alpha + mix) and read by preview and export alike (`Nest`) | L |
 | Source monitor with in/out marking; 3-point / 4-point editing | P R A V K | done: Source panel (own Preview + AudioOut), I / O marks per clip, Insert (,) / Overwrite (.) at the playhead with V / A track targets, video-only / audio-only drags, Match Frame (F); not yet 4-point fit-to-fill | M |
-| Bins / folders, labels (colour), ratings, keywords, search & filters, list view with metadata | all | partial: flat bin with name/duration/size | M |
+| Bins / folders, labels (colour), ratings, keywords, search & filters, list view with metadata | all | done: bins (folders in folders), colour labels, ratings (0–5 keys), keywords, search (name, keywords, label, metadata, transcript), filters, sort, icon / list view | M |
 | Proxy workflow (generate low-res proxies, toggle, relink) | P R F A V K | partial: scrub cache is a hidden proxy; add user proxies for editing 4K/8K and RAW | M |
 | Relink / replace media, consolidate / archive project (collect files) | all | done: Relink (offline files; the others found in the same folder), Replace Footage, Collect Files (project + media + .cube looks copied, the copy's paths rewritten) | S |
-| Auto-save with versions, crash recovery | all | crash.log exists; add timed saves + recovery prompt | S |
-| Interchange: XML (FCP7/FCPXML), EDL, AAF, OpenTimelineIO | P R F A V K | OTIO/EDL export first (S), import later | M |
-| Scene edit detection (cut a clip at its shot changes) | P R C | ffmpeg `select='gt(scene,x)'` → Add Edits | S |
+| Auto-save with versions, crash recovery | all | done: recovery copy every 30 s + from the crash handler, offered on the next start; versions every 5 min (20 kept, File ▸ Auto-Save Versions…); "save changes?" on open / close | S |
+| Interchange: XML (FCP7/FCPXML), EDL, AAF, OpenTimelineIO | P R F A V K | partial: EDL (CMX 3600) and OpenTimelineIO export done; FCP XML / AAF and any import later | M |
+| Scene edit detection (cut a clip at its shot changes) | P R C | done: Clip ▸ Scene Edit Detection (ffmpeg scene score, sensitivity, shortest shot) → cuts with the linked sound, or clip markers | S |
 | Multicam (sync angles by audio/timecode, live angle switching) | P R F A V | needs audio-sync + a multi-view monitor | L |
-| Sync / merge clips by audio waveform (external recorder) | P R F A | cross-correlate the conformed PCM (AudioCache) | M |
+| Sync / merge clips by audio waveform (external recorder) | P R F A | done: Clip ▸ Synchronize (GCC-PHAT on the conformed PCM, 4 kHz then 48 kHz; ±0.03 ms on the test), start on a frame + sub-frame In | M |
 | Timecode, reel names, metadata display | P R F A | done: timecode / reel / camera / streams from the file's tags (Properties…, Project panel tooltip and info line), the source monitor shows the media's timecode (drop-frame aware) | S |
-| Screen / webcam / voice-over recording | P F V C | voice-over first (waveIn), screen capture later | M |
+| Screen / webcam / voice-over recording | P F V C | partial: voice-over done (File ▸ Record Voice-over…: waveIn, plays the sequence, lands on the track where spoken); screen / webcam later | M |
 | Stock media / templates browser | C (P) | | L |
 
 ## 2. Timeline editing
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
 | Add / remove tracks, track names, heights, lock, solo, target, sync-lock | all | done: 1 … 32 video + 1 … 32 audio tracks per sequence (add above / below / several, delete with clips, delete empty), names, locks, heights, vertical scrolling, hide / mute / solo; not yet sync-lock toggles or track targeting | M |
-| Overwrite vs insert edits, replace edit, fit-to-fill | P R F A V K | Premiere's drag = overwrite, Ctrl-drag = insert | M |
+| Overwrite vs insert edits, replace edit, fit-to-fill | P R F A V K | done: drop = overwrite, Ctrl+drop = insert, Alt+drop onto a clip = replace; Clip ▸ Replace with Clip from Project; Fit to Fill (source In–Out into the sequence In–Out at the fitting speed) | M |
 | Rolling, slip, slide, rate-stretch tools | P R F A V K | ripple trim exists (Q/W); these reuse TryTrim | M |
 | Markers (sequence + clip), marker comments, chapter markers | all | done: sequence markers (name, comment, colour, length, chapter; drag / double-click / menu) and clip markers (source time); chapters into MP4 / MOV / MKV, YouTube chapter list (copy, Publish description) | S |
 | Clip speed / duration, reverse, frame blending / optical flow | all | done: Speed/Duration (Ctrl+R, linked speed / duration, ripple), reverse, pitch-kept or tape-style sound; rendered frame-exact (`Remap`). Next: frame blending / optical flow for slow motion (`minterpolate`), Rate Stretch tool (R) | M |
@@ -70,7 +70,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Track matte key from any clip (video as matte) | P R F V | done: any video / picture as a brightness or alpha matte, reveal or cut-out, for everything below it (plus text and object masks) | M |
 | Stabilization (warp stabilizer), rolling-shutter repair | P R F V K C | done: Effect Controls → Stabilize (smooth motion / tripod, smoothness, shakiness, zoom in / zoom as needed / show edges) — vid.stab in two passes, rendered in the background like speed changes, speed-changed and reversed clips too; preview and export read the same file; not yet rolling-shutter repair | M |
 | Attach titles / graphics / effects to a tracked object (point / planar tracking) | P R F V C | object tracking exists: expose the track as a position source (e.g. formula `track(“Object 1”).x`) | M |
-| Effect stack: reorder, enable/disable, presets, copy between clips | all | | M |
+| Effect stack: reorder, enable/disable, presets, copy between clips | all | partial: effect presets (Save Preset…, built-ins, Effects panel, drag onto clips), copy between clips (Paste Attributes), audio effects move up / down, on / off; the video chain keeps its fixed (parity) order | M |
 | Generators: colour matte, solid, gradient, noise, bars & tone, countdown | all | ffmpeg lavfi sources; preview draws them | S |
 | Look effects: sharpen, vignette, film grain, glow, drop shadow on clips, lens distortion, glitch, VHS | P R F V K C | done: sharpen, glow, film grain (ffmpeg in the decoder and the export), drop shadow (composited from the clip's alpha), vignette (Lumetri), lens distortion; not yet glitch, VHS | M |
 | Noise reduction (spatial / temporal) | R P V | ffmpeg `hqdn3d` / `nlmeans` (slow) | M |
@@ -82,17 +82,17 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## 4. AI features
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
-| Speech-to-text transcription, captions, text-based editing | P R F C | partial: captions from speech done (Whisper with timestamps, voice-refined word times, Captions view, SRT / VTT, burn-in); text-based editing (delete words → cut the video) still to do | M |
-| Auto reframe (smart crop for vertical / square) | P R C | done for Fill (tracked mask or saliency → Reframe pan keys); zoom (scale) keys not yet | S |
-| Background removal for people, automatically for the whole clip | R C (P) | partial: AI cut-out with a click + tracking | S |
+| Speech-to-text transcription, captions, text-based editing | P R F C | done: captions from speech; text-based editing (Transcript panel: media transcribed on this PC, words follow cuts, Delete ripples, fillers, pauses, search) | M |
+| Auto reframe (smart crop for vertical / square) | P R C | done: Fill reframe (tracked mask or saliency → Pan keys) and Auto Reframe with Push-in (Scale keys, pan for the zoomed width) | S |
+| Background removal for people, automatically for the whole clip | R C (P) | done: Clip ▸ Remove Background (AI picks the subject in the middle, cut-out mask tracked through the clip); click selection for anything else | S |
 | Automatic face detection → blur all faces | R C | a face detector ONNX model + the object-mask pipeline | M |
 | Object removal / inpainting, clean plate | R (P) | video inpainting model | L |
 | Voice isolation, dialogue enhance, AI noise removal | P R F C | ONNX audio denoiser | M |
-| Auto-ducking music under dialogue | P R F C | voice detection on the PCM → volume keyframes (exist) | S |
+| Auto-ducking music under dialogue | P R F C | done: Clip ▸ Auto Ducking (voice activity of the speech tracks → volume keys on the music: amount, fades) | S |
 | Scene / shot detection, auto-tagging, search by content | P R F | | M |
 | Super scale (upscaling), frame interpolation (slow motion) | R C | ONNX models; ffmpeg `minterpolate` as a basic version | M |
-| Smart colour match / auto colour | P R F | | M |
-| Beat detection → markers / auto-cut to music | C (P R) | onset detection on the PCM | S |
+| Smart colour match / auto colour | P R F | done: Auto Colour (exposure, white / black points, grey world) and Colour Match (to another clip's frame: R / G / B curves) | M |
+| Beat detection → markers / auto-cut to music | C (P R) | done: Detect Beats (onsets, tempo, downbeats → sequence markers every beat / bar) and Cut to the Beat (edits moved onto them) | S |
 
 ## 5. Colour
 | Feature | Who has it | Notes for CutPro | Effort |

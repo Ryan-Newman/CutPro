@@ -10,17 +10,23 @@ namespace CutPro;
 /// </summary>
 public static class Reframe
 {
-    public sealed record Result(Clip C, List<(double src, double pan)> Keys, string How);
+    public sealed record Result(Clip C, List<(double src, double pan)> Keys, string How, List<(double src, double scale)>? Zoom = null);
 
     /// <summary>Pan (−100…100) that centres a subject at normalised media x (0..1) for a picture w wide in a frame W wide.</summary>
     public static double PanFor(double cx, double w, double frameW) => w <= frameW + 0.5 ? 0 : Math.Clamp(200 * w * (cx - 0.5) / (w - frameW), -100, 100);
 
-    public static async Task<Result?> AnalyzeAsync(Editor ed, Clip c, IProgress<double>? progress, CancellationToken ct)
+    /// <summary>zoom (%) &gt; 0: also a slow push-in — Scale keys from the clip's scale at its start to scale·(1 + zoom/100) at its end (eased),
+    /// the pan worked out for the picture's width at each moment (a clip that fills the frame exactly can then follow its subject too).</summary>
+    public static async Task<Result?> AnalyzeAsync(Editor ed, Clip c, IProgress<double>? progress, CancellationToken ct, double zoom = 0)
     {
         var m = ed.MediaOf(c);
         if (m == null || m.Offline || !Editor.CoversFrame(c)) return null;
         var (_, _, w, _, _) = Editor.Placement(m, c, c.Start);
-        if (w <= Editor.W + 1) return null;                                     // nothing is cropped
+        if (w <= Editor.W + 1 && zoom <= 0) return null;                        // nothing is cropped
+        var (span0, span1) = TimeMap.Span(c);
+        List<(double src, double scale)>? zk = zoom > 0 ? new() { (span0, c.Scale), (Math.Max(span0, span1 - 1.0 / TimeUtil.Fps), Math.Round(c.Scale * (1 + zoom / 100), 2)) } : null;
+        double WAt(double s) => zk == null ? w : w * (1 + zoom / 100 * Math.Clamp((s - span0) / Math.Max(1e-6, span1 - span0), 0, 1));
+        double crop = Math.Clamp(Editor.W / WAt(span1), 0.05, 1);              // (the window the end of the clip shows)
         // 1. a tracked object mask: follow it
         foreach (var mk in c.Masks.Where(x => x.Enabled))
             if (ed.MaskTracks.TryGetValue(mk.Id, out var tr) && tr.Frames.Count > 2)
@@ -29,24 +35,24 @@ public static class Reframe
                 var (lo0, hi0) = TimeMap.Span(c);                                // (speed / reverse: the source the clip shows)
                 for (double s = lo0; s < hi0; s += 0.25)
                     if (tr.At(MaskGeometry.FrameOf(s)) is { } polys) pts.Add((s, MaskGeometry.Centroid(polys).x));
-                if (pts.Count > 0) return new Result(c, Keys(pts, w), $"follows {mk.Name}");
+                if (pts.Count > 0) return new Result(c, Keys(pts, WAt), $"follows {mk.Name}", zk);
             }
         // 2. saliency over sampled frames
         if (m.Type == ClipKind.Image)
         {
-            var one = await Task.Run(() => Saliency(m, new[] { 0.0 }, ct), ct);
-            return new Result(c, Keys(new() { (c.In, one[0]) }, w), "picture's subject");
+            var one = await Task.Run(() => Saliency(m, new[] { 0.0 }, ct, null, crop), ct);
+            return new Result(c, Keys(new() { (c.In, one[0]) }, WAt), "picture's subject", zk);
         }
         var times = new List<double>();
         var (lo, hi) = TimeMap.Span(c);
         for (double s = lo; s < hi - 0.05; s += 0.5) times.Add(s);
         if (times.Count == 0) times.Add(c.In);
-        var cx = await Task.Run(() => Saliency(m, times, ct, progress), ct);
-        return new Result(c, Keys(times.Zip(cx).ToList(), w), "subject estimate");
+        var cx = await Task.Run(() => Saliency(m, times, ct, progress, crop), ct);
+        return new Result(c, Keys(times.Zip(cx).ToList(), WAt), "subject estimate", zk);
     }
 
     /// <summary>Smoothed path → a few keyframes (a static subject gets one).</summary>
-    static List<(double src, double pan)> Keys(List<(double src, double cx)> pts, double w)
+    static List<(double src, double pan)> Keys(List<(double src, double cx)> pts, Func<double, double> wAt)
     {
         // median of 5 then moving average of 5: ignores single-sample jumps, then eases
         var med = new List<double>();
@@ -56,7 +62,7 @@ public static class Reframe
             med.Add(near[near.Count / 2]);
         }
         var avg = med.Select((v, i) => med.Skip(Math.Max(0, i - 2)).Take(5).Average()).ToList();
-        var pans = pts.Select((p, i) => (p.src, pan: PanFor(avg[i], w, Editor.W))).ToList();
+        var pans = pts.Select((p, i) => (p.src, pan: PanFor(avg[i], wAt(p.src), Editor.W))).ToList();
         if (pans.Max(p => p.pan) - pans.Min(p => p.pan) < 6) return new() { (pts[0].src, Math.Round(pans.Average(p => p.pan), 1)) };
         // keep a key where the path bends (or every 2 s), drop the rest
         var keys = new List<(double, double)> { pans[0] };
@@ -71,11 +77,11 @@ public static class Reframe
     }
 
     /// <summary>Subject centre (normalised x) per sampled source time: per-column saliency, best window of the crop width.</summary>
-    static double[] Saliency(MediaItem m, IList<double> times, CancellationToken ct, IProgress<double>? progress = null)
+    static double[] Saliency(MediaItem m, IList<double> times, CancellationToken ct, IProgress<double>? progress = null, double? crop = null)
     {
         var ff = Exporter.FindFfmpeg() ?? throw new Exception("ffmpeg not found");
         int w = 192, h = Math.Max(2, (int)Math.Round(192.0 * m.Height / Math.Max(1, m.Width) / 2) * 2);
-        double cropFrac = Math.Clamp(Editor.W / (double)Editor.H / (m.Width / (double)Math.Max(1, m.Height)), 0.05, 1);
+        double cropFrac = crop ?? Math.Clamp(Editor.W / (double)Editor.H / (m.Width / (double)Math.Max(1, m.Height)), 0.05, 1);
         int win = Math.Max(4, (int)Math.Round(w * cropFrac));
         var result = new double[times.Count];
         byte[]? prev = null;
@@ -138,6 +144,11 @@ public static class Reframe
         {
             foreach (var r in results)
             {
+                if (r.Zoom is { Count: > 1 } z)
+                {
+                    Anim.Ensure(r.C, AnimProp.Scale).Keys.Clear();
+                    foreach (var (src, sc) in z) Anim.ApplyInterp(Anim.SetKey(r.C, AnimProp.Scale, src, sc), "Easy Ease");
+                }
                 var tr = Anim.Ensure(r.C, AnimProp.Pan);
                 tr.Keys.Clear();
                 if (r.Keys.Count == 1) { r.C.Pan = r.Keys[0].pan; Anim.Prune(r.C); continue; }

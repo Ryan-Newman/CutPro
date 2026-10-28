@@ -46,6 +46,12 @@ public partial class MainWindow
         ["src.insert"] = () => SourceEdit(true), ["src.overwrite"] = () => SourceEdit(false), ["src.matchFrame"] = MatchFrame,
         ["clip.reveal"] = () => RevealInProject(), ["clip.revealFile"] = RevealInExplorer,
         ["clip.speed"] = () => SpeedDialog(),
+        ["file.autosaves"] = AutoSaveVersions, ["file.exportEdl"] = () => ExportInterchange(false), ["file.exportOtio"] = () => ExportInterchange(true),
+        ["bin.new"] = () => { ShowSideView("Project"); NewBinHere(); }, ["view.transcript"] = () => ShowDock("Transcript"),
+        ["clip.replace"] = ReplaceFromBin, ["clip.fitFill"] = FitToFill, ["clip.scenes"] = SceneDetectDialog, ["clip.sync"] = () => _ = SyncSelected(),
+        ["clip.beatCut"] = CutToBeat, ["clip.savePreset"] = SavePresetDialog, ["clip.removeBg"] = () => _ = RemoveBackground(),
+        ["color.auto"] = () => { if (ed.Selected is { } c) AutoGrade(c); }, ["color.match"] = ColorMatchDialog,
+        ["audio.beats"] = BeatsDialog, ["audio.ducking"] = DuckingDialog, ["audio.voiceover"] = () => VoiceOverDialog(), ["seq.reframeZoom"] = ReframeZoomDialog,
         ["trans.video"] = () => ApplyTransitions(true, false), ["trans.audio"] = () => ApplyTransitions(false, true), ["trans.both"] = () => ApplyTransitions(true, true),
         ["marker.add"] = AddMarkerAtPlayhead, ["marker.addClip"] = AddClipMarkerAtPlayhead, ["marker.edit"] = EditMarkerAtPlayhead,
         ["marker.next"] = () => { if (ed.NextMarker(ed.Time) is double t) ed.Seek(t); },
@@ -71,7 +77,7 @@ public partial class MainWindow
 
     void Window_PreviewKeyDown(object s, KeyEventArgs e)
     {
-        if (HandleKey(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers)) e.Handled = true;
+        if (VoiceKey(e.Key) || BinRatingKey(e.Key) || HandleKey(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers)) e.Handled = true;
     }
     /// <summary>A key press with its modifiers → its command (true = used). Tests call it with the modifiers they want.</summary>
     bool HandleKey(Key key, ModifierKeys mods)

@@ -112,7 +112,8 @@ public partial class MainWindow
     void StatusSeq_Click(object s, RoutedEventArgs e) => SequenceSettings();
 
     CancellationTokenSource? reframeCts;
-    async void AutoReframe_Click(object s, RoutedEventArgs e)
+    void AutoReframe_Click(object s, RoutedEventArgs e) => AutoReframe(0);
+    async void AutoReframe(double zoom)
     {
         if (reframeCts != null) { reframeCts.Cancel(); return; }
         var clips = ed.Clips.Where(Editor.CoversFrame).OrderBy(c => c.Start).ToList();
@@ -127,7 +128,7 @@ public partial class MainWindow
                 int k = i;
                 var prog = new Progress<double>(p => SetTask($"Auto reframe: clip {k + 1} of {clips.Count} — {p * 100:0}% (click to stop)", 0));
                 SetTask($"Auto reframe: clip {i + 1} of {clips.Count}…", 0);
-                if (await Reframe.AnalyzeAsync(ed, clips[i], prog, cts.Token) is { } r) results.Add(r);
+                if (await Reframe.AnalyzeAsync(ed, clips[i], prog, cts.Token, zoom) is { } r) results.Add(r);
             }
             Reframe.Apply(ed, results);
             int moving = results.Count(r => r.Keys.Count > 1);

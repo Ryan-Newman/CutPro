@@ -68,7 +68,7 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(binRef, ed.Media) || sig != binSig) { BinList.ItemsSource = null; BinList.ItemsSource = items; binRef = ed.Media; binSig = sig; }
         DurText.Text = TimeUtil.Format(ed.End);
         BuildInspector(); UpdateScrollBar(); Tl.InvalidateVisual(); Ph.InvalidateVisual();
-        Title = "CutPro" + (projectPath != null ? " — " + Path.GetFileName(projectPath) : "");
+        Title = "CutPro" + (projectPath != null ? " — " + Path.GetFileName(projectPath) : "") + (Dirty && !AppSettings.ReadOnly ? " •" : "");
         UpdateStatus();
     }
 
@@ -220,19 +220,26 @@ public partial class MainWindow : Window
             if (ed.Media.Any(m => string.Equals(m.Path, p, StringComparison.OrdinalIgnoreCase))) continue;
             var m = await MediaProbe.ProbeAsync(p);
             if (m == null) { failed.Add($"{Path.GetFileName(p)}: {MediaProbe.LastError}"); continue; }
+            m.Bin = binPath;                                                     // (into the open bin)
             ed.Media.Add(m); ed.RaiseChanged();
         }
         if (failed.Count > 0)
             Alert.Show(this, string.Join("\n", failed), "Some files could not be imported", AlertKind.Warning);
     }
 
-    void Bin_DragOver(object s, DragEventArgs e) { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; }
+    void Bin_DragOver(object s, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy
+                  : e.Data.GetDataPresent("CutPro.Media") && ItemAt((DependencyObject)e.OriginalSource) is { Folder: not null } ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
     async void Bin_Drop(object s, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files) await ImportAsync(files);
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files) { await ImportAsync(files); return; }
+        if (ItemAt((DependencyObject)e.OriginalSource) is { Folder: { } f } && DraggedMedia(e) is { Count: > 0 } moving) { ed.MoveToBin(moving, f); e.Handled = true; }
     }
     MediaItem? ItemAt(DependencyObject src) => (ItemsControl.ContainerFromElement(BinList, src) as ListBoxItem)?.DataContext as MediaItem;
-    void Bin_MouseDown(object s, MouseButtonEventArgs e) { binDown = e.GetPosition(null); binDownItem = ItemAt((DependencyObject)e.OriginalSource); }
+    void Bin_MouseDown(object s, MouseButtonEventArgs e) { binDown = e.GetPosition(null); binDownItem = ItemAt((DependencyObject)e.OriginalSource); if (binDownItem?.Folder != null) binDownItem = null; }
     void Bin_MouseMove(object s, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || binDownItem == null) return;
@@ -245,6 +252,7 @@ public partial class MainWindow : Window
     {
         var m = ItemAt((DependencyObject)e.OriginalSource);
         if (m == null) return;
+        if (m.Folder != null) { OpenBin(m.Folder); return; }
         if (m.Seq != null) { if (ed.SeqById(m.Seq) is { } seq) OpenSequence(seq); return; }     // a sequence: open it (drag it onto the timeline to nest it)
         if (m.Offline) { Alert.Show(this, m.Path + "\n\nThe file was moved or deleted.", "Media offline", AlertKind.Warning); return; }
         OpenSource(m);                                                       // (Premiere: double-click opens the clip in the Source monitor)
@@ -353,34 +361,44 @@ public partial class MainWindow : Window
             if (dlg.ShowDialog(this) != true) return;
             projectPath = dlg.FileName;
         }
-        File.WriteAllText(projectPath, JsonSerializer.Serialize(BuildProjectFile(), new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(projectPath, ProjectJson(true));
         Title = "CutPro — " + Path.GetFileName(projectPath);
+        MarkSaved(true);
         histStale = true; RefreshHistory();
     }
     /// <summary>The project as saved (Save, Collect Files).</summary>
-    ProjectFile BuildProjectFile()
+    ProjectFile BuildProjectFile(bool commit = true)
     {
-        ed.Commit(); ed.CaptureFormat();
+        if (commit) ed.Commit();
+        ed.CaptureFormat();
         var used = ed.Sequences.SelectMany(s => s.Clips).SelectMany(c => c.Masks).Select(m => m.Id).ToHashSet();
         return new ProjectFile { Media = ed.Media, Theme = ed.ThemeName, MaskTracks = ed.MaskTracks.Where(kv => used.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value),
                                  SeqW = Editor.OutW, SeqH = Editor.OutH, SeqFps = TimeUtil.Fps, Reframe = Editor.Reframe, Publish = ed.Publish,
-                                 Sequences = ed.Sequences, Active = ed.Seq.Id, Open = openSeqs.ToList() };
+                                 Sequences = ed.Sequences, Active = ed.Seq.Id, Open = openSeqs.ToList(), Bins = ed.Bins.ToList() };
     }
 
     async void Open_Click(object s, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog { Filter = "CutPro project|*.cutpro|All files|*.*" };
         if (dlg.ShowDialog(this) != true) return;
+        if (!ConfirmDiscard()) return;
+        await OpenProjectFile(dlg.FileName, dlg.FileName);
+    }
+
+    /// <summary>Opens a project file; asPath = where Save writes it (null = Save asks: an auto-save version, a recovered project keeps its own).</summary>
+    async Task OpenProjectFile(string file, string? asPath)
+    {
         try
         {
-            var pf = JsonSerializer.Deserialize<ProjectFile>(File.ReadAllText(dlg.FileName))!;
+            var pf = JsonSerializer.Deserialize<ProjectFile>(File.ReadAllText(file))!;
             Pause();
             ed.Publish = pf.Publish ?? new();
-            ed.Media = pf.Media; ed.MaskTracks = pf.MaskTracks ?? new(); ed.ThemeName = Themes.Get(pf.Theme).Name; suppressTheme = true; ThemeCombo.SelectedItem = ed.ThemeName; suppressTheme = false;
+            ed.Media = pf.Media; ed.Bins = pf.Bins ?? new(); binPath = ""; ed.MaskTracks = pf.MaskTracks ?? new(); ed.ThemeName = Themes.Get(pf.Theme).Name; suppressTheme = true; ThemeCombo.SelectedItem = ed.ThemeName; suppressTheme = false;
             openSeqs.Clear(); openSeqs.AddRange(pf.Open ?? new());
             ed.UseSequences(pf.AllSequences(), pf.Active);                          // (each sequence's clips, format, mixer, playhead; a version 1 file is one)
             ed.Sel.Clear(); ed.SelectedId = null; ed.Gap = null; ed.ResetHistory();
-            projectPath = dlg.FileName; ed.RaiseChanged();
+            projectPath = asPath; ed.RaiseChanged();
+            MarkSaved(file == asPath);
             foreach (var m in ed.Media) { await MediaProbe.FillAsync(m); }
             binRef = null; ed.RaiseChanged();
             var missing = ed.Media.Where(m => m.Offline).Select(m => m.Path).ToList();
@@ -1049,6 +1067,37 @@ public partial class MainWindow : Window
                 Alert.Shown = null;
                 ShowDock("Inspector");
             }
+            // the Project panel with bins, labels and ratings (icon and list view), the Transcript panel, the Clip menu, the colour match dialog
+            {
+                ed.ClearMarkers();
+                var media = ed.Media.Where(m => m.Seq == null).ToList();
+                var b1 = ed.NewBin("", "Interviews"); ed.NewBin("", "B-roll"); ed.NewBin(b1, "Day 2");
+                if (media.Count > 0) { media[0].Label = MarkerColor.Green; media[0].Rating = 4; media[0].Keywords = "sermon"; }
+                if (media.Count > 1) { media[1].Label = MarkerColor.Purple; media[1].Rating = 2; }
+                RefreshBin(); ShowSideView("Project");
+                await Task.Delay(700); Shot(Path.ChangeExtension(path, ".bins.png"));
+                S.BinListView = true; ApplyBinView(); binSearch!.Text = "";
+                await Task.Delay(500); Shot(Path.ChangeExtension(path, ".binlist.png"));
+                S.BinListView = false; ApplyBinView();
+                if (media.Count > 0)
+                    media[0].Words = "In the beginning was the Word, and the Word was with God, and the Word was God. um The same was in the beginning with God."
+                        .Split(' ').Select((w, i) => new Word(w, 0.2 + i * 0.32, 0.2 + i * 0.32 + 0.26)).ToList();
+                ShowDock("Transcript"); trStale = true; await Task.Delay(500); RefreshTranscript();
+                if (trWords.Count > 6) { trSel.Clear(); trSel.Add(4); trSel.Add(5); trSel.Add(6); PaintTranscript(); }
+                ed.Seek(1.1); await Task.Delay(500); FollowTranscript();
+                await Task.Delay(400); Shot(Path.ChangeExtension(path, ".transcript.png"));
+                ShowSideView("Project");
+                ed.Select(vc);
+                var clipBtn = FindVisualChildren<Button>(RootGrid).First(b => (b.Tag as string) == "Clip");
+                Menu_Click(clipBtn, new RoutedEventArgs()); await Task.Delay(400);
+                if (lastMenu != null) { var r = new System.Windows.Media.Imaging.RenderTargetBitmap((int)lastMenu.ActualWidth, (int)lastMenu.ActualHeight, 96, 96, PixelFormats.Pbgra32); r.Render(lastMenu); Save(r, Path.ChangeExtension(path, ".clipmenu.png")); lastMenu.IsOpen = false; }
+                Alert.Shown = async w => { await Task.Delay(900); Save(ScreenGrab.Window(this), Path.ChangeExtension(path, ".colormatch.png")); w.Close(); };
+                var auto = Alert.Auto; Alert.Auto = null;
+                ColorMatchDialog();
+                Alert.Auto = auto; Alert.Shown = null;
+                foreach (var m in media) { m.Words = null; m.Label = null; m.Rating = 0; m.Keywords = ""; }
+                ShowDock("Inspector");
+            }
             // Shorts: 9:16, Fill (crop + pan) then Fit + blurred background
             Format_Click(Fmt916, new RoutedEventArgs()); ed.Select(vc); BuildInspector();
             await Task.Delay(1500); Shot(Path.ChangeExtension(path, ".shorts.png"));
@@ -1068,5 +1117,10 @@ public partial class MainWindow : Window
         }
     }
 
-    void Window_Closing(object? s, System.ComponentModel.CancelEventArgs e) { CompositionTarget.Rendering -= OnRendering; audio.Dispose(); Pv.DisposeAll(); }
+    void Window_Closing(object? s, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!ConfirmDiscard()) { e.Cancel = true; return; }
+        AutoSave.EndSession();
+        CompositionTarget.Rendering -= OnRendering; audio.Dispose(); Pv.DisposeAll();
+    }
 }

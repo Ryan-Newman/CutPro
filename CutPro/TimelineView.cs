@@ -32,6 +32,8 @@ public partial class TimelineView : FrameworkElement
     public event Action<ContextMenu, Clip, double>? ClipMenuOpening;
     /// <summary>A short message for the status bar.</summary>
     public event Action<string>? Status;
+    /// <summary>An effect preset (its name) dropped onto a clip.</summary>
+    public event Action<string, Clip>? PresetDropped;
 
     /// <summary>Razor preview: the (frame/snap-adjusted) time and the rows the cut line is drawn on.</summary>
     public double? HoverT;
@@ -957,7 +959,7 @@ public partial class TimelineView : FrameworkElement
             if (!Equals(at, dropAt)) { dropAt = at; InvalidateVisual(); }
             e.Effects = at != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; return;
         }
-        e.Effects = e.Data.GetDataPresent("CutPro.Media") ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true;
+        e.Effects = e.Data.GetDataPresent("CutPro.Media") || e.Data.GetDataPresent("CutPro.Preset") && HitClip(e.GetPosition(this)) != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true;
     }
     protected override void OnDragLeave(DragEventArgs e) { if (dropAt != null) { dropAt = null; InvalidateVisual(); } }
 
@@ -975,6 +977,11 @@ public partial class TimelineView : FrameworkElement
             }
             InvalidateVisual(); e.Handled = true; return;
         }
+        if (e.Data.GetDataPresent("CutPro.Preset"))
+        {   // an effect preset from the Effects panel: onto the clip under the mouse
+            if (HitClip(e.GetPosition(this)) is { } pc) PresetDropped?.Invoke((string)e.Data.GetData("CutPro.Preset")!, pc);
+            e.Handled = true; return;
+        }
         if (!e.Data.GetDataPresent("CutPro.Media")) return;
         var id = (string)e.Data.GetData("CutPro.Media")!;
         var m = Ed.Media.FirstOrDefault(x => x.Id == id) ?? Ed.SeqItem(id);                  // (a sequence from the Project panel: a nested clip)
@@ -988,8 +995,16 @@ public partial class TimelineView : FrameworkElement
         string parts = e.Data.GetDataPresent("CutPro.SrcParts") ? (string)e.Data.GetData("CutPro.SrcParts")! : "va";
         bool video = parts.Contains('v'), audio = parts.Contains('a');
         if (!video && Tracks.IsVideo(row) || !audio && !Tracks.IsVideo(row) && m.Type != ClipKind.Image) ok = false;
+        // Premiere: a drop overwrites; Ctrl+drop inserts (everything after moves later); Alt+drop onto a clip replaces its media
+        if (e.KeyStates.HasFlag(DragDropKeyStates.AltKey) && HitClip(p) is { } under)
+        {
+            if (!Ed.ReplaceClip(under, m)) Status?.Invoke($"“{m.Name}” can't replace that clip (another kind of media, or too short)");
+            snapAt = null; e.Handled = true; return;
+        }
         if (!ok) return;
-        Ed.AddMedia(m, row, Snap(X2T(p.X), null, 0), video, audio);
+        bool insert = e.KeyStates.HasFlag(DragDropKeyStates.ControlKey);
+        Ed.DropMedia(m, row, Snap(X2T(p.X), null, 0), video, audio, insert);
+        Status?.Invoke(insert ? "Inserted — everything after moved later (drop without Ctrl overwrites)" : "Overwrote (Ctrl+drop inserts, Alt+drop onto a clip replaces it)");
         snapAt = null; e.Handled = true;
     }
 }

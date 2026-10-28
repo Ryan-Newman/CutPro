@@ -271,7 +271,12 @@ public static class ThumbFrames
     public static (byte[] px, int w, int h)? Grab(Editor ed, double t, int maxW)
     {
         var c = ed.Clips.Where(x => x.Kind is ClipKind.Video or ClipKind.Image && t >= x.Start && t < x.End && !ed.TrackOff[x.Track]).OrderBy(x => x.Track).FirstOrDefault();
-        if (c == null || ed.MediaOf(c) is not { Offline: false } m || Exporter.FindFfmpeg() is not { } ff) return null;
+        return c == null ? null : GrabClip(ed, c, t, maxW, c.Grade);
+    }
+    /// <summary>A clip's frame at timeline time t with its drawn look and the given grade (null = ungraded).</summary>
+    public static (byte[] px, int w, int h)? GrabClip(Editor ed, Clip c, double t, int maxW, ColorGrade? grade)
+    {
+        if (ed.MediaOf(c) is not { Offline: false } m || Exporter.FindFfmpeg() is not { } ff) return null;
         double src = m.Type == ClipKind.Image ? 0 : Math.Clamp(TimeMap.Src(c, t), 0, Math.Max(0, m.Duration - 0.05));
         int w = Math.Min(maxW, m.Width > 0 ? m.Width : maxW); w -= w % 2;
         int h = m.Width > 0 ? (int)Math.Round(w * m.Height / (double)m.Width / 2) * 2 : (int)(w * 9.0 / 16) / 2 * 2;
@@ -291,7 +296,7 @@ public static class ThumbFrames
             p.WaitForExit();
             if (got < buf.Length) return null;
             for (int i = 3; i < buf.Length; i += 4) buf[i] = 255;
-            if (Grade.For(c.Grade) is { } lut) Grade.Apply(lut, buf, w, h, w * 4);
+            if (Grade.For(grade) is { } lut) Grade.Apply(lut, buf, w, h, w * 4);
             return (buf, w, h);
         }
         catch { return null; }

@@ -74,8 +74,26 @@ public class MediaItem
     public double? SrcOut { get; set; }
     /// <summary>Where the source monitor's playhead was (reopening the clip goes back there).</summary>
     public double SrcTime { get; set; }
+    /// <summary>Project panel organisation: the bin (folder path "Footage/Day 1", "" = the top), a colour label, a rating (0 … 5 stars),
+    /// keywords (comma-separated, searched with the name), when it was imported.</summary>
+    public string Bin { get; set; } = "";
+    public MarkerColor? Label { get; set; }
+    public int Rating { get; set; }
+    public string Keywords { get; set; } = "";
+    public DateTime Added { get; set; } = DateTime.Now;
+    /// <summary>What is said in the file (Whisper, by SOURCE time — text-based editing maps it through each clip: <see cref="Transcript"/>).</summary>
+    public List<Word>? Words { get; set; }
 
-    [JsonIgnore] public string Name => SeqName ?? System.IO.Path.GetFileName(Path);
+    [JsonIgnore] public string Name => FolderName ?? SeqName ?? System.IO.Path.GetFileName(Path);
+    /// <summary>Set on the Project panel's stand-in for a bin (its full path in <see cref="Folder"/>).</summary>
+    [JsonIgnore] public string? Folder { get; set; }
+    [JsonIgnore] public string? FolderName { get; set; }
+    [JsonIgnore] public int FolderCount { get; set; }
+    [JsonIgnore] public System.Windows.Media.Brush? LabelBrush => Label is { } l ? new System.Windows.Media.SolidColorBrush(Marker.Rgb(l)) : null;
+    [JsonIgnore] public string Stars => Rating > 0 ? new string('★', Rating) : "";
+    [JsonIgnore] public string Kind => Folder != null ? "Bin" : Seq != null ? "Sequence" : Type.ToString();
+    [JsonIgnore] public string DurText => Folder != null ? $"{FolderCount} item{(FolderCount == 1 ? "" : "s")}" : Type == ClipKind.Image ? "" : TimeUtil.Format(Duration, false);
+    [JsonIgnore] public string SizeText => Folder == null && Width > 0 && Type != ClipKind.Audio ? $"{Width}×{Height}" : "";
     [JsonIgnore] public ImageSource? Thumb { get; set; }
     /// <summary>Set on the item that stands for a sequence of the project (a nested sequence used as a clip: <see cref="Nest"/>). It has no
     /// file of its own — Width / Height / Duration / HasAudio / Fps describe the sequence (<see cref="Editor.SeqItem"/>).</summary>
@@ -100,13 +118,13 @@ public class MediaItem
     [JsonIgnore] public string? Timecode { get; set; }
     [JsonIgnore] public string? Reel { get; set; }
     /// <summary>The Project panel's tooltip: the path and the metadata.</summary>
-    [JsonIgnore] public string Tip => Seq != null ? "Sequence — double-click to open it, drag it into another sequence to nest it" :
+    [JsonIgnore] public string Tip => Folder != null ? "Bin — double-click to open it, drop clips on it to move them in" : Seq != null ? "Sequence — double-click to open it, drag it into another sequence to nest it" :
         Path + (Offline ? "\n(offline — right-click: Relink…)" : "") + string.Concat(Meta.Select(kv => $"\n{kv.Key}: {kv.Value}"));
 
-    [JsonIgnore] public string Info => Seq != null ? $"Sequence  {TimeUtil.Format(Duration, false)}  {Width}×{Height}  {TimeUtil.Label(Fps)} fps" :
+    [JsonIgnore] public string Info => Folder != null ? $"Bin  {FolderCount} item{(FolderCount == 1 ? "" : "s")}" : Seq != null ? $"Sequence  {TimeUtil.Format(Duration, false)}  {Width}×{Height}  {TimeUtil.Label(Fps)} fps" :
         (Offline ? "OFFLINE  " : "") + Type + (Type == ClipKind.Image ? "" : "  " + TimeUtil.Format(Duration, false))
         + (Type == ClipKind.Video && Width > 0 ? $"  {Width}×{Height} {Codec.ToUpperInvariant()}{(TenBit ? " 10-bit" : "")}" : "")
-        + (Timecode != null ? "  TC " + Timecode : "") + (Reel != null ? "  Reel " + Reel : "")
+        + (Timecode != null ? "  TC " + Timecode : "") + (Reel != null ? "  Reel " + Reel : "") + (Rating > 0 ? "  " + Stars : "") + (Keywords.Length > 0 ? "  #" + Keywords : "")
         + (Decoders.IsHardware(PlayDecoder) || Decoders.IsHardware(SeekDecoder) ? $"  · {Decoders.Label(Decoders.IsHardware(PlayDecoder) ? PlayDecoder : SeekDecoder)} decode" : "");
 }
 
@@ -289,6 +307,8 @@ public class ProjectFile
     public List<Sequence>? Sequences { get; set; }
     public string? Active { get; set; }
     public List<string>? Open { get; set; }
+    /// <summary>The Project panel's bins (folder paths; media name theirs in <see cref="MediaItem.Bin"/> — kept here so empty bins survive).</summary>
+    public List<string>? Bins { get; set; }
 
     /// <summary>The project's sequences (a version 1 file becomes one sequence).</summary>
     public List<Sequence> AllSequences()

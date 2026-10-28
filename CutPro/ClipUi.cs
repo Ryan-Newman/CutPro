@@ -110,6 +110,8 @@ public partial class MainWindow
         c ??= ed.Selected;
         if (c == null || ed.MediaOf(c) is not { } m) { SetTask("Select a clip to find its media in the Project panel", 2500); return; }
         ShowSideView("Project");
+        if (binFilterBox != null) binFilterBox.SelectedIndex = 0;
+        OpenBin(m.Seq != null ? "" : m.Bin);                                    // (its bin, with the search and filter cleared)
         var item = BinList.Items.Cast<object>().FirstOrDefault(x => x is MediaItem mi && (mi.Id == m.Id || m.Seq != null && mi.Seq == m.Seq));
         if (item == null) return;
         BinList.SelectedItem = item;

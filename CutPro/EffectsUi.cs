@@ -56,6 +56,7 @@ public partial class MainWindow
         Header("Audio Transitions");
         Group("Crossfade");
         foreach (var d in Transitions.AudioDefs) EffectsList.Children.Add(EffectItem(d, d.Name == Transitions.DefaultAudio));
+        BuildPresetList();
     }
 
     /// <summary>One draggable transition row: icon, name, "default" badge.</summary>

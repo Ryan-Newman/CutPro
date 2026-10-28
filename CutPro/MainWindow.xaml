@@ -33,6 +33,7 @@
                 <Button Style="{StaticResource MenuBtn}" Content="File" Tag="File" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Edit" Tag="Edit" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="View" Tag="View" Click="Menu_Click"/>
+                <Button Style="{StaticResource MenuBtn}" Content="Clip" Tag="Clip" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Sequence" Tag="Sequence" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Markers" Tag="Marker" Click="Menu_Click"/>
                 <Button Style="{StaticResource MenuBtn}" Content="Publish" Tag="Publish" Click="Menu_Click"/>
@@ -80,6 +81,7 @@
                     <RadioButton x:Name="ActMixer" Style="{StaticResource Activity}" GroupName="act" Tag="Mixer" Content="&#xE9E9;" Click="Activity_Click" ToolTip="Audio Track Mixer · volume, pan, mute, solo, meters, loudness"/>
                     <RadioButton x:Name="ActScopes" Style="{StaticResource Activity}" GroupName="act" Tag="Scopes" Content="&#xE9D2;" Click="Activity_Click" ToolTip="Lumetri Scopes · waveform, RGB parade, vectorscope, histogram"/>
                     <RadioButton x:Name="ActCaptions" Style="{StaticResource Activity}" GroupName="act" Tag="Captions" Content="&#xE7F0;" Click="Activity_Click" ToolTip="Captions · from speech, edit, SRT / VTT"/>
+                    <RadioButton x:Name="ActTranscript" Style="{StaticResource Activity}" GroupName="act" Tag="Transcript" Content="&#xE8A4;" Click="Activity_Click" ToolTip="Transcript · edit the video by editing its text"/>
                     <RadioButton x:Name="ActInspector" Style="{StaticResource Activity}" GroupName="act" Tag="Inspector" Content="&#xE70F;" Click="Activity_Click" ToolTip="Effect Controls" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActSource" Style="{StaticResource Activity}" GroupName="act" Tag="Source" Content="&#xE7F4;" Click="Activity_Click" ToolTip="Source monitor" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActHistory" Style="{StaticResource Activity}" GroupName="act" Tag="History" Content="&#xE81C;" Click="Activity_Click" ToolTip="History · every undo step" Visibility="Collapsed"/>
@@ -101,21 +103,47 @@
                             </StackPanel>
                         </Grid>
                         <Grid>
-                            <ListBox x:Name="BinList" AllowDrop="True" Drop="Bin_Drop" DragOver="Bin_DragOver"
+                            <ListBox x:Name="BinList" AllowDrop="True" Drop="Bin_Drop" DragOver="Bin_DragOver" SelectionMode="Extended"
                                      PreviewMouseLeftButtonDown="Bin_MouseDown" PreviewMouseMove="Bin_MouseMove" MouseDoubleClick="Bin_DoubleClick"
                                      HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.Resources>
+                                    <!-- list view (Project panel ☰): one line per item -->
+                                    <DataTemplate x:Key="BinRowTemplate">
+                                        <Grid Margin="0,1" ToolTip="{Binding Tip}" AutomationProperties.Name="{Binding Name}">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="4"/><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
+                                            <Rectangle Fill="{Binding LabelBrush}" RadiusX="1" RadiusY="1"/>
+                                            <TextBlock x:Name="glyph" Grid.Column="1" Text="&#xE714;" FontFamily="{DynamicResource IconFont}" FontSize="12" Foreground="{DynamicResource B.Fg.Dim}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Stars}" Foreground="{DynamicResource B.Accent}" FontSize="10" Margin="6,0" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding DurText}" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="Bin"><Setter TargetName="glyph" Property="Text" Value="&#xE8B7;"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="Audio"><Setter TargetName="glyph" Property="Text" Value="&#xE8D6;"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="Image"><Setter TargetName="glyph" Property="Text" Value="&#xEB9F;"/></DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="Sequence"><Setter TargetName="glyph" Property="Text" Value="&#xE8A9;"/></DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.Resources>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="0,2" ToolTip="{Binding Tip}" AutomationProperties.Name="{Binding Name}">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="88"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <Border Background="{DynamicResource B.Thumb.Bg}" Width="84" Height="48" CornerRadius="4" ClipToBounds="True">
-                                                <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
+                                                <Grid>
+                                                    <Image Source="{Binding Thumb}" Stretch="UniformToFill"/>
+                                                    <TextBlock x:Name="folder" Text="&#xE8B7;" FontFamily="{DynamicResource IconFont}" FontSize="26" Foreground="{DynamicResource B.Fg.Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Rectangle Fill="{Binding LabelBrush}" Height="4" VerticalAlignment="Bottom"/>
+                                                </Grid>
                                             </Border>
                                             <StackPanel Grid.Column="1" Margin="8,3,0,0">
                                                 <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
                                                 <TextBlock Text="{Binding Info}" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </Grid>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="Bin"><Setter TargetName="folder" Property="Visibility" Value="Visible"/></DataTrigger>
+                                        </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>

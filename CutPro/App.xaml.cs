@@ -19,6 +19,7 @@ public partial class App : Application
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CutPro");
                 Directory.CreateDirectory(dir);
                 File.AppendAllText(Path.Combine(dir, "crash.log"), $"--- {DateTime.Now:s}\n{ex.Exception}\n");
+                (Current?.MainWindow as MainWindow)?.EmergencySave();          // (the recovery file: offered on the next start)
             }
             catch { }
         };
@@ -95,6 +96,12 @@ public partial class App : Application
         {
             int rc;
             try { rc = await TrackTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "tracktest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--hightest")
+        {
+            int rc;
+            try { rc = await HighTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "hightest.txt"), ex.ToString()); rc = 2; }
             Shutdown(rc); return;
         }
         if (a.Length >= 2 && a[0] == "--featuretest")
@@ -187,7 +194,7 @@ public partial class App : Application
         System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
         base.OnStartup(e);
         ThemeManager.Apply(a.Length >= 3 && a[0] == "--uishot" ? a[2] : Environment.GetEnvironmentVariable("CUTPRO_THEME") ?? AppSettings.Current.Theme);   // CUTPRO_THEME: tests in another theme   // editor colour theme (default: Dark Theme)
-        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest" or "--trackui" or "--featureui") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
+        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest" or "--trackui" or "--featureui" or "--highui") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
         var w = new MainWindow(); w.Show();
         if (a.Length >= 2 && a[0] == "--uishot") w.UiShot(a[1]);
         if (a.Length >= 2 && a[0] == "--objui") w.ObjScenario(a[1], a.Length > 2 ? a[2] : null);
@@ -195,6 +202,7 @@ public partial class App : Application
         if (a.Length >= 2 && a[0] == "--srctest") w.SourceScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--trackui") w.TrackScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--featureui") w.FeatureScenario(a[1]);
+        if (a.Length >= 2 && a[0] == "--highui") w.HighScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--playtest") w.StartPlaytest(a[1], a.Length > 2 && a[2] != "-" ? a[2] : null, a.Length > 3 ? a[3] : "basic");
     }
 }

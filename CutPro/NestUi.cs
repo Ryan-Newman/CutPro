@@ -179,12 +179,16 @@ public partial class MainWindow
 
     // ---------------- Project panel ----------------
     /// <summary>What the Project panel lists: the sequences (once there is media or more than one), then the media.</summary>
-    List<MediaItem> BinItems() => (ed.Media.Count > 0 || ed.Sequences.Count > 1 ? ed.SeqItems : Enumerable.Empty<MediaItem>()).Concat(ed.Media).ToList();
+
 
     void Bin_RightClick(object sender, MouseButtonEventArgs e)
     {
-        if (ItemAt((DependencyObject)e.OriginalSource) is { Seq: null } media)
-        {   // a clip: the source monitor, or straight onto the timeline at the playhead (its source marks, if any)
+        var at = ItemAt((DependencyObject)e.OriginalSource);
+        if (at == null) { BinBackgroundMenu(); e.Handled = true; return; }
+        if (at.Folder != null) { BinFolderMenu(at); e.Handled = true; return; }
+        if (at is { Seq: null } media)
+        {
+            if (!BinList.SelectedItems.Contains(media)) BinList.SelectedItem = media;   // a clip: the source monitor, or straight onto the timeline at the playhead (its source marks, if any)
             var cm = new ContextMenu();
             void Item(string header, string? gesture, Action a) { var mi = new MenuItem { Header = header, InputGestureText = gesture ?? "" }; mi.Click += (_, _) => a(); cm.Items.Add(mi); }
             Item("Open in Source Monitor", "double-click", () => OpenSource(media));
@@ -201,6 +205,8 @@ public partial class MainWindow
             Item(media.Offline ? "Relink…" : "Replace Footage…", null, () => RelinkMedia(media));
             Item("Reveal in File Explorer", null, () => { BinList.SelectedItem = media; ed.ClearSelection(); RevealInExplorer(); });
             Item("Properties…", null, () => ShowProperties(media));
+            BinOrganiseMenu(cm, SelectedBinMedia());
+            BinMediaExtras(cm, media);
             cm.PlacementTarget = BinList; cm.IsOpen = true; e.Handled = true;
             return;
         }

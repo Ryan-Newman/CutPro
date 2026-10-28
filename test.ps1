@@ -196,3 +196,12 @@ if (-not $p.WaitForExit(300000)) { $p.Kill(); "FEATURETEST TIMEOUT" } else { Get
 $fu = "$env:TEMP\cutpro_featureui.txt"; Remove-Item $fu -ErrorAction SilentlyContinue
 $p = Start-Process $exe -ArgumentList '--featureui', $fu -PassThru
 if (-not $p.WaitForExit(240000)) { $p.Kill(); "FEATUREUI TIMEOUT" } else { Get-Content $fu | ? { $_ -notmatch '^PASS' } }
+# 27. analysis and organisation: bins / search / filters, auto-save versions + crash recovery, scene edit detection, sync by sound (GCC-PHAT),
+#     beats, auto-ducking, text-based editing, overwrite / insert / replace / fit to fill, presets, colour match, reframe push-in, EDL / OTIO
+$ht = Join-Path $env:TEMP 'cutpro_hightest'
+$p = Start-Process $exe -ArgumentList '--hightest', $ht -PassThru
+if (-not $p.WaitForExit(400000)) { $p.Kill(); "HIGHTEST TIMEOUT" } else { Get-Content "$ht\hightest.txt" | ? { $_ -notmatch '^PASS' } }
+# 28. the same through the real window: Project panel bins / search / ratings, the Transcript panel, the Clip menu, presets, auto-save tick, drops
+$hu = "$env:TEMP\cutpro_highui.txt"; Remove-Item $hu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--highui', $hu -PassThru
+if (-not $p.WaitForExit(240000)) { $p.Kill(); "HIGHUI TIMEOUT" } else { Get-Content $hu | ? { $_ -notmatch '^PASS' } }

@@ -10,10 +10,12 @@ A Premiere Pro–style video editor for Windows, built with WPF and .NET 9. Prev
 - **Playback:** an audio-clock player with hardware decoding (chosen per file by measurement) and a scrub cache.
 - **Picture:** motion with keyframes and formulas, blend modes, crop / flip, chroma and luma keys, track mattes, corner pin, lens distortion, adjustment layers, Lumetri-style colour (wheels, curves, .cube LUTs) with scopes, cartoon / anime looks, transitions, speed / reverse / time remapping, stabilization.
 - **Titles and captions:** styled titles with themes and text masks, and captions from speech (Whisper) with SRT / VTT.
+- **Smart tools:** text-based editing (delete words in the transcript), scene edit detection, synchronize clips by their sound, beat detection and cut to the beat, auto-ducking, colour match, background removal, auto reframe with push-in, effect presets.
 - **AI object masks:** click to select with MobileSAM, then track; blur, pixelate, colour pop and more.
 - **Audio:** track mixer with automation, submixes, clip and track effects (EQ, compressor, gate, de-esser, reverb), pitch shift, BS.1770 loudness normalization.
 - **Export:** platform presets (YouTube, Shorts, TikTok, Instagram, …), H.264 / HEVC / AV1 / VP9 / ProRes (including 4444), GPU encoders, a full-colour 4:4:4 composite.
 - **Publishing:** uploads to the major platforms with your own developer app credentials; caption / hashtag suggestions; thumbnail and intro studios.
+- **Project:** bins with colour labels, ratings, keywords and search; auto-save with versions and crash recovery; voice-over recording; EDL and OpenTimelineIO export.
 - **Interface:** dockable panels and workspaces, a History panel, a command palette, editable keyboard shortcuts (Premiere defaults), English / German / Spanish / French, a larger-interface option, and flat and material themes.
 
 ## Requirements

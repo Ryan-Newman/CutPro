@@ -64,6 +64,8 @@ public partial class MainWindow
         Add("Mixer", "Audio Track Mixer", MixerView, "Left", ActMixer);
         Add("Scopes", "Lumetri Scopes", ScopesView, "Left", ActScopes);
         Add("Captions", "Captions", CaptionsView, "Left", ActCaptions);
+        BuildTranscriptView();
+        Add("Transcript", "Transcript", TranscriptView, "Left", ActTranscript);
         Add("Inspector", "Effect Controls", InspectorView, "Right", ActInspector);
         BuildSourceView();
         Add("Source", "Source", SourceView, "Right", ActSource);
@@ -75,7 +77,7 @@ public partial class MainWindow
         HookDock(ProgramTab, "Program");
         HookDock(TabTimeline, "Timeline");
         PanelGrid.SizeChanged += (_, _) => FitPanelTools();
-        Closing += (_, _) => { if (!AppSettings.ReadOnly) SaveLayout(); foreach (var d in docks) if (d.Win != null) d.Win.Quiet = true; };
+        Closing += (_, e) => { if (e.Cancel) return; if (!AppSettings.ReadOnly) SaveLayout(); foreach (var d in docks) if (d.Win != null) d.Win.Quiet = true; };
         // the saved layout (automated runs: the default one, or CUTPRO_WORKSPACE)
         var forced = Environment.GetEnvironmentVariable("CUTPRO_WORKSPACE");
         var start = forced != null ? Workspace(forced) : AppSettings.ReadOnly ? null : S.Layout;

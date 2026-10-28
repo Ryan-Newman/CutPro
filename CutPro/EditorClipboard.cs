@@ -77,7 +77,7 @@ public partial class Editor
         {
             bool video = c.Kind != ClipKind.Audio;
             if (c.Track < Tracks.Count && Tracks.IsVideo(c.Track) == video && !Locked(c.Track)) return c.Track;
-            var rows = video ? Tracks.VideoRows.Reverse() : Tracks.AudioRows;                 // (V1 up / A1 down)
+            var rows = video ? Tracks.VideoRows : Tracks.AudioRows;                           // (V1 up / A1 down)
             return rows.FirstOrDefault(r => !Locked(r), -1);
         }
         var links = new Dictionary<string, string>(); var groups = new Dictionary<string, string>();
