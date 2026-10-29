@@ -86,6 +86,7 @@
                     <RadioButton x:Name="ActInspector" Style="{StaticResource Activity}" GroupName="act" Tag="Inspector" Content="&#xE70F;" Click="Activity_Click" ToolTip="Effect Controls" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActSource" Style="{StaticResource Activity}" GroupName="act" Tag="Source" Content="&#xE7F4;" Click="Activity_Click" ToolTip="Source monitor" Visibility="Collapsed"/>
                     <RadioButton x:Name="ActHistory" Style="{StaticResource Activity}" GroupName="act" Tag="History" Content="&#xE81C;" Click="Activity_Click" ToolTip="History · every undo step" Visibility="Collapsed"/>
+                    <RadioButton x:Name="ActMarkers" Style="{StaticResource Activity}" GroupName="act" Tag="Markers" Content="&#xE81B;" Click="Activity_Click" ToolTip="Markers · sequence and clip markers" Visibility="Collapsed"/>
                 </StackPanel>
             </DockPanel></local:Card>
 

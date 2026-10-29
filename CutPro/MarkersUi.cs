@@ -12,9 +12,71 @@ public partial class MainWindow
 {
     void InitMarkers()
     {
-        ed.MarkersChanged += () => { Tl.InvalidateVisual(); Ph.InvalidateVisual(); };
+        ed.MarkersChanged += () => { Tl.InvalidateVisual(); Ph.InvalidateVisual(); markStale = true; if (MarkersView != null && Shows(MarkersView)) Dispatcher.BeginInvoke(RefreshMarkers); };
+        ed.Changed += () => { markStale = true; if (MarkersView != null && Shows(MarkersView)) Dispatcher.BeginInvoke(RefreshMarkers); };
         Tl.MarkerEditRequested += (m, c) => EditMarker(m, c);
         Tl.ClipMenuOpening += ClipMenuExtras;
+    }
+
+    DockPanel MarkersView = null!;
+    ListBox markList = null!;
+    TextBlock markCount = null!;
+    bool markBusy, markStale = true;
+
+    void BuildMarkersView()
+    {
+        MarkersView = new DockPanel { Background = Brushes.Transparent };
+        var head = new Grid { Height = 35 };
+        var title = new TextBlock { Text = "MARKERS" }; title.SetResourceReference(StyleProperty, "PaneHeader");
+        head.Children.Add(title);
+        markCount = new TextBlock { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), FontSize = 11 };
+        markCount.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
+        head.Children.Add(markCount);
+        DockPanel.SetDock(head, Dock.Top); MarkersView.Children.Add(head);
+        markList = new ListBox { BorderThickness = new Thickness(0), Background = Brushes.Transparent, Margin = new Thickness(6, 0, 6, 6) };
+        System.Windows.Automation.AutomationProperties.SetName(markList, "Markers");
+        ScrollViewer.SetHorizontalScrollBarVisibility(markList, ScrollBarVisibility.Disabled);
+        markList.SelectionChanged += (_, _) =>
+        {
+            if (markBusy || markList.SelectedItem is not ListBoxItem { Tag: ValueTuple<double, Marker, Clip?> row }) return;
+            Pause();
+            ed.Seek(row.Item1);
+        };
+        markList.MouseDoubleClick += (_, _) =>
+        {
+            if (markList.SelectedItem is ListBoxItem { Tag: ValueTuple<double, Marker, Clip?> row }) EditMarker(row.Item2, row.Item3);
+        };
+        MarkersView.Children.Add(markList);
+        RightHost.Children.Add(MarkersView);
+        MarkersView.IsVisibleChanged += (_, _) => { if (MarkersView.IsVisible) Dispatcher.BeginInvoke(RefreshMarkers); };
+        MarkersView.SizeChanged += (_, _) => { if (markStale) Dispatcher.BeginInvoke(RefreshMarkers); };
+    }
+
+    /// <summary>Rebuilds the list (only while the panel shows).</summary>
+    void RefreshMarkers()
+    {
+        if (!Shows(MarkersView)) return;
+        markStale = false;
+        var all = ed.AllMarkers().OrderBy(x => x.t).ToList();
+        markBusy = true;
+        markList.Items.Clear();
+        ListBoxItem? current = null;
+        foreach (var (t, m, c) in all)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var sw = new System.Windows.Shapes.Rectangle { Width = 10, Height = 10, Fill = new SolidColorBrush(Marker.Rgb(m.Color)), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            string name = m.Name.Trim().Length > 0 ? m.Name.Trim() : (c == null ? "Marker" : "Clip marker");
+            string where = c == null ? "Sequence" : (ed.MediaOf(c)?.Name ?? c.Text);
+            var tx = new TextBlock { Text = $"{TimeUtil.Format(t)}  {name}", VerticalAlignment = VerticalAlignment.Center };
+            sp.Children.Add(sw); sp.Children.Add(tx);
+            var it = new ListBoxItem { Content = sp, Tag = (t, m, c), ToolTip = (m.Note.Length > 0 ? m.Note + "\n" : "") + where + (m.Chapter && c == null ? " · chapter" : "") };
+            System.Windows.Automation.AutomationProperties.SetName(it, name + " at " + TimeUtil.Format(t));
+            markList.Items.Add(it);
+            if (Math.Abs(t - ed.Time) < 0.5 / TimeUtil.Fps) current = it;
+        }
+        if (current != null) { markList.SelectedItem = current; markList.ScrollIntoView(current); }
+        markCount.Text = all.Count == 0 ? "None" : $"{all.Count} marker{(all.Count == 1 ? "" : "s")}";
+        markBusy = false;
     }
 
     /// <summary>The sequence marker on the playhead's frame.</summary>

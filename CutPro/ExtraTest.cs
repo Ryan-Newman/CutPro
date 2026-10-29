@@ -7,7 +7,8 @@ namespace CutPro;
 /// <summary>
 /// CutPro.exe --extratest dir: the "extra high" roadmap items, headless.
 /// - trim tools: rolling edit (both sides and the linked sound, limits = media / one frame), slip, slide, ripple edit, rate stretch
-///   (speed fills the new length, same source range, reversed clips), clamping to the last frame that works, one undo step each;
+///   (speed fills the new length, same source range, reversed clips), clamping to the last frame that works, one undo step each,
+///   keyboard trim (In +1 frame / Out −1 frame / In +5 frames, linked sound along);
 /// </summary>
 public static partial class ExtraTest
 {
@@ -745,6 +746,23 @@ public static partial class ExtraTest
         // the wave travels: two times differ
         var w1 = PreviewFrame(ed, 4.5); var w2 = PreviewFrame(ed, 5.9);
         Check(Psnr(w1, w2) < 30, $"the wave moves on over time ({Psnr(w1, w2):0.0} dB between 0.5 s and 0.9 s)");
+        // live keyframes: amount 0 → 180 over 2 s of twirl
+        {
+            var ked = new Editor(); ked.Media.Add(pm);
+            var kc = new Clip { MediaId = pm.Id, Kind = ClipKind.Image, Track = Tracks.V1, Start = 0, Dur = 2, Distort = new Distort { Kind = DistortKind.Twirl, Amount = 0, Radius = 50 } };
+            ked.Clips.Add(kc);
+            Anim.SetKey(kc, AnimProp.DistAmount, 0, 0); Anim.SetKey(kc, AnimProp.DistAmount, 2, 180);
+            Check(Distorts.Animated(kc) && Math.Abs(Distorts.At(kc, 1).Amount - 90) < 1, "twirl amount keyed 0→180: 90° at 1 s");
+            var kmp4 = Path.Combine(dir, "distort_keys.mp4");
+            var kerr = await Export(ked, dir, kmp4, new ExportSettings { Quality = 12 });
+            Check(kerr == null, "export of a keyframed twirl" + (kerr == null ? "" : ": " + kerr));
+            if (kerr == null)
+            {
+                var ka = PreviewFrame(ked, 1); var kb = FxTest.Frame(ff, kmp4, 1 - 0.4 / 30);
+                var (kpsnr, _) = FxTest.Compare(ka, kb);
+                Check(kpsnr >= 26, $"keyframed twirl preview = export at 1 s: {kpsnr:0.0} dB");
+            }
+        }
     }
     /// <summary>The picture with no effect (a reference for "it changed").</summary>
     static byte[] PreviewFrameOf(Editor ed0, MediaItem pm)
@@ -1037,5 +1055,21 @@ public static partial class ExtraTest
         got = ed.TrimEdit(TrimTool.Roll, F(a), false, 0.5);
         Check(Near(F(a).Dur, 3.5) && Near(F(aa).Dur, 3), "a locked track's clips don't roll");
         ed.Undo(); ed.SetLocked(Tracks.A1, false);
+
+        // keyboard trim (Premiere Ctrl+Shift+, / . and Ctrl+Alt+Shift+,): In later / Out earlier, linked sound along
+        double in0 = F(a).In, dur0 = F(a).Dur, start0 = F(a).Start;
+        got = ed.TrimEdit(TrimTool.Ripple, F(a), true, fr);
+        Check(Near(got, fr) && Near(F(a).Start, start0) && Near(F(a).In, in0 + fr) && Near(F(a).Dur, dur0 - fr)
+              && Near(F(aa).In, F(a).In) && Near(F(aa).Dur, F(a).Dur) && ed.UndoLabels.First() == "Ripple Trim",
+              $"keyboard trim in by 1 frame: In {F(a).In:0.000} s, duration {F(a).Dur:0.000} s, the linked sound too");
+        ed.Undo();
+        got = ed.TrimEdit(TrimTool.Ripple, F(a), false, -fr);
+        Check(Near(got, -fr) && Near(F(a).Dur, dur0 - fr) && Near(F(b).Start, 3 - fr) && Near(F(ba).Start, 3 - fr),
+              $"keyboard trim out by 1 frame: A shorter, B moves left to {F(b).Start:0.000} s");
+        ed.Undo();
+        got = ed.TrimEdit(TrimTool.Ripple, F(a), true, 5 * fr);
+        Check(Near(got, 5 * fr) && Near(F(a).Dur, dur0 - 5 * fr) && Near(F(aa).Dur, F(a).Dur),
+              $"keyboard trim in by 5 frames: duration {F(a).Dur:0.000} s");
+        ed.Undo();
     }
 }

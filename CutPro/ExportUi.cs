@@ -136,7 +136,9 @@ public partial class MainWindow
         var full = new CheckBox { Content = "Full colour composite (4:4:4)", IsChecked = o.Full444, ToolTip = "Titles, keys and overlays keep their full colour detail until the encoder; off = 4:2:0 throughout (a little faster, softer colour edges)" };
         var deep = new CheckBox { Content = "10-bit", Margin = new Thickness(14, 0, 0, 0),
                                   ToolTip = "The composite and the file keep 10 bits per channel: smoother skies and shadows, above all from 10-bit or HDR footage (HEVC Main 10, AV1, VP9, ProRes). Some older phones and TVs can't play 10-bit HEVC" };
-        var colRow = new StackPanel { Orientation = Orientation.Horizontal }; colRow.Children.Add(full); colRow.Children.Add(deep);
+        var hdr = new ComboBox { ItemsSource = new[] { "SDR (Rec.709)", "HLG HDR", "HDR10 (PQ)" }, Width = 150, Margin = new Thickness(14, 0, 0, 0),
+                                 ToolTip = "HDR files: the Rec.709 timeline is inverse-mapped so SDR white is 203 cd/m² (BT.2408). HEVC 10-bit. The preview stays SDR." };
+        var colRow = new StackPanel { Orientation = Orientation.Horizontal }; colRow.Children.Add(full); colRow.Children.Add(deep); colRow.Children.Add(hdr);
         int nChapters = ed.ChaptersFor(0, ed.End).Count;
         var chapters = new CheckBox { Content = $"Chapters from the {nChapters} chapter marker{(nChapters == 1 ? "" : "s")}", IsChecked = o.Chapters, ToolTip = "The sequence's chapter markers become the file's chapters (players show them; MP4 / MOV / MKV / M4A)" };
         bool hasCaptions = ed.Clips.Any(Captioning.IsCaption);
@@ -164,6 +166,7 @@ public partial class MainWindow
         bool busy = false;
         HashSet<string>? usable = null;
         var codecs = new[] { ("h264", "H.264 (AVC)"), ("hevc", "H.265 (HEVC)"), ("av1", "AV1"), ("vp9", "VP9"), ("prores", "Apple ProRes 422 HQ"), ("prores4444", "Apple ProRes 4444 (full colour)"),
+                             ("dnxhr_hq", "Avid DNxHR HQ"), ("dnxhr_hqx", "Avid DNxHR HQX (10-bit)"), ("dnxhr_444", "Avid DNxHR 444"),
                              ("prores4444a", "ProRes 4444 with alpha (transparent)"), ("vp9a", "VP9 with alpha (transparent)"), ("qtrle", "QuickTime Animation with alpha"), ("png", "PNG sequence with alpha"),
                              ("none", "None — audio only") };
         var encoders = new[] { ("software", "CPU (best compatibility)"), ("nvenc", "NVIDIA NVENC (GPU)"), ("qsv", "Intel Quick Sync (GPU)"), ("amf", "AMD AMF (GPU)") };
@@ -190,8 +193,9 @@ public partial class MainWindow
             chans.SelectedIndex = p.Channels switch { "mono" => 1, "5.1" => 2, _ => 0 };
             chans.IsEnabled = p.Audio is not ("none" or "mp3");
             inout.IsChecked = p.InOutOnly && inout.IsEnabled;
-            smart.IsEnabled = !ao && p.Video is "h264" or "hevc" && p.Container is "mp4" or "mov" or "mkv"; smart.IsChecked = p.Smart && smart.IsEnabled;
-            deep.IsEnabled = !ao && p.Supports10; deep.IsChecked = p.TenBit && deep.IsEnabled;
+            smart.IsEnabled = !ao && p.Video is "h264" or "hevc" && p.Container is "mp4" or "mov" or "mkv" && !p.WantsHdr; smart.IsChecked = p.Smart && smart.IsEnabled;
+            deep.IsEnabled = !ao && p.Supports10 && !p.WantsHdr; deep.IsChecked = (p.TenBit || p.WantsHdr) && p.Supports10;
+            hdr.IsEnabled = !ao; hdr.SelectedIndex = p.Hdr == "hlg" ? 1 : p.Hdr == "pq" ? 2 : 0;
             norm.IsChecked = p.Normalize; norm.IsEnabled = lufs.IsEnabled = p.Audio != "none";
             lufs.SelectedIndex = Math.Max(0, Array.FindIndex(Loudness.Targets, x => Math.Abs(x.lufs - p.Lufs) < 0.01));
             busy = false;
@@ -214,7 +218,9 @@ public partial class MainWindow
             o.InOutOnly = inout.IsChecked == true;
             o.Smart = smart.IsChecked == true;
             o.Full444 = full.IsChecked == true;
-            if (deep.IsEnabled) o.TenBit = deep.IsChecked == true;
+            o.Hdr = hdr.SelectedIndex == 1 ? "hlg" : hdr.SelectedIndex == 2 ? "pq" : "";
+            if (o.WantsHdr) { o.TenBit = true; if (!o.Supports10) o.Video = "hevc"; }
+            else if (deep.IsEnabled) o.TenBit = deep.IsChecked == true;
             o.Chapters = chapters.IsChecked == true;
             o.BurnCaptions = burn.IsChecked == true; o.CaptionFile = srt.IsChecked == true;
             o.Normalize = norm.IsChecked == true && o.Audio != "none";
@@ -260,12 +266,12 @@ public partial class MainWindow
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
         preset.SelectionChanged += (_, _) => { if (preset.SelectedIndex >= 0) { o = presets[preset.SelectedIndex].Clone(); Load(o); } };
-        foreach (var cb in new[] { container, codec, encoder, res, speed, audio, akbps, chans }) cb.SelectionChanged += (_, _) => Changed();
+        foreach (var cb in new[] { container, codec, encoder, res, speed, audio, akbps, chans, hdr }) cb.SelectionChanged += (_, _) => Changed();
         codec.SelectionChanged += (_, _) =>
         {
             if (busy || codec.SelectedIndex < 0) return;
             var v = codecs[codec.SelectedIndex].Item1;
-            o.Container = v == "none" ? "wav" : v is "prores" or "prores4444" or "prores4444a" or "qtrle" ? "mov" : v is "vp9" or "vp9a" ? "webm" : v == "png" ? "png"
+            o.Container = v == "none" ? "wav" : v.StartsWith("dnxhr") || v is "prores" or "prores4444" or "prores4444a" or "qtrle" ? "mov" : v is "vp9" or "vp9a" ? "webm" : v == "png" ? "png"
                         : o.Container is "wav" or "mp3" or "m4a" or "webm" or "png" ? "mp4" : o.Container;
             if (v == "none") o.Audio = "pcm"; else if (v == "png") o.Audio = "none"; else if (o.Container == "webm") o.Audio = "opus";
             Load(o);

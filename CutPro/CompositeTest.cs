@@ -162,6 +162,10 @@ public static class CompositeTest
             ed.Media.Add(mGray);
             var gr = V(mGray, 1, t0, 1); gr.Looks = new LookFx { Grain = 50 };
             double grainT = t0 + 0.5; t0 += 1;
+            var vhs = V(mBg, 1, t0, 1); vhs.Looks = new LookFx { Vhs = 70 };
+            cases.Add(("VHS", t0 + 0.5, 28)); t0 += 1;
+            var gli = V(mBg, 1, t0, 1); gli.Looks = new LookFx { Glitch = 55 };
+            cases.Add(("glitch", t0 + 0.5, 28)); t0 += 1;
             // luma key (a pattern on black: the black goes) and track mattes on V2 masking the photo on V1
             var lumaVid = Gen("lumabg.mp4", "-f lavfi -i testsrc2=s=640x360:r=30:d=6 -vf pad=1280:720:320:180:black -c:v libx264 -crf 10 -pix_fmt yuv420p");
             var mLu = await MediaProbe.ProbeAsync(lumaVid) ?? throw new Exception("import luma");

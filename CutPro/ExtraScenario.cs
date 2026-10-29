@@ -7,9 +7,10 @@ namespace CutPro;
 
 /// <summary>
 /// The "extra high" features through the real window: --extraui out.txt (scenario) and the extra --uishot shots. The scenario: tool shortcuts
-/// (B N R Y U / V / C) and a rolling edit through the timeline's drag with the monitor's two-up view; J / K / L shuttle (2× forward, reverse,
-/// stop on a frame) on the audio clock; audio scrubbing; the opacity band toggle; a generated colour matte from File ▸ New Item; an imported
-/// OTIO sequence; the render queue panel rendering a job while the timeline changes; proxies on / off.
+/// (B N R Y U / V / C) and a rolling edit through the timeline's drag with the monitor's two-up view; keyboard trim (Ctrl+Shift+, / . through
+/// HandleKey, Rolling Edit uses the same keys); J / K / L shuttle (2× forward, reverse, stop on a frame) on the audio clock; audio scrubbing;
+/// the opacity band toggle; a generated colour matte from File ▸ New Item; an imported OTIO sequence; the render queue panel rendering a job
+/// while the timeline changes; proxies on / off.
 /// </summary>
 public partial class MainWindow
 {
@@ -49,6 +50,25 @@ public partial class MainWindow
             var v1b = ed.Clips.Where(c => c.Kind == ClipKind.Video).OrderBy(c => c.Start).ToList();
             Check(began && twoUp && Math.Abs(v1b[0].End - (cut - 0.5)) < 1e-6 && Math.Abs(v1b[1].Start - (cut - 0.5)) < 1e-6 && Math.Abs(ed.End - end0) < 1e-6 && trimView!.Visibility == Visibility.Collapsed
                   && ed.UndoLabels.First() == "Rolling Edit", $"a rolling edit by the timeline's drag: the cut moves to {v1b[0].End:0.00} s, the end stays, the monitor shows the two-up view while dragging");
+            ed.Undo(); SetTool(TrimTool.Select);
+
+            // ---------- keyboard trim ----------
+            var ktClips = ed.Clips.Where(c => c.Kind == ClipKind.Video).OrderBy(c => c.Start).ToList();
+            var kt = ktClips[0];
+            ed.Select(kt);
+            double ktDur = kt.Dur, ktIn = kt.In, ktStart = kt.Start, fr = 1 / TimeUtil.Fps;
+            HandleKey(Key.OemComma, ModifierKeys.Control | ModifierKeys.Shift);
+            Check(Math.Abs(kt.Dur - (ktDur - fr)) < 1e-6 && Math.Abs(kt.In - (ktIn + fr)) < 1e-6 && Math.Abs(kt.Start - ktStart) < 1e-6
+                  && ed.UndoLabels.First() == "Ripple Trim",
+                  $"Ctrl+Shift+,: trim in by 1 frame (Selection uses Ripple) — In {kt.In:0.000} s, duration {kt.Dur:0.000} s");
+            HandleKey(Key.OemPeriod, ModifierKeys.Control | ModifierKeys.Shift);
+            Check(Math.Abs(kt.Dur - (ktDur - 2 * fr)) < 1e-6 && ed.UndoLabels.First() == "Ripple Trim",
+                  $"Ctrl+Shift+.: trim out by 1 frame — duration {kt.Dur:0.000} s");
+            ed.Undo(); ed.Undo();
+            ed.Select(ktClips[1]);
+            SetTool(TrimTool.Roll);
+            HandleKey(Key.OemComma, ModifierKeys.Control | ModifierKeys.Shift);
+            Check(ed.UndoLabels.First() == "Rolling Edit", "with Rolling Edit selected, Ctrl+Shift+, rolls instead of rippling");
             ed.Undo(); SetTool(TrimTool.Select);
 
             // ---------- J K L shuttle ----------

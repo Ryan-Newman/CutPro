@@ -40,7 +40,42 @@ public sealed class Distort
 public static class Distorts
 {
     public static bool Active(Clip c) => c.Distort != null && c.Kind is ClipKind.Video or ClipKind.Image && c.Pin == null && c.Lens == null;
+    public static readonly AnimProp[] TwirlProps = { AnimProp.DistAmount, AnimProp.DistRadius, AnimProp.DistCX, AnimProp.DistCY };
+    public static readonly AnimProp[] WaveProps = { AnimProp.DistAmount, AnimProp.DistWave, AnimProp.DistDir, AnimProp.DistSpeed, AnimProp.DistCX, AnimProp.DistCY };
+    public static readonly AnimProp[] SpherizeProps = { AnimProp.DistAmount, AnimProp.DistRadius, AnimProp.DistCX, AnimProp.DistCY };
+    public static IEnumerable<AnimProp> PropsOf(DistortKind k) => k switch { DistortKind.Wave => WaveProps, DistortKind.Spherize => SpherizeProps, DistortKind.Twirl => TwirlProps, _ => Array.Empty<AnimProp>() };
+    public static bool Animated(Clip c) => Active(c) && c.Distort!.Kind != DistortKind.Mesh && Anim.AnyAnimated(c, PropsOf(c.Distort.Kind));
+    /// <summary>The distortion at timeline time t (keyframes / formulas on amount, radius, centre, wave).</summary>
+    public static Distort At(Clip c, double t)
+    {
+        var d = c.Distort!.Clone();
+        if (!Animated(c)) return d;
+        d.Amount = Anim.Value(c, AnimProp.DistAmount, t);
+        d.Radius = Anim.Value(c, AnimProp.DistRadius, t);
+        d.CenterX = Anim.Value(c, AnimProp.DistCX, t);
+        d.CenterY = Anim.Value(c, AnimProp.DistCY, t);
+        d.Wavelength = Anim.Value(c, AnimProp.DistWave, t);
+        d.Direction = Anim.Value(c, AnimProp.DistDir, t);
+        d.Speed = Anim.Value(c, AnimProp.DistSpeed, t);
+        return d;
+    }
     static string F(double v) => v.ToString("0.########", CultureInfo.InvariantCulture);
+    /// <summary>A geq expression of T (seconds from the clip start) that follows the property's keys as piecewise linear segments.</summary>
+    static string Piecewise(Clip c, AnimProp p)
+    {
+        var keys = Anim.Track(c, p)?.Keys;
+        if (keys == null || keys.Count == 0) return F(Anim.Base(c, p));
+        var k = keys.OrderBy(x => x.T).ToList();
+        if (k.Count == 1) return F(k[0].V);
+        string expr = F(k[^1].V);
+        for (int i = k.Count - 2; i >= 0; i--)
+        {
+            double t0 = k[i].T - c.In, t1 = k[i + 1].T - c.In, dt = Math.Max(1e-6, t1 - t0);
+            string lerp = $"{F(k[i].V)}+({F(k[i + 1].V)}-{F(k[i].V)})*(T-{F(t0)})/{F(dt)}";
+            expr = $"if(lt(T,{F(t1)}),{lerp},{expr})";
+        }
+        return expr;
+    }
 
     /// <summary>The picture-space constants of a distortion on a w × h picture.</summary>
     public static (double cx, double cy, double invR) Geometry(Distort d, int w, int h)
@@ -51,26 +86,37 @@ public static class Distorts
     }
     public static double Exponent(Distort d) => Math.Clamp(d.Amount, -90, 100) / 100;          // (spherize: source distance × u^k)
 
+    /// <summary>The ffmpeg geq filter for a clip (keyframed parameters become expressions of T).</summary>
+    public static string Geq(Clip c, int w, int h) => Animated(c) ? Geq(At(c, c.Start), w, h, p => Piecewise(c, p)) : Geq(c.Distort!, w, h);
     /// <summary>The ffmpeg geq filter (input and output gbrap) for a w × h picture. T = seconds since the clip's start (the wave's travel).</summary>
-    public static string Geq(Distort d, int w, int h)
+    public static string Geq(Distort d, int w, int h, Func<AnimProp, string>? expr = null)
     {
         var (cx, cy, invR) = Geometry(d, w, h);
+        string Cx = expr != null ? $"(0.5+({expr(AnimProp.DistCX)})/100)*{w - 1}" : F(cx);
+        string Cy = expr != null ? $"(0.5+({expr(AnimProp.DistCY)})/100)*{h - 1}" : F(cy);
+        string InvR = expr != null ? $"(1/max(1,({expr(AnimProp.DistRadius)})/100*{F(Math.Sqrt((double)w * w + h * h) / 2)}))" : F(invR);
         string pos;   // stores the source position in ld(4), ld(5)
         switch (d.Kind)
         {
             case DistortKind.Twirl:
-                double ang = Math.Clamp(d.Amount, -720, 720) * Math.PI / 180;
-                pos = $"st(0,X-{F(cx)});st(1,Y-{F(cy)});st(2,max(0,1-hypot(ld(0),ld(1))*{F(invR)}));st(3,{F(ang)}*ld(2)*ld(2));" +
-                      $"st(4,{F(cx)}+ld(0)*cos(ld(3))+ld(1)*sin(ld(3)));st(5,{F(cy)}-ld(0)*sin(ld(3))+ld(1)*cos(ld(3)))";
+                string ang = expr != null ? $"(({expr(AnimProp.DistAmount)})*PI/180)" : F(Math.Clamp(d.Amount, -720, 720) * Math.PI / 180);
+                pos = $"st(0,X-({Cx}));st(1,Y-({Cy}));st(2,max(0,1-hypot(ld(0),ld(1))*({InvR})));st(3,({ang})*ld(2)*ld(2));" +
+                      $"st(4,({Cx})+ld(0)*cos(ld(3))+ld(1)*sin(ld(3)));st(5,({Cy})-ld(0)*sin(ld(3))+ld(1)*cos(ld(3)))";
                 break;
             case DistortKind.Spherize:
-                pos = $"st(0,X-{F(cx)});st(1,Y-{F(cy)});st(2,hypot(ld(0),ld(1))*{F(invR)});st(3,if(lt(ld(2),1),pow(max(ld(2),0.001),{F(Exponent(d))}),1));" +
-                      $"st(4,{F(cx)}+ld(0)*ld(3));st(5,{F(cy)}+ld(1)*ld(3))";
+                string exp = expr != null ? $"(({expr(AnimProp.DistAmount)})/100)" : F(Exponent(d));
+                pos = $"st(0,X-({Cx}));st(1,Y-({Cy}));st(2,hypot(ld(0),ld(1))*({InvR}));st(3,if(lt(ld(2),1),pow(max(ld(2),0.001),{exp}),1));" +
+                      $"st(4,({Cx})+ld(0)*ld(3));st(5,({Cy})+ld(1)*ld(3))";
                 break;
             case DistortKind.Wave:
             {
                 var (nx, ny, invL, amp, speed) = WaveOf(d, w, h);
-                pos = $"st(0,{F(amp)}*sin(2*PI*((X*{F(nx)}+Y*{F(ny)})*{F(invL)}-{F(speed)}*T)));st(4,X-{F(ny)}*ld(0));st(5,Y+{F(nx)}*ld(0))";
+                string Nx = expr != null ? $"cos(({expr(AnimProp.DistDir)})*PI/180)" : F(nx);
+                string Ny = expr != null ? $"sin(({expr(AnimProp.DistDir)})*PI/180)" : F(ny);
+                string InvL = expr != null ? $"(1/max(1,({expr(AnimProp.DistWave)})/100*{w}))" : F(invL);
+                string Amp = expr != null ? $"(({expr(AnimProp.DistAmount)})/100*{h})" : F(amp);
+                string Spd = expr != null ? $"({expr(AnimProp.DistSpeed)})" : F(speed);
+                pos = $"st(0,({Amp})*sin(2*PI*((X*({Nx})+Y*({Ny}))*({InvL})-({Spd})*T)));st(4,X-({Ny})*ld(0));st(5,Y+({Nx})*ld(0))";
                 break;
             }
             default:

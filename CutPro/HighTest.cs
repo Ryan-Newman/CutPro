@@ -260,6 +260,12 @@ public static class HighTest
                 var made = ed.FitToFill(other, Tracks.V1, Tracks.A1);
                 Check(made.Count == 2 && Math.Abs(made[0].Speed - 200) < 1e-6 && Math.Abs(made[0].Dur - 2) < 1e-9 && Math.Abs(TimeMap.Span(made[0]).hi - 6) < 1e-6 && Math.Abs(TimeMap.Span(made[0]).lo - 2) < 1e-6,
                       $"fit to fill: 4 s of source into a 2 s In–Out at {made.FirstOrDefault()?.Speed:0} %");
+                // 4-point Insert / Overwrite: source In–Out + sequence In–Out, at sequence In (not the playhead)
+                other.SrcIn = 1; other.SrcOut = 5;
+                ed.MarkIn = 24; ed.MarkOut = 26; ed.Time = 0;
+                var four = ed.PlaceSource(other, ed.Time, Tracks.V1, Tracks.A1, insert: false);
+                Check(four.Count == 2 && Math.Abs(four[0].Start - 24) < 1e-9 && Math.Abs(four[0].Dur - 2) < 1e-9 && Math.Abs(four[0].Speed - 200) < 1e-6 && Math.Abs(four[0].In - 1) < 1e-9,
+                      $"4-point overwrite: source In–Out into sequence In–Out at {four.FirstOrDefault()?.Speed:0} % at sequence In (playhead was 0)");
             }
 
             // ---------- 9. presets, colour match, reframe push-in ----------

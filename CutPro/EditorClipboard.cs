@@ -128,7 +128,7 @@ public partial class Editor
     public static readonly (ClipAttr a, string name)[] AttrNames =
     {
         (ClipAttr.Motion, "Motion (scale, position, rotation, anchor)"), (ClipAttr.Opacity, "Opacity and blend mode"), (ClipAttr.Speed, "Speed / reverse"),
-        (ClipAttr.Volume, "Volume"), (ClipAttr.Color, "Lumetri Color"), (ClipAttr.Looks, "Stylize (drawn look, sharpen, glow, grain)"), (ClipAttr.Crop, "Crop and flip"),
+        (ClipAttr.Volume, "Volume"), (ClipAttr.Color, "Lumetri Color"), (ClipAttr.Looks, "Stylize (drawn look, sharpen, glow, grain, VHS, glitch)"), (ClipAttr.Crop, "Crop and flip"),
         (ClipAttr.Key, "Ultra key"), (ClipAttr.Pin, "Corner pin"), (ClipAttr.Lens, "Lens distortion"), (ClipAttr.Shadow, "Drop shadow"), (ClipAttr.Blur, "Gaussian blur"),
         (ClipAttr.Stabilize, "Stabilize"), (ClipAttr.AudioFx, "Audio effects"),
     };

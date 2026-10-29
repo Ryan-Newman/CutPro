@@ -43,8 +43,8 @@ public partial class MainWindow
 
             // the mixer to the right: tabs appear, it shows, the activity bar loses its icon
             MoveDock("Mixer", "Right"); await Settle();
-            Check(Inside(MixerView, RightHost) && RightTabsBar.Visibility == Visibility.Visible && RightTabs.Children.Count == 4 && Shows(MixerView) && !Shows(InspectorView)
-                  && ActMixer.Visibility == Visibility.Collapsed, "Mixer → right side bar: a fourth tab (Effect Controls, Source, History, Mixer), the mixer shows (meters run), its activity icon goes");
+            Check(Inside(MixerView, RightHost) && RightTabsBar.Visibility == Visibility.Visible && RightTabs.Children.Count == 5 && Shows(MixerView) && !Shows(InspectorView)
+                  && ActMixer.Visibility == Visibility.Collapsed, "Mixer → right side bar: a fifth tab (Effect Controls, Source, History, Markers, Mixer), the mixer shows (meters run), its activity icon goes");
             ShowDock("Inspector"); await Settle();
             Check(Shows(InspectorView) && !Shows(MixerView), "right tabs: Effect Controls again, the mixer hidden");
 

@@ -69,7 +69,9 @@ public partial class MainWindow
             Key(System.Windows.Input.Key.V, ModifierKeys.Control);
             Check(ed.Clips.Count == before + 2 && Editor.CanPaste, "Ctrl+C, Ctrl+V at the end: the clip and its sound pasted");
             var edit = MenuItems("Edit");
-            Check(edit.Any(m => m.StartsWith("Undo Paste|Ctrl+Z")) && edit.Any(m => m == "Paste Attributes…|Ctrl+Alt+V"), "the Edit menu: “Undo Paste”, Paste Attributes… (Ctrl+Alt+V)");
+            Check(edit.Any(m => m.StartsWith("Undo Paste|Ctrl+Z")) && edit.Any(m => m == "Paste Attributes…|Ctrl+Alt+V")
+                  && edit.Any(m => m == "Trim In Point by 1 Frame|Ctrl+Shift+,"),
+                  "the Edit menu: “Undo Paste”, Paste Attributes… (Ctrl+Alt+V), Trim In Point by 1 Frame (Ctrl+Shift+,)");
             var vs = ed.Clips.Where(c => c.Kind == ClipKind.Video).Take(2).ToList();
             ed.SetSelection(vs);
             Key(System.Windows.Input.Key.G, ModifierKeys.Control);
@@ -93,6 +95,12 @@ public partial class MainWindow
                   "clicking the row above: the delete is undone, its row stays (dimmed: it can be redone)");
             histList.SelectedIndex = undoN; await Settle();
             Check(ed.Clips.Count == clipsNow, "clicking the last row again: redone");
+            ShowDock("Inspector");
+
+            // ---------- Markers list ----------
+            ed.AddMarker(1, "Intro");
+            ShowDock("Markers"); await Settle(400);
+            Check(Shows(MarkersView) && markList.Items.Count >= 1, $"the Markers panel: {markList.Items.Count} row(s)");
             ShowDock("Inspector");
 
             // ---------- zoom ----------

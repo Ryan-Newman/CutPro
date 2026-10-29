@@ -16,6 +16,10 @@ public sealed class LookFx
     public double GlowThreshold { get; set; } = 60;
     /// <summary>Film grain on brightness, 0…100 (changes every frame).</summary>
     public double Grain { get; set; }
+    /// <summary>VHS: chroma smear, scanlines, a little desaturation, 0…100.</summary>
+    public double Vhs { get; set; }
+    /// <summary>Glitch: RGB split and a sliding slice, 0…100.</summary>
+    public double Glitch { get; set; }
     public LookFx Clone() => (LookFx)MemberwiseClone();
 }
 
@@ -34,16 +38,16 @@ public sealed class DropShadow
 }
 
 /// <summary>
-/// Look effects as one ffmpeg graph after the drawn look (sharpen → glow → grain), run by the preview's decoder and by the export after
-/// scale, like the cartoon looks — so both look the same (grain is random: its pattern differs, its strength doesn't). Sizes follow the
-/// frame height. Drop shadows are composited instead (preview: a blurred copy of the layer's alpha under it; export: the same from the
-/// clip's alpha with gblur).
+/// Look effects as one ffmpeg graph after the drawn look (sharpen → glow → grain → VHS → glitch), run by the preview's decoder and by the
+/// export after scale, like the cartoon looks — so both look the same (grain is random: its pattern differs, its strength doesn't). Sizes
+/// follow the frame height. Drop shadows are composited instead (preview: a blurred copy of the layer's alpha under it; export: the same
+/// from the clip's alpha with gblur).
 /// </summary>
 public static class Looks
 {
     static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
-    public static bool Active(LookFx? l) => l != null && (l.Sharpen > 0.5 || l.Glow > 0.5 || l.Grain > 0.5);
-    public static string Sig(LookFx? l) => !Active(l) ? "" : FormattableString.Invariant($"{l!.Sharpen}|{l.Glow}|{l.GlowRadius}|{l.GlowThreshold}|{l.Grain}");
+    public static bool Active(LookFx? l) => l != null && (l.Sharpen > 0.5 || l.Glow > 0.5 || l.Grain > 0.5 || l.Vhs > 0.5 || l.Glitch > 0.5);
+    public static string Sig(LookFx? l) => !Active(l) ? "" : FormattableString.Invariant($"{l!.Sharpen}|{l.Glow}|{l.GlowRadius}|{l.GlowThreshold}|{l.Grain}|{l.Vhs}|{l.Glitch}");
 
     public static string Graph(LookFx l, int height, string tag = "")
     {
@@ -61,6 +65,16 @@ public static class Looks
             g.Add($"format=gbrp,split[lg0{tag}][lg1{tag}];[lg1{tag}]lutrgb=r={lift}:g={lift}:b={lift},gblur=sigma={F(sigma)}[lg2{tag}];[lg0{tag}][lg2{tag}]blend=all_mode=screen:all_opacity={F(l.Glow / 100)}");
         }
         if (l.Grain > 0.5) g.Add($"format=yuv444p,noise=c0s={F(l.Grain / 100 * 40)}:c0f=t+u");
+        if (l.Vhs > 0.5)
+        {
+            double a = l.Vhs / 100, sat = 1 - a * 0.28, con = 1 + a * 0.08; int smear = Math.Max(1, (int)Math.Round(a * 8 * k));
+            g.Add($"format=yuv444p,eq=saturation={F(sat)}:contrast={F(con)},geq=lum='lum(X,Y)*(1-{F(a * 0.16)}*mod(Y,2))':cb='cb(X+{smear},Y)':cr='cr(X-{smear},Y)'");
+        }
+        if (l.Glitch > 0.5)
+        {
+            double a = l.Glitch / 100; int split = Math.Max(1, (int)Math.Round(a * 10 * k)), slice = Math.Max(4, (int)Math.Round(a * 18 * k));
+            g.Add($"format=gbrp,rgbashift=rh={split}:bh=-{split},format=yuv444p,geq=lum='lum(X+if(between(Y,H/3,H/3+H/10),{slice},0),Y)':cb='cb(X,Y)':cr='cr(X,Y)'");
+        }
         return string.Join(",", g);
     }
 

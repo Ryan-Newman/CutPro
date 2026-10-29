@@ -160,32 +160,34 @@ public partial class MainWindow
             ed.Edit(() =>
             {
                 foreach (var x in targets)
-                    x.Distort = i == 0 ? null : new Distort
+                {
+                    if (i == 0) { x.Distort = null; if (x.Anim != null) { foreach (var p in Distorts.TwirlProps.Concat(Distorts.WaveProps)) x.Anim.Remove(p); Anim.Prune(x); } }
+                    else x.Distort = new Distort
                     {
                         Kind = (DistortKind)(i - 1),
                         Amount = (DistortKind)(i - 1) switch { DistortKind.Twirl => 180, DistortKind.Wave => 3, DistortKind.Spherize => 50, _ => 0 },
                     };
+                }
             }, "Distort");
             BuildInspector();
         };
         Row(body, "Effect", kinds);
         if (c.Distort is not { } d) return;
-        void Set(Action<Distort> f) { foreach (var x in targets) if (x.Distort != null) f(x.Distort); Pv.InvalidateVisual(); }
         switch (d.Kind)
         {
             case DistortKind.Twirl:
-                Slider("Angle (°)", -720, 720, 1, d.Amount, v => Set(x => x.Amount = v), body);
-                Slider("Radius %", 1, 200, 1, d.Radius, v => Set(x => x.Radius = v), body);
+                PropRow(c, AnimProp.DistAmount, body);
+                PropRow(c, AnimProp.DistRadius, body);
                 break;
             case DistortKind.Spherize:
-                Slider("Amount", -90, 100, 1, d.Amount, v => Set(x => x.Amount = v), body);
-                Slider("Radius %", 1, 200, 1, d.Radius, v => Set(x => x.Radius = v), body);
+                PropRow(c, AnimProp.DistAmount, body);
+                PropRow(c, AnimProp.DistRadius, body);
                 break;
             case DistortKind.Wave:
-                Slider("Height %", 0, 20, 0.1, d.Amount, v => Set(x => x.Amount = v), body);
-                Slider("Length %", 1, 200, 0.5, d.Wavelength, v => Set(x => x.Wavelength = v), body);
-                Slider("Direction (°)", 0, 360, 1, d.Direction, v => Set(x => x.Direction = v), body);
-                Slider("Speed (/s)", -5, 5, 0.05, d.Speed, v => Set(x => x.Speed = v), body);
+                PropRow(c, AnimProp.DistAmount, body);
+                PropRow(c, AnimProp.DistWave, body);
+                PropRow(c, AnimProp.DistDir, body);
+                PropRow(c, AnimProp.DistSpeed, body);
                 break;
             default:
                 var reset = new Button { Content = "Reset the mesh", Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 4) };
@@ -196,8 +198,8 @@ public partial class MainWindow
         }
         if (d.Kind != DistortKind.Mesh)
         {
-            Slider("Centre X %", -50, 50, 0.5, d.CenterX, v => Set(x => x.CenterX = v), body);
-            Slider("Centre Y %", -50, 50, 0.5, d.CenterY, v => Set(x => x.CenterY = v), body);
+            PropRow(c, AnimProp.DistCX, body);
+            PropRow(c, AnimProp.DistCY, body);
         }
         if (Distorts.Shader(d.Kind) == null)
             body.Children.Add(new TextBlock { Text = "This PC can't distort in the preview with a shader (" + (Distorts.CompileError ?? "no shader compiler") + "): the preview's decoder does it (slower).", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
@@ -313,6 +315,8 @@ public partial class MainWindow
         Slider("Glow size", 2, 60, 1, l.GlowRadius, v => Later(x => x.GlowRadius = v), body);
         Slider("Glow from %", 0, 95, 1, l.GlowThreshold, v => Later(x => x.GlowThreshold = v), body);
         Slider("Film grain", 0, 100, 1, l.Grain, v => Later(x => x.Grain = v), body);
+        Slider("VHS", 0, 100, 1, l.Vhs, v => Later(x => x.Vhs = v), body);
+        Slider("Glitch", 0, 100, 1, l.Glitch, v => Later(x => x.Glitch = v), body);
     }
 
     /// <summary>Drop shadow under the clip's picture (its outline: crop, key and masks included).</summary>

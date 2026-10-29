@@ -166,7 +166,8 @@ public static class Exporter
     internal static bool GpuBreak;
 
     /// <summary>A file decoded on the GPU (NVIDIA: the input has -hwaccel_output_format cuda), scaled there to the clip's size with the CPU path's
-    /// bicubic. <paramref name="download"/> false keeps frames on the GPU for <c>overlay_cuda</c> (plain 8-bit SDR cuts that fill the frame).
+    /// bicubic. <paramref name="download"/> false keeps frames on the GPU for <c>overlay_cuda</c> (plain 8-bit SDR cuts; picture-in-picture is
+    /// baked into each underlay's own scale_cuda, then the slice is downloaded — a smaller layer on an already-composited CUDA stream shifts the frames underneath).
     /// Otherwise they come down as yuv420p / p010; hwdownload drops colour tags (ffmpeg 7.1+ then treats the frames as BT.601 and the rest of
     /// the graph shifts) — they are put back here, the way <see cref="Remap.Tag709"/> does.</summary>
     internal static string GpuChain(MediaItem m, int w, int h, bool download = true)
@@ -242,9 +243,18 @@ public static class Exporter
             args.AddRange(new[] { "-i", m.Path });
             inputIndex[c.Id] = inputs; return inputs++;
         }
+        int AddGpu(MediaItem m, double ss, double take)
+        {   // a second GPU read of a file (picture-in-picture baked into an underlay's own scale_cuda for one time slice)
+            args.AddRange(new[] { "-hwaccel", "cuda", "-hwaccel_output_format", "cuda" });
+            if (ss > 0) args.AddRange(new[] { "-ss", F(ss) });
+            if (take > 0) args.AddRange(new[] { "-t", F(take) });
+            args.AddRange(new[] { "-i", m.Path });
+            return inputs++;
+        }
         int AddMediaInput(MediaItem m) { args.AddRange(new[] { "-i", m.Path }); return inputs++; }   // (sound of a video clip whose picture is rendered)
 
         string cur = "b0";
+        bool cudaOut = false;   // the picture is still on the GPU (overlay_cuda) and NVENC will take it
         // transitions: clips extended over them (same ids), windows per track
         var plan = Transitions.Compute(ed);
         var xclips = Transitions.Extended(ed.Clips, plan);
@@ -466,6 +476,58 @@ public static class Exporter
                 sb.AppendLine($"[{b}h][{b}xa]overlay=format=gbrp,format={PA},tpad=start={k0}:start_mode=add:color=black@0[{b}r]");
                 sb.AppendLine($"[{b}m][{b}r]overlay=eof_action=pass{OV}:enable='between(n,{k0},{k1 - 1})'[{next}]");
             }
+            string FlipCuda(Clip c) => (c.FlipH ? ",transpose_cuda=dir=hflip" : "") + (c.FlipV ? ",transpose_cuda=dir=vflip" : "");
+            // picture-in-picture cannot overlay_cuda onto an already-composited CUDA stream (that shifts the frames underneath). Each smaller
+            // GPU clip that sits entirely on full-frame GPU cuts is baked into those cuts: overlay_cuda of the smaller layer onto that cut's
+            // own scale_cuda (seeked to the overlap, both streams from t = 0), then the slice is downloaded and joined on the CPU. Two PiPs
+            // overlapping the same stretch stay on the CPU (a second overlay_cuda onto overlay_cuda output has the same framesync hole).
+            var bakedPip = new HashSet<string>();
+            var bakeAt = new Dictionary<string, List<(Clip pip, MediaItem pm, int ow, int oh, int cx, int cy, double a, double b)>>();
+            if (gpu && GpuScale && !alpha && !deep && plan.Wins.Count == 0)
+            {
+                var lays = new List<(Clip c, MediaItem m, int ow, int oh, int cx, int cy, bool fill)>();
+                foreach (var c in vclips)
+                {
+                    if (c.Kind != ClipKind.Video) continue;
+                    var m = ed.MediaOf(c); if (m == null || m.Offline || m.Seq != null) continue;
+                    if (LayerPlan.Needed(c) || Transitions.Moves(plan, c)) continue;
+                    var (ow, oh) = ClipSize(m, c, S);
+                    bool on = m.GpuScaleOk && m.Rotation % 360 == 0 && !BlurBackdrop(m, c) && (ow < m.Width || oh < m.Height)
+                              && (m.Hdr != null || m.PlayDecoder is Decoder.Cuda or Decoder.CudaScale);
+                    double pre = Math.Max(0, -c.In), post = m.Duration > 0 ? Math.Max(0, c.In + c.Dur - m.Duration) : 0;
+                    var (cpx, cpy, cpw, cph, _) = Editor.Placement(m, c, c.Start);
+                    double cx = 2 * Math.Round((cpx * S + (cpw * S - ow) / 2) / 2), cy = 2 * Math.Round((cpy * S + (cph * S - oh) / 2) / 2);
+                    if (!on || pre > 0 || post > 0 || m.Hdr != null || m.PixFmt.Contains("10") || m.PixFmt.Contains("12") || m.PixFmt.Contains("16") || m.PixFmt.Contains("444")
+                        || Keyer.Active(c.Key) || Warp.Active(c) || Crop.Applied(c) || Looks.InDecoder(c) || Grade.For(c.Grade) != null
+                        || c.Grade is { HasVignette: true } || MaskExport.Exported(c).Count != 0 || c.Blend != BlendMode.Normal || c.Mask != MaskMode.None
+                        || c.Shadow != null || c.Blur > 0.05 || c.FadeIn > 0 || c.FadeOut > 0 || c.Opacity < 100 || c.TransIn != null || c.TransOut != null
+                        || cx >= W || cy >= H || cx + ow <= 0 || cy + oh <= 0) continue;
+                    bool fill = cx <= 0 && cy <= 0 && cx + ow >= W && cy + oh >= H;
+                    lays.Add((c, m, ow, oh, (int)cx, (int)cy, fill));
+                }
+                var fills = lays.Where(x => x.fill).ToList();
+                foreach (var p in lays.Where(x => !x.fill))
+                {
+                    var pieces = new List<(Clip u, double a, double b)>();
+                    double t = p.c.Start, end = p.c.End, fr = 1 / TimeUtil.Fps;
+                    foreach (var u in fills.Where(u => u.c.Track > p.c.Track).OrderBy(u => u.c.Start))
+                    {
+                        double a = Math.Max(p.c.Start, u.c.Start), b = Math.Min(p.c.End, u.c.End);
+                        if (b - a < fr) continue;
+                        if (a > t + fr) break;
+                        pieces.Add((u.c, a, b)); t = b;
+                    }
+                    if (pieces.Count == 0 || t < end - fr) continue;
+                    bool clash = pieces.Any(pc => bakeAt.TryGetValue(pc.u.Id, out var list) && list.Any(x => x.a < pc.b - fr && x.b > pc.a + fr));
+                    if (clash) continue;
+                    bakedPip.Add(p.c.Id);
+                    foreach (var (u, a, b) in pieces)
+                    {
+                        if (!bakeAt.TryGetValue(u.Id, out var list)) bakeAt[u.Id] = list = new();
+                        list.Add((p.c, p.m, p.ow, p.oh, p.cx, p.cy, a, b));
+                    }
+                }
+            }
             foreach (var c in vclips)
             {
                 if (c.Track != curTrack)
@@ -569,6 +631,7 @@ public static class Exporter
                 }
                 else
                 {
+                    if (bakedPip.Contains(c.Id)) continue;   // picture-in-picture already baked into the cuts underneath
                     var m = ed.MediaOf(c); if (m == null || m.Offline) continue;
                     Nest.Picture? np = null;
                     if (m.Seq != null && (c.Kind != ClipKind.Video || nests == null || !nests.TryGetValue(c.Id, out np))) continue;   // (a nested sequence with nothing to show)
@@ -591,18 +654,58 @@ public static class Exporter
                     double pre = still || remapped ? 0 : Math.Max(0, -cin), post = c.Kind == ClipKind.Video && m.Duration > 0 && !remapped ? Math.Max(0, c.In + c.Dur - m.Duration) : 0;
                     var (cpx, cpy, cpw, cph, _) = Editor.Placement(m, c, c.Start);
                     double cx = 2 * Math.Round((cpx * S + (cpw * S - ow) / 2) / 2), cy = 2 * Math.Round((cpy * S + (cph * S - oh) / 2) / 2);
-                    // keep the scaled frames on the GPU and overlay_cuda: plain 8-bit SDR cuts that fill the frame, no transitions / handles /
-                    // effects (those need the CPU graph). overlay_cuda of a smaller layer (picture-in-picture) shifts the frames underneath —
-                    // those download and overlay on the CPU. 10-bit composites stay on the CPU (overlay_cuda is nv12).
+                    // keep the scaled frames on the GPU and overlay_cuda: plain 8-bit SDR, no transitions / handles / effects (those need
+                    // the CPU graph). A smaller layer (picture-in-picture) is baked into the full-frame cuts underneath (see bakeAt) — overlay_cuda
+                    // of a smaller size onto an already-composited CUDA stream shifts the frames underneath. 10-bit stays on the CPU (nv12).
                     bool cudaOv = onGpu && lp == null && pre <= 0 && post <= 0 && !alpha && !deep && plan.Wins.Count == 0 && m.Hdr == null
                                   && !m.PixFmt.Contains("10") && !m.PixFmt.Contains("12") && !m.PixFmt.Contains("16") && !m.PixFmt.Contains("444")
                                   && !Keyer.Active(c.Key) && !Warp.Active(c) && !Crop.Applied(c) && !Looks.InDecoder(c) && Grade.For(c.Grade) == null
-                                  && c.Grade is not { HasVignette: true } && !c.FlipH && !c.FlipV && MaskExport.Exported(c).Count == 0
+                                  && c.Grade is not { HasVignette: true } && MaskExport.Exported(c).Count == 0
                                   && c.Blend == BlendMode.Normal && c.Mask == MaskMode.None && c.Shadow == null && c.Blur <= 0.05
                                   && c.FadeIn <= 0 && c.FadeOut <= 0 && c.Opacity >= 100 && c.TransIn == null && c.TransOut == null && !BlurBackdrop(m, c)
                                   && cx <= 0 && cy <= 0 && cx + ow >= W && cy + oh >= H;
+                    bool cudaSeg = cudaOv && bakeAt.Count > 0;
+                    if (cudaSeg)
+                    {
+                        // each time slice is its own GPU graph (scale_cuda, optional overlay_cuda of a PiP that starts with it) then a download;
+                        // joining those slices on the CPU avoids overlay_cuda of an overlay_cuda output onto the running composite
+                        bse = DownloadIfCuda(bse);
+                        var bakes = bakeAt.GetValueOrDefault(c.Id) ?? new();
+                        var cuts = new SortedSet<double> { c.Start, c.End };
+                        foreach (var b in bakes) { cuts.Add(b.a); cuts.Add(b.b); }
+                        double fr = 1 / TimeUtil.Fps;
+                        string pts = $"setpts=N/(({fps})*TB)";
+                        string dl = "hwdownload,format=nv12,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=" + cfmt;
+                        string last = bse;
+                        var times = cuts.Where(t => t >= c.Start - fr / 2 && t <= c.End + fr / 2).ToList();
+                        for (int s = 0; s < times.Count - 1; s++)
+                        {
+                            double a0 = times[s], a1 = times[s + 1];
+                            if (a1 - a0 < fr * 0.5) continue;
+                            double dur = a1 - a0;
+                            int k = gn++;
+                            int ui = AddGpu(m, Math.Max(0, cin + (a0 - c.Start)), dur);
+                            sb.AppendLine($"[{ui}:v]{GpuChain(m, ow, oh, download: false)}{FlipCuda(c)},{pts}[gu{k}]");
+                            var cover = bakes.Where(b => b.a <= a0 + fr / 2 && b.b >= a1 - fr / 2).ToList();
+                            string pic = $"gu{k}";
+                            if (cover.Count > 0)
+                            {
+                                var b = cover[0];
+                                int pi = AddGpu(b.pm, Math.Max(0, b.pip.In + (a0 - b.pip.Start)), dur);
+                                sb.AppendLine($"[{pi}:v]{GpuChain(b.pm, b.ow, b.oh, download: false)}{FlipCuda(b.pip)},{pts}[gp{k}]");
+                                sb.AppendLine($"[gu{k}][gp{k}]overlay_cuda=x={b.cx}:y={b.cy}:eof_action=pass:ts_sync_mode=nearest,{pts}[gb{k}]");
+                                pic = $"gb{k}";
+                            }
+                            sb.AppendLine($"[{pic}]{dl},setpts=PTS+round({F(a0)}/TB)[gd{k}]");
+                            string nxt = $"b{++bn}";
+                            sb.AppendLine($"[{last}][gd{k}]overlay=0:0:eof_action=pass{OV}[{nxt}]");
+                            last = nxt;
+                        }
+                        Done(c, last);
+                        continue;
+                    }
                     int i = AddInput(c, m, onGpu, cudaOv ? Math.Max(0, cin) : 0, cudaOv ? c.Dur : 0);
-                    string src = cudaOv ? $"[{i}:v]{GpuChain(m, ow, oh, download: false)},setpts=PTS-STARTPTS"
+                    string src = cudaOv ? $"[{i}:v]{GpuChain(m, ow, oh, download: false)}{FlipCuda(c)},setpts=PTS-STARTPTS"
                                : $"[{i}:v]trim=start={F(still || remapped ? 0 : Math.Max(0, cin))}:duration={F(c.Dur - pre)},setpts=PTS-STARTPTS"
                                + (pre > 0 || post > 0 ? $",tpad=start_mode=clone:start_duration={F(pre)}:stop_mode=clone:stop_duration={F(post + 1 / TimeUtil.Fps)},trim=duration={F(c.Dur)}" : "");
                     if (onGpu && !cudaOv) src = src.Replace($"[{i}:v]", $"[{i}:v]{GpuChain(m, ow, oh)},");   // (before the trim: tpad and the rest see ordinary frames)
@@ -853,7 +956,11 @@ public static class Exporter
                 Done(c, next);
             }
             foreach (var l in lowerOf.Values.Where(l => !usedLower.Contains(l))) sb.AppendLine($"[{l}]nullsink");   // (incoming clip skipped)
-            cur = DownloadIfCuda(cur);
+            var (rt0, rt1) = Range(ed, o);
+            // NVENC can encode CUDA nv12: skip the download when the graph never left the GPU and nothing else needs CPU frames
+            bool stayNvenc = cudaBse && o.Encoder == "nvenc" && !deep && !alpha && rt0 <= 0 && rt1 >= total - 1e-6;
+            if (!stayNvenc) cur = DownloadIfCuda(cur);
+            else cudaOut = true;
         }
         string vout = cur;
 
@@ -1006,8 +1113,13 @@ public static class Exporter
             string lim = o.Normalize && o.NormLimit ? $",aresample={AR * 4},alimiter=limit={G(Math.Pow(10, (o.TruePeak - 0.3) / 20))}:attack=1:release=50:level=0:latency=1,aresample={AR}" : "";
             sb.AppendLine($"[{aout}]anullsink"); sb.AppendLine($"[{si}:a]anull{lim}[a51]"); aout = "a51";   // (the stereo mix isn't used)
         }
-        if (alpha && !o.AudioOnly) { sb.AppendLine($"[{vout}]format={PA}[va]"); vout = "va"; }
-        else if (full && subOut && outFmt is { } pf)
+        if (o.WantsHdr && !o.AudioOnly)
+        {   // Rec.709 composite → HLG / PQ (SDR white = 203 cd/m²); the encoder's pixel format is named so zscale ends there
+            string pix = outFmt is { Length: > 0 } hf ? hf : "yuv420p10le";
+            sb.AppendLine($"[{vout}]{Hdr.Encode(o.Hdr, pix)}[vh]"); vout = "vh";
+        }
+        else if (alpha && !o.AudioOnly) { sb.AppendLine($"[{vout}]format={PA}[va]"); vout = "va"; }
+        else if (!cudaOut && full && subOut && outFmt is { } pf)
         {   // 4:4:4 → the encoder's subsampled format by area averaging: a 4:2:0 source's repeated chroma comes back exactly
             sb.AppendLine($"[{vout}]scale=flags=area,format={pf}[vp]"); vout = "vp";
         }
@@ -1028,6 +1140,11 @@ public static class Exporter
         if (o.Audio != "none") args.AddRange(new[] { "-map", $"[{aout}]" });
         args.AddRange(new[] { "-t", F(t1 - t0) });
         args.AddRange(o.OutputArgs());
+        if (cudaOut)
+        {
+            int pi = args.IndexOf("-pix_fmt");
+            if (pi >= 0 && pi + 1 < args.Count) args[pi + 1] = "nv12";   // (NVENC reads the CUDA overlay)
+        }
         args.Add(output);
         var chains = sb.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return (args, string.Join(";\n", chains), temps);

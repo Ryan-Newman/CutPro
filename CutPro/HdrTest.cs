@@ -268,8 +268,10 @@ public static class HdrTest
         var o10 = new ExportSettings { Video = "hevc", TenBit = true, Quality = 4, Audio = "none" };
         Check(o10.Deep && o10.OutPixFmt == "yuv420p10le" && !new ExportSettings { Video = "h264", TenBit = true }.Deep && new ExportSettings { Video = "h264", TenBit = true }.OutPixFmt == "yuv420p"
               && new ExportSettings { Video = "av1", TenBit = true }.OutPixFmt == "yuv420p10le" && new ExportSettings { Video = "vp9", TenBit = true }.OutPixFmt == "yuv420p10le"
-              && new ExportSettings { Video = "hevc", Encoder = "nvenc", TenBit = true }.OutPixFmt == "p010le" && new ExportSettings { Video = "prores4444", TenBit = true }.Deep,
-              "10-bit: HEVC Main 10 / AV1 / VP9 profile 2 (p010 on GPU encoders), ProRes gets the 10-bit composite; H.264 stays 8-bit");
+              && new ExportSettings { Video = "hevc", Encoder = "nvenc", TenBit = true }.OutPixFmt == "p010le" && new ExportSettings { Video = "prores4444", TenBit = true }.Deep
+              && new ExportSettings { Video = "hevc", Hdr = "hlg" }.Deep && new ExportSettings { Video = "hevc", Hdr = "hlg" }.WantsHdr
+              && new ExportSettings { Video = "dnxhr_hq" }.VideoEncoder == "dnxhd" && new ExportSettings { Video = "dnxhr_hqx", TenBit = true }.OutPixFmt == "yuv422p10le",
+              "10-bit: HEVC Main 10 / AV1 / VP9 profile 2 (p010 on GPU encoders), ProRes gets the 10-bit composite; H.264 stays 8-bit; HLG forces 10-bit; DNxHR HQ / HQX");
         {
             var eg = new Editor(); eg.Media.Add(mGrad);
             eg.Clips.Add(new Clip { MediaId = mGrad.Id, Kind = ClipKind.Video, Track = Tracks.V1, Start = 0, In = 0, Dur = 2, NoAudio = true });
@@ -349,6 +351,37 @@ public static class HdrTest
                   $"smart render, 10-bit HEVC into a 10-bit export: “{os.SmartReport}”; a copied frame is the file's own bit for bit, the title's re-encoded ({info.Replace(',', ' ')})" + (es1 is { } x1 ? ": " + x1 : ""));
             Check(es2 == null && es3 == null && o8.SmartReport?.Contains("yuv420p10le") == true && oh.SmartReport?.Contains("HDR") == true,
                   $"nothing is copied into an 8-bit export (“{o8.SmartReport}”) or from HDR footage (“{oh.SmartReport}”)");
+        }
+
+        // ---------- HDR output (HLG / PQ files) ----------
+        {
+            var eo = new Editor(); eo.Media.Add(mSdr);
+            eo.Clips.Add(new Clip { MediaId = mSdr.Id, Kind = ClipKind.Video, Track = Tracks.V1, Start = 0, In = 0, Dur = 2, NoAudio = true });
+            var oHlg = new ExportSettings { Video = "hevc", Hdr = "hlg", Quality = 6, Audio = "none" };
+            var oPq = new ExportSettings { Video = "hevc", Hdr = "pq", Quality = 6, Audio = "none" };
+            Check(oHlg.Deep && oHlg.WantsHdr && !SmartRender.Applies(new ExportSettings { Video = "hevc", Hdr = "hlg", Smart = true })
+                  && Hdr.Encode("hlg", "yuv420p10le").Contains("arib-std-b67") && Hdr.Encode("pq", "yuv420p10le").Contains("smpte2084"),
+                  "HDR output settings: 10-bit, smart render off, inverse-map chain names the transfer");
+            var fHlgOut = Path.Combine(dir, "out_hlg.mp4"); var fPqOut = Path.Combine(dir, "out_pq.mp4");
+            var eH = await Export(eo, fHlgOut, oHlg, Path.Combine(dir, "t_hlgo"));
+            var eP = await Export(eo, fPqOut, oPq, Path.Combine(dir, "t_pqo"));
+            if (eH != null || eP != null) Check(false, "HDR output export: " + (eH ?? eP));
+            else
+            {
+                string Tag(string f) => Out(fp, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_primaries,color_transfer,color_space,pix_fmt,profile", "-of", "csv=p=0", f);
+                string th = Tag(fHlgOut), tp = Tag(fPqOut);
+                Check(th.Contains("bt2020") && th.Contains("arib-std-b67") && th.Contains("yuv420p10le"),
+                      $"HLG export tagged bt2020 / arib-std-b67 10-bit ({th.Replace(',', ' ')})");
+                Check(tp.Contains("bt2020") && tp.Contains("smpte2084") && tp.Contains("yuv420p10le"),
+                      $"PQ export tagged bt2020 / smpte2084 10-bit ({tp.Replace(',', ' ')})");
+                // tone-map the HDR file back (Mobius): closer to the Rec.709 timeline than the unmapped signal
+                var src = Raw(sdr, 0.5, "", W, H);
+                string tmH = Hdr.Chain("hlg", 1000), tmP = Hdr.Chain("pq", 1000);
+                double backH = Psnr(src, Raw(fHlgOut, 0.5, tmH, W, H)), asisH = Psnr(src, Raw(fHlgOut, 0.5, "", W, H));
+                double backP = Psnr(src, Raw(fPqOut, 0.5, tmP, W, H)), asisP = Psnr(src, Raw(fPqOut, 0.5, "", W, H));
+                Check(backH >= 20 && backH > asisH + 4 && backP >= 20 && backP > asisP + 4,
+                      $"HDR output tone-mapped back to SDR ≈ the timeline ({backH:0.0} dB HLG vs as-is {asisH:0.0}; {backP:0.0} dB PQ vs as-is {asisP:0.0})");
+            }
         }
     }
 }

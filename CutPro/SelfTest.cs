@@ -316,6 +316,7 @@ public static class SelfTest
         foreach (var f in ngTemps) try { File.Delete(f); } catch { }
         Check("export graph: shape transition (alphamerge through a mask video), look effects, drop shadow, corner pin, audio effects file",
               ng.Contains("concat=n=") && ng.Contains("unsharp=") && ng.Contains("lutrgb=r=0:g=0:b=0") && ng.Contains("perspective=") && ngTemps.Any(t => t.Contains("cutpro_tmask_")));
+        Check("VHS / glitch look graphs", Looks.Graph(new LookFx { Vhs = 60 }, 720).Contains("geq=lum=") && Looks.Graph(new LookFx { Glitch = 50 }, 720).Contains("rgbashift="));
         var nm = new Clip { Kind = ClipKind.Video, Mask = MaskMode.Reveal };
         Check("a track matte takes no transitions and a pinned clip covers the frame layer",
               !Transitions.Compute(new[] { new Clip { Kind = ClipKind.Video, Start = 0, Dur = 2 }, new Clip { Kind = ClipKind.Video, Start = 2, Dur = 2, Mask = MaskMode.Reveal, TransIn = new Transition() } }).Wins.Any()
@@ -398,6 +399,14 @@ public static class SelfTest
                       && lg2.Contains(",sendcmd=f=cutpro_lens_") && cmds.Contains("lenscorrection@lct k1 ") && cmds.Split('\n').Length > 25
                       && lg3.IndexOf("lenscorrection", StringComparison.Ordinal) < lg3.IndexOf("perspective", StringComparison.Ordinal) && Math.Abs(Lens.At(lc, 0.5).k1) < 0.01
                       && Anim.PropsOf(lc).Contains(AnimProp.LensCurve) && !Anim.PropsOf(new Clip { Kind = ClipKind.Video }).Contains(AnimProp.LensCurve));
+            }
+            {
+                var dc = new Clip { Kind = ClipKind.Video, Dur = 2, Distort = new Distort { Kind = DistortKind.Twirl, Amount = 0 } };
+                Anim.SetKey(dc, AnimProp.DistAmount, 0, 0); Anim.SetKey(dc, AnimProp.DistAmount, 2, 180);
+                Check("distort: live keys on amount (90° at 1 s), lanes only with a twirl",
+                      Distorts.Animated(dc) && Math.Abs(Distorts.At(dc, 1).Amount - 90) < 1e-6
+                      && Anim.PropsOf(dc).Contains(AnimProp.DistAmount) && !Anim.PropsOf(new Clip { Kind = ClipKind.Video }).Contains(AnimProp.DistAmount)
+                      && Warp.Graph(dc, 640, 360, "t", null).Contains("geq="));
             }
             {
                 // tracks: the row of each track in a 5 + 3 layout, a clip staying with its track when tracks are added above it, undo

@@ -164,8 +164,8 @@ public partial class Editor
         double dur = made.Max(c => c.Dur);
         if (insert)
         {
-            CutClips(Clips.ToList(), t);
-            foreach (var c in Clips.Where(c => Editable(c) && c.Start >= t - Eps)) c.Start += dur;
+            CutClips(Clips.Where(c => Editable(c) && SyncLocked(c.Track)).ToList(), t);
+            foreach (var c in Clips.Where(c => Editable(c) && SyncLocked(c.Track) && c.Start >= t - Eps)) c.Start += dur;
         }
         else
             foreach (var x in made)

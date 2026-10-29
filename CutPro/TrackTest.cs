@@ -126,6 +126,33 @@ public static class TrackTest
                 Check(ins.Count == 1 && ins[0].Track == 2 && J(ed.Clips.Where(c => c.Track == 3).ToList()) == aBefore, "Insert with A1 locked: only the picture goes in, A1's clips neither cut nor moved");
             }
 
+            // ---------- 2b. sync lock + track targeting ----------
+            {
+                var ed = new Editor(); ed.Media.AddRange(new[] { mBg, mPat }); ed.Media.AddRange(tones);
+                Clip Add(int tr, double s, double d) { var c = new Clip { MediaId = mPat.Id, Kind = ClipKind.Video, Track = tr, Start = s, Dur = d, NoAudio = true }; ed.Clips.Add(c); return c; }
+                var v1 = Add(Tracks.V1, 0, 2); var v1b = Add(Tracks.V1, 3, 2);   // V1: 0–2, gap 2–3, 3–5
+                var v2 = Add(Tracks.V(2), 3, 2);                                 // V2: 3–5 (should follow a V1 ripple while sync-locked)
+                Check(ed.SyncLocked(Tracks.V1) && ed.SyncLocked(Tracks.V(2)) && ed.VideoTarget == 1 && ed.AudioTarget == 1,
+                      "new sequence: every track sync-locked, source patch V1 / A1");
+                ed.SelectGap(Tracks.V1, 2, 3); ed.DeleteSelection(true);
+                var after = ed.Clips.Where(c => c.Kind == ClipKind.Video).ToList();
+                Check(after.Any(c => c.Track == Tracks.V1 && Math.Abs(c.Start - 2) < 1e-6 && Math.Abs(c.Dur - 2) < 1e-6)
+                      && after.Any(c => c.Track == Tracks.V(2) && Math.Abs(c.Start - 2) < 1e-6), "ripple the V1 gap: V2 (sync-locked) moves with it");
+                ed.Undo();
+                ed.SetSyncLock(Tracks.V(2), false);
+                Check(!ed.SyncLocked(Tracks.V(2)), "sync lock off on V2");
+                ed.SelectGap(Tracks.V1, 2, 3); ed.DeleteSelection(true);
+                after = ed.Clips.Where(c => c.Kind == ClipKind.Video).ToList();
+                Check(after.Any(c => c.Track == Tracks.V1 && Math.Abs(c.Start - 2) < 1e-6 && Math.Abs(c.Dur - 2) < 1e-6)
+                      && after.Any(c => c.Track == Tracks.V(2) && Math.Abs(c.Start - 3) < 1e-6), "ripple the V1 gap with V2 sync lock off: V2 stays");
+                ed.VideoTarget = 2; ed.AudioTarget = 2;
+                Check(ed.VideoTarget == 2 && Tracks.V(ed.VideoTarget) == Tracks.V(2), "target V2: the source patch is V2");
+                var pf = new ProjectFile { Media = ed.Media, Sequences = ed.Sequences, Active = ed.Seq.Id };
+                var back = JsonSerializer.Deserialize<ProjectFile>(JsonSerializer.Serialize(pf))!;
+                var e2 = new Editor(); e2.UseSequences(back.AllSequences(), back.Active);
+                Check(!e2.SyncLocked(Tracks.V(2)) && e2.VideoTarget == 2 && e2.AudioTarget == 2, "the project file keeps sync lock off and the V2 / A2 targets");
+            }
+
             // ---------- 3. the project file ----------
             {
                 var ed = new Editor(); ed.Media.Add(mPat);

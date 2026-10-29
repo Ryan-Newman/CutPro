@@ -23,9 +23,10 @@ public partial class MainWindow
     SourceBar srcBar = null!; TextBlock srcTime = null!, srcDur = null!, srcHint = null!;
     Button srcPlayBtn = null!; ToggleButton srcV = null!, srcA = null!; ComboBox srcPick = null!;
     Grid srcStage = null!; Viewbox srcBox = null!;
-    /// <summary>Source patching: which video / audio track (number: 1 = V1 / A1) the source's parts go to — numbers, so they stay put when tracks
-    /// are added or removed (a number past the last track means the last one).</summary>
-    int srcVNum = 1, srcANum = 1;
+    /// <summary>Source patching: which video / audio track (number: 1 = V1 / A1) the source's parts go to — the sequence's
+    /// <see cref="Editor.VideoTarget"/> / <see cref="Editor.AudioTarget"/> (the timeline header's patch buttons set the same).</summary>
+    int srcVNum { get => ed.VideoTarget; set => ed.VideoTarget = value; }
+    int srcANum { get => ed.AudioTarget; set => ed.AudioTarget = value; }
     int SrcVRow => Tracks.V(Math.Clamp(srcVNum, 1, Tracks.Video));
     int SrcARow => Tracks.A(Math.Clamp(srcANum, 1, Tracks.Audio));
     bool srcPlaying, srcClock, srcFocus, srcPickBusy;
@@ -130,7 +131,7 @@ public partial class MainWindow
         srcBox = new Viewbox { Stretch = Stretch.Uniform, Child = srcStage, Margin = new Thickness(8, 0, 8, 0) };
         var stageHost = new Grid { Background = Brushes.Transparent };
         stageHost.Children.Add(srcBox);
-        srcHint = Txt("Double-click a clip in the Project panel to open it here.\nMark In (I) and Out (O), then Insert (,) or Overwrite (.) at the program playhead — or drag it onto the timeline.", 12, "B.Fg.Dim");
+        srcHint = Txt("Double-click a clip in the Project panel to open it here.\nMark In (I) and Out (O), then Insert (,) or Overwrite (.) at the program playhead — or drag it onto the timeline. Source In–Out plus sequence In–Out = Fit to Fill.", 12, "B.Fg.Dim");
         srcHint.TextWrapping = TextWrapping.Wrap; srcHint.TextAlignment = TextAlignment.Center; srcHint.Margin = new Thickness(24); srcHint.HorizontalAlignment = HorizontalAlignment.Center;
         stageHost.Children.Add(srcHint);
         stageHost.PreviewMouseLeftButtonDown += (_, e) => { srcDown = e.GetPosition(this); srcPress = srcItem != null; };

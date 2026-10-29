@@ -241,6 +241,9 @@ public static class FeatureTest
                       && Keymap.Gesture(Key.M, ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift) == "Ctrl+Alt+Shift+M" && Keymap.Gesture(Key.LeftShift, ModifierKeys.Shift) == null,
                       "gesture text: Ctrl+Shift+K, Shift+;, Ctrl+Alt+Shift+M; a modifier alone is none");
                 Check(Keymap.Find("Ctrl+K") == "edit.addEdit" && Keymap.Find("M") == "marker.add" && Keymap.Find("\\") == "tl.zoomSeq" && Keymap.Find("Backspace") == "edit.delete", "Premiere's defaults: Ctrl+K, M, \\, Backspace");
+                Check(Keymap.Find("Ctrl+Shift+,") == "edit.trimIn" && Keymap.Find("Ctrl+Shift+.") == "edit.trimOut"
+                      && Keymap.Find("Ctrl+Alt+Shift+,") == "edit.trimIn5" && Keymap.Find("Ctrl+Alt+Shift+.") == "edit.trimOut5",
+                      "Premiere's keyboard trim: Ctrl+Shift+, / . = 1 frame, Ctrl+Alt+Shift+, / . = 5 frames");
                 var dupes = Keymap.All.SelectMany(c => c.Defaults.Select(g => (g, c.Id))).GroupBy(x => x.g).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
                 Check(dupes.Count == 0, "no default gesture is used twice" + (dupes.Count > 0 ? ": " + string.Join(", ", dupes) : ""));
                 Keymap.Set("marker.add", new[] { "Ctrl+K" });

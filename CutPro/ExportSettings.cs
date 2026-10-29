@@ -9,7 +9,7 @@ public sealed class ExportSettings
 {
     public string Name { get; set; } = "Match sequence (H.264)";
     public string Container { get; set; } = "mp4";        // mp4 mov mkv webm | wav mp3 m4a (audio only)
-    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores prores4444 | with alpha: prores4444a vp9a qtrle png | none
+    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores prores4444 dnxhr_* | with alpha: prores4444a vp9a qtrle png | none
     public string Encoder { get; set; } = "software";     // software nvenc qsv amf
     public bool ConstantQuality { get; set; } = true;
     public int Quality { get; set; } = 18;                // CRF / CQ (lower = better)
@@ -37,9 +37,13 @@ public sealed class ExportSettings
     /// <summary>10-bit colour: the composite and the file keep 10 bits per channel (HEVC Main 10, AV1 10-bit, VP9 profile 2; ProRes is 10-bit
     /// already and gets the 10-bit composite) — smoother gradients from 10-bit and HDR footage. H.264 and the alpha codecs stay 8-bit.</summary>
     public bool TenBit { get; set; }
-    /// <summary>The export runs at 10 bits (<see cref="TenBit"/> with a codec that keeps them).</summary>
-    [System.Text.Json.Serialization.JsonIgnore] public bool Deep => TenBit && Supports10;
-    [System.Text.Json.Serialization.JsonIgnore] public bool Supports10 => Video is "hevc" or "av1" or "vp9" or "prores" or "prores4444";
+    /// <summary>HDR delivery: "" = Rec.709 SDR, "hlg" / "pq" = inverse-map the Rec.709 composite (SDR white = 203 cd/m²) and tag the file.</summary>
+    public string Hdr { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore] public bool WantsHdr => Hdr is "hlg" or "pq";
+    /// <summary>The export runs at 10 bits (<see cref="TenBit"/> or an HDR / 10-bit DNxHR file, with a codec that keeps them).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool Deep => (TenBit || WantsHdr) && Supports10;
+    [System.Text.Json.Serialization.JsonIgnore] public bool Supports10 => Video is "hevc" or "av1" or "vp9" or "prores" or "prores4444" or "dnxhr_hqx" or "dnxhr_444";
+    [System.Text.Json.Serialization.JsonIgnore] public bool IsDnx => Video.StartsWith("dnxhr", StringComparison.Ordinal);
     /// <summary>The sequence's chapter markers as the file's chapters (MP4 / MOV / MKV / M4A).</summary>
     public bool Chapters { get; set; } = true;
     /// <summary>Transparent background (a nested sequence's render: <see cref="Nest"/>): the composite keeps alpha, yuva444p FFV1 (yuva420p with 4:2:0).</summary>
@@ -98,6 +102,11 @@ public sealed class ExportSettings
         new ExportSettings { Name = "AV1 (web)", Video = "av1", Quality = 30, Container = "mp4", Note = "Needs an AV1-capable ffmpeg (libsvtav1 or NVENC AV1)" },
         new ExportSettings { Name = "ProRes 422 HQ master (.mov)", Video = "prores", Container = "mov", Audio = "pcm", Note = "Large files for further editing" },
         new ExportSettings { Name = "ProRes 4444 master (.mov)", Video = "prores4444", Container = "mov", Audio = "pcm", Note = "Full colour (4:4:4, 10-bit) for mastering and further editing; very large files" },
+        new ExportSettings { Name = "DNxHR HQ master (.mov)", Video = "dnxhr_hq", Container = "mov", Audio = "pcm", Note = "Avid DNxHR High Quality, 8-bit 4:2:2, for editorial interchange" },
+        new ExportSettings { Name = "DNxHR HQX 10-bit (.mov)", Video = "dnxhr_hqx", Container = "mov", Audio = "pcm", TenBit = true, Note = "Avid DNxHR HQX, 10-bit 4:2:2" },
+        new ExportSettings { Name = "DNxHR 444 (.mov)", Video = "dnxhr_444", Container = "mov", Audio = "pcm", TenBit = true, Note = "Avid DNxHR 444, 10-bit 4:4:4" },
+        new ExportSettings { Name = "HLG HDR (HEVC 10-bit)", Video = "hevc", TenBit = true, Hdr = "hlg", Quality = 18, Note = "Hybrid Log-Gamma for TVs and YouTube HDR; SDR white at 203 cd/m² (BT.2408)" },
+        new ExportSettings { Name = "HDR10 / PQ (HEVC 10-bit)", Video = "hevc", TenBit = true, Hdr = "pq", Quality = 18, Note = "HDR10 (PQ) with mastering metadata; SDR white at 203 cd/m² (BT.2408)" },
         new ExportSettings { Name = "WebM (VP9)", Video = "vp9", Container = "webm", Audio = "opus", Quality = 31 },
         new ExportSettings { Name = "ProRes 4444 with alpha (.mov)", Video = "prores4444a", Container = "mov", Audio = "pcm", Note = "Transparent where nothing is drawn — titles, lower thirds, overlays for other editors" },
         new ExportSettings { Name = "WebM VP9 with alpha", Video = "vp9a", Container = "webm", Audio = "opus", Quality = 31, Note = "Transparent video for the web and OBS" },
@@ -117,6 +126,7 @@ public sealed class ExportSettings
         ("h264", "qsv") => "h264_qsv", ("hevc", "qsv") => "hevc_qsv", ("av1", "qsv") => "av1_qsv",
         ("h264", "amf") => "h264_amf", ("hevc", "amf") => "hevc_amf", ("av1", "amf") => "av1_amf",
         ("hevc", _) => "libx265", ("av1", _) => "libsvtav1", ("vp9", _) or ("vp9a", _) => "libvpx-vp9", ("prores", _) or ("prores4444", _) or ("prores4444a", _) => "prores_ks", ("ffv1", _) => "ffv1",
+        ("dnxhr_lb", _) or ("dnxhr_sq", _) or ("dnxhr_hq", _) or ("dnxhr_hqx", _) or ("dnxhr_444", _) => "dnxhd",
         ("qtrle", _) => "qtrle", ("png", _) => "png",
         _ => "libx264",
     };
@@ -142,7 +152,9 @@ public sealed class ExportSettings
                     else a.AddRange(new[] { "-b:v", kbps, "-maxrate", max, "-bufsize", buf });
                     if (enc == "libx264") a.AddRange(new[] { "-profile:v", "high" });
                     if (enc == "libx265") a.AddRange(new[] { "-tag:v", "hvc1" });
-                    if (PartParams != null) a.AddRange(new[] { enc == "libx265" ? "-x265-params" : "-x264-params", PartParams });
+                    string xp = PartParams ?? "";
+                    if (enc == "libx265" && WantsHdr) xp = string.IsNullOrEmpty(xp) ? CutPro.Hdr.X265(Hdr) : CutPro.Hdr.X265(Hdr) + ":" + xp;
+                    if (xp != "") a.AddRange(new[] { enc == "libx265" ? "-x265-params" : "-x264-params", xp });
                     a.AddRange(new[] { "-pix_fmt", Deep ? "yuv420p10le" : "yuv420p" });            // (x265: Main 10 then)
                     break;
                 case "libsvtav1":
@@ -164,6 +176,10 @@ public sealed class ExportSettings
                              : Video == "prores4444" ? new[] { "-profile:v", "4", "-vendor", "apl0", "-pix_fmt", "yuv444p10le" }     // (4444: full chroma)
                                                      : new[] { "-profile:v", "3", "-vendor", "apl0", "-pix_fmt", "yuv422p10le" });
                     break;
+                case "dnxhd":
+                    a.AddRange(new[] { "-profile:v", Video is "dnxhr_lb" or "dnxhr_sq" or "dnxhr_hqx" or "dnxhr_444" ? Video : "dnxhr_hq",
+                                       "-pix_fmt", Video == "dnxhr_444" ? "yuv444p10le" : Video == "dnxhr_hqx" ? "yuv422p10le" : "yuv422p" });
+                    break;
                 case "ffv1":       // lossless, every frame a key frame (instant seeks), slices for threaded decoding
                     a.AddRange(new[] { "-level", "3", "-g", "1", "-slicecrc", "0", "-slices", OutH >= 480 ? "16" : "4", "-pix_fmt", Alpha ? (Full444 ? "yuva444p" : "yuva420p") : Full444 ? "yuv444p" : "yuv420p" });
                     break;
@@ -183,6 +199,7 @@ public sealed class ExportSettings
                     break;
             }
             a.AddRange(new[] { "-r", TimeUtil.Rate });
+            if (WantsHdr) a.AddRange(CutPro.Hdr.FileTags(Hdr));
         }
         switch (Audio)
         {
@@ -205,7 +222,10 @@ public sealed class ExportSettings
     {
         double vMbps = AudioOnly ? 0 : ConstantQuality ? Video switch
         {
-            "prores" => 220 * Math.Pow(OutH / 1080.0, 2), "prores4444" or "prores4444a" => 330 * Math.Pow(OutH / 1080.0, 2), "qtrle" => 400 * Math.Pow(OutH / 1080.0, 2), "png" => 600 * Math.Pow(OutH / 1080.0, 2), "hevc" => 6 * Math.Pow(OutH / 1080.0, 1.6), "av1" => 4.5 * Math.Pow(OutH / 1080.0, 1.6),
+            "prores" => 220 * Math.Pow(OutH / 1080.0, 2), "prores4444" or "prores4444a" => 330 * Math.Pow(OutH / 1080.0, 2),
+            "dnxhr_lb" => 45 * Math.Pow(OutH / 1080.0, 2), "dnxhr_sq" => 90 * Math.Pow(OutH / 1080.0, 2), "dnxhr_hq" => 145 * Math.Pow(OutH / 1080.0, 2),
+            "dnxhr_hqx" => 220 * Math.Pow(OutH / 1080.0, 2), "dnxhr_444" => 330 * Math.Pow(OutH / 1080.0, 2),
+            "qtrle" => 400 * Math.Pow(OutH / 1080.0, 2), "png" => 600 * Math.Pow(OutH / 1080.0, 2), "hevc" => 6 * Math.Pow(OutH / 1080.0, 1.6), "av1" => 4.5 * Math.Pow(OutH / 1080.0, 1.6),
             _ => 10 * Math.Pow(OutH / 1080.0, 1.6) * Math.Pow(2, (18 - Quality) / 6.0),
         } : BitrateMbps;
         double aMbps = Audio == "pcm" ? 1.536 : Audio == "none" ? 0 : AudioKbps / 1000.0;
@@ -224,11 +244,12 @@ public sealed class ExportSettings
         var set = new HashSet<string> { "libx264" };
         if (ff == null) return usable = set;
         string list = await Task.Run(() => Run(ff, "-hide_banner -encoders").output);
-        var candidates = new[] { "libx265", "libsvtav1", "libvpx-vp9", "prores_ks", "h264_nvenc", "hevc_nvenc", "av1_nvenc", "h264_qsv", "hevc_qsv", "av1_qsv", "h264_amf", "hevc_amf", "av1_amf" }
+        var candidates = new[] { "libx265", "libsvtav1", "libvpx-vp9", "prores_ks", "dnxhd", "h264_nvenc", "hevc_nvenc", "av1_nvenc", "h264_qsv", "hevc_qsv", "av1_qsv", "h264_amf", "hevc_amf", "av1_amf" }
             .Where(e => list.Contains(" " + e + " ")).ToList();
         foreach (var e in candidates)
         {
-            var (code, _) = await Task.Run(() => Run(ff, $"-hide_banner -v error -f lavfi -i color=black:s=256x144:d=0.2 -frames:v 3 -c:v {e} -f null -"));
+            string extra = e == "dnxhd" ? "-profile:v dnxhr_hq -pix_fmt yuv422p" : "";
+            var (code, _) = await Task.Run(() => Run(ff, $"-hide_banner -v error -f lavfi -i color=black:s=256x144:d=0.2 -frames:v 3 -c:v {e} {extra} -f null -"));
             if (code == 0) set.Add(e);
         }
         return usable = set;

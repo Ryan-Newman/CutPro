@@ -84,7 +84,7 @@ public static class Warp
     public static string Graph(Clip c, int w, int h, string tag, List<string>? temps)
     {
         var g = new StringBuilder($"scale={w}:{h},setsar=1,format=rgba");
-        if (Distorts.Active(c)) g.Append($",format=gbrap,{Distorts.Geq(c.Distort!, w, h)},format=rgba");   // (twirl / wave / spherize / mesh: one geq, T = time in the clip)
+        if (Distorts.Active(c)) g.Append($",format=gbrap,{Distorts.Geq(c, w, h)},format=rgba");   // (twirl / wave / spherize / mesh: one geq, T = time in the clip; keyed params too)
         if (Lens.Active(c))
         {
             string cmd = temps != null && Lens.Animated(c) ? ",sendcmd=f=" + Lens.Commands(c, new[] { $"lc{tag}" }, temps) : "";

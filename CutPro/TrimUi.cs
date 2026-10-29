@@ -20,6 +20,17 @@ public partial class MainWindow
         (TrimTool.Slip, "Slip Tool", "tool.slip"), (TrimTool.Slide, "Slide Tool", "tool.slide"),
     };
 
+    /// <summary>Premiere's keyboard trim: the selected clip's In or Out by n frames, using the current trim tool (Ripple when Selection or
+    /// Razor is out). Shortens: the In point later, the Out point earlier. Linked sound along (the tools' usual rule).</summary>
+    void KeyboardTrim(bool left, int frames)
+    {
+        Pause();
+        var c = ed.Selected is { } s && ed.Editable(s) ? s : ed.Clips.FirstOrDefault(x => ed.IsSel(x) && ed.Editable(x));
+        if (c == null) { SetTask("Select a clip to trim", 2000); return; }
+        var tool = Tl.Tool is TrimTool.Ripple or TrimTool.Roll or TrimTool.Rate or TrimTool.Slip or TrimTool.Slide ? Tl.Tool : TrimTool.Ripple;
+        ed.TrimEdit(tool, c, left, (left ? frames : -frames) / TimeUtil.Fps);
+    }
+
     void SetTool(TrimTool t)
     {
         Tl.Tool = t;

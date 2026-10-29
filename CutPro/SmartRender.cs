@@ -31,7 +31,7 @@ public static class SmartRender
     static readonly Dictionary<string, Info> cache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The settings ask for smart rendering and it can apply (H.264 / HEVC in MP4 / MOV / MKV, no alpha).</summary>
-    public static bool Applies(ExportSettings o) => o.Smart && !o.AudioOnly && !o.WantsAlpha && !o.Alpha && o.Video is "h264" or "hevc" && o.Container is "mp4" or "mov" or "mkv";
+    public static bool Applies(ExportSettings o) => o.Smart && !o.AudioOnly && !o.WantsAlpha && !o.Alpha && !o.WantsHdr && o.Video is "h264" or "hevc" && o.Container is "mp4" or "mov" or "mkv";
 
     static string Family(ExportSettings o) => o.Video == "hevc" ? "hevc" : "h264";
 

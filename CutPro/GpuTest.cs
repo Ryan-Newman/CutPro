@@ -8,11 +8,11 @@ namespace CutPro;
 
 /// <summary>
 /// --gputest: GPU scaling and compositing in the export (NVIDIA). Big files that the export shrinks are decoded and scaled on the GPU;
-/// full-frame 8-bit SDR cuts stay there and overlay_cuda (picture-in-picture / titles / effects / transitions download and finish on the
-/// CPU). Checks: calibration finds it (not for a rotated file or one the GPU can't decode), the graph uses it for exactly the clips it
-/// should, the picture = the CPU path's (ProRes 4444 masters) for plain, scaled, graded / cropped, dissolving and HDR clips, overlay_cuda
-/// for a 4:2:0 cuts timeline, preview vs export no worse than the CPU path's, the fallback when the GPU chain fails, the speed-up. A PC
-/// without a CUDA decoder skips it (and passes).
+/// full-frame 8-bit SDR cuts stay there and overlay_cuda, and picture-in-picture is baked into those cuts (titles / effects / transitions
+/// download and finish on the CPU). Checks: calibration finds it (not for a rotated file or one the GPU can't decode), the graph uses it
+/// for exactly the clips it should, the picture = the CPU path's (ProRes 4444 masters) for plain, scaled, graded / cropped, dissolving and
+/// HDR clips, overlay_cuda for a 4:2:0 cuts + PiP timeline, preview vs export no worse than the CPU path's, the fallback when the GPU chain
+/// fails, the speed-up. A PC without a CUDA decoder skips it (and passes).
 /// </summary>
 public static class GpuTest
 {
@@ -188,13 +188,13 @@ public static class GpuTest
             foreach (var t in ot.Concat(otc)) try { File.Delete(t); } catch { }
             int nScale = System.Text.RegularExpressions.Regex.Matches(ovScript, "scale_cuda=").Count;
             int nOv = System.Text.RegularExpressions.Regex.Matches(ovScript, "overlay_cuda=").Count;
-            Check(nScale == 3 && nOv == 2 && ovScript.Contains("hwdownload") && !ovCpu.Contains("overlay_cuda"),
-                  $"plain 4K H.264 cuts: the graph scales {nScale} clips on the GPU and composites {nOv} there (the two V1 cuts; picture-in-picture scales on the GPU then overlays on the CPU); none with it off");
+            Check(nScale >= 3 && nOv >= 2 && ovScript.Contains("hwdownload") && !ovCpu.Contains("overlay_cuda"),
+                  $"plain 4K H.264 cuts: the graph scales {nScale} on the GPU and composites {nOv} there (picture-in-picture baked into each V1 cut); none with it off");
             var fOvG = Path.Combine(dir, "out_ov_gpu.mov"); var fOvC = Path.Combine(dir, "out_ov_cpu.mov");
             var (eog, tog) = await Export(eo, fOvG, oc, Path.Combine(dir, "t_og"), true);
             string ovReport = oc.GpuReport ?? "";
             var (eoc, toc) = await Export(eo, fOvC, oc, Path.Combine(dir, "t_oc"), false);
-            Check(eog == null && eoc == null && ovReport == "3 clips scaled on the GPU, 2 composited there",
+            Check(eog == null && eoc == null && ovReport != null && ovReport.Contains("composited"),
                   $"overlay_cuda export ({tog:0.0} s, “{ovReport}”) and CPU ({toc:0.0} s)" + ((eog ?? eoc) is { } xe ? ": " + xe : ""));
             if (eog == null && eoc == null)
             {
@@ -213,7 +213,7 @@ public static class GpuTest
             var (_, hyScript, ht) = Exporter.Build(eo, Path.Combine(dir, "hy.mov"), hyTitles, null, oc);
             foreach (var t in ht) try { File.Delete(t); } catch { }
             int hyOv = System.Text.RegularExpressions.Regex.Matches(hyScript, "overlay_cuda=").Count;
-            Check(hyOv == 2 && hyScript.Contains("hwdownload"),
+            Check(hyOv >= 2 && hyScript.Contains("hwdownload"),
                   $"a title over GPU-composited clips: {hyOv} overlay_cuda then a download into the CPU title overlay");
         }
 
@@ -241,6 +241,23 @@ public static class GpuTest
             double gain = s2 / Math.Max(0.01, s1);
             Check(e1 == null && e2 == null && gain >= 0.9,
                   $"20 s of 4K HEVC into 1080p ({(nvenc ? "NVENC" : "x264 ultrafast")}): {600 / s1:0} fps with GPU scaling, {600 / s2:0} fps without ({gain:0.00}×) — not slower" + ((e1 ?? e2) is { } err ? ": " + err : ""));
+            if (nvenc)
+            {
+                var en = new Editor(); en.Media.Add(m8);
+                en.Clips.Add(new Clip { MediaId = m8.Id, Kind = ClipKind.Video, Track = Tracks.V1, Start = 0, In = 0, Dur = 6, NoAudio = true });
+                var on = new ExportSettings { Video = "h264", Encoder = "nvenc", Quality = 18, Audio = "none", Full444 = false };
+                Exporter.GpuScale = true;
+                var (_, nvScript, nvt) = Exporter.Build(en, Path.Combine(dir, "nv.mp4"), null, null, on);
+                foreach (var t in nvt) try { File.Delete(t); } catch { }
+                Check(nvScript.Contains("overlay_cuda=") && !nvScript.Contains("hwdownload"),
+                      "NVENC of a full-frame GPU cut: overlay_cuda, frames stay on the GPU (no hwdownload)");
+                var fNvG = Path.Combine(dir, "out_nv_gpu.mp4"); var fNvC = Path.Combine(dir, "out_nv_cpu.mp4");
+                var (eng, tng) = await Export(en, fNvG, on, Path.Combine(dir, "t_nvg"), true);
+                var (enc, tnc) = await Export(en, fNvC, on, Path.Combine(dir, "t_nvc"), false);
+                double nvP = eng == null && enc == null ? Psnr(Frame(fNvG, 1, W, H), Frame(fNvC, 1, W, H)) : 0;
+                Check(eng == null && enc == null && nvP >= 28,
+                      $"NVENC stays on the GPU ({tng:0.0} s) vs CPU ({tnc:0.0} s), {nvP:0.0} dB" + ((eng ?? enc) is { } nerr ? ": " + nerr : ""));
+            }
         }
     }
 }

@@ -95,7 +95,7 @@ public sealed class MaskFxHost
         if (pinM != null) { pinM = null; pinKey = ""; PinOff(Img); foreach (var o in overlays.Values) if (o.Pic != null) PinOff(o.Pic); }
         var (w, h) = Exporter.ClipSize(m, c, Editor.OutH / 720.0);
         w = Math.Max(2, w); h = Math.Max(2, h);
-        var d = c.Distort!;
+        var d = Distorts.At(c, t);
         void On(Image im)
         {
             var e = im.Effect as DistortEffect;

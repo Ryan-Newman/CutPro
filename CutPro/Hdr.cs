@@ -34,6 +34,29 @@ public static class Hdr
         string.Create(CultureInfo.InvariantCulture, $"tonemap=tonemap=mobius:param={Knee}:peak={Math.Max(peak, White * 1.5) / White:0.###}:desat=0,") +
         $"zscale=t=bt709:m=bt709:r=tv,format={(deep ? "yuv420p10le" : "yuv420p")}";
 
+    /// <summary>SDR Rec.709 composite → HLG / PQ for an HDR file (the inverse of a camera's BT.2408 grade: SDR white = 203 cd/m²).
+    /// Every colour property is named so zscale finds a path. <paramref name="pix"/> is the encoder's pixel format.</summary>
+    public static string Encode(string kind, string pix)
+    {
+        string t = kind == "pq" ? "smpte2084" : "arib-std-b67";
+        return $"setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv," +
+               $"zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t=linear:npl={White},format=gbrpf32le," +
+               $"zscale=pin=bt709:p=bt2020,zscale=t={t}:npl={White}:m=bt2020nc:p=bt2020:r=tv,format={pix}";
+    }
+    /// <summary>ffmpeg -color_* tags for an HLG / PQ file.</summary>
+    public static string[] FileTags(string kind)
+    {
+        string t = kind == "pq" ? "smpte2084" : "arib-std-b67";
+        return new[] { "-color_primaries", "bt2020", "-color_trc", t, "-colorspace", "bt2020nc", "-color_range", "tv" };
+    }
+    /// <summary>x265 colour / HDR10 mastering (colon-separated, merged into -x265-params).</summary>
+    public static string X265(string kind)
+    {
+        string t = kind == "pq" ? "smpte2084" : "arib-std-b67";
+        string p = $"colorprim=bt2020:transfer={t}:colormatrix=bt2020nc";
+        return kind == "pq" ? p + ":master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,203" : p;
+    }
+
     /// <summary>A comma and the chain (to put after a filter), or "".</summary>
     public static string Post(MediaItem m, bool deep = false) => Of(m, deep) is { Length: > 0 } c ? "," + c : "";
     /// <summary>Marks a render's signature when its frames were tone-mapped (Remap, Stab, Nest, the scrub cache: "Show as is" or another curve

@@ -40,6 +40,8 @@ public static class Tracks
     /// <summary>The track's name (its own, or its label).</summary>
     public static string Name(int row) => info is { } l && row >= 0 && row < l.Count && !string.IsNullOrWhiteSpace(l[row].Name) ? l[row].Name! : Label(row);
     public static bool Locked(int row) => info is { } l && row >= 0 && row < l.Count && l[row].Locked;
+    /// <summary>Whether the track moves with a ripple / insert on another track (Premiere's sync lock; on when the row has no settings yet).</summary>
+    public static bool SyncLocked(int row) => info is not { } l || row < 0 || row >= l.Count || l[row].SyncLock;
     public static double Height(int row) => info is { } l && row >= 0 && row < l.Count && l[row].Height > 0 ? Math.Clamp(l[row].Height, MinHeight, MaxHeight) : DefaultHeight;
     /// <summary>The video rows from the lowest (V1) up, and the audio rows from A1 down.</summary>
     public static IEnumerable<int> VideoRows => Enumerable.Range(0, Video).Reverse();
@@ -49,11 +51,14 @@ public static class Tracks
 }
 
 /// <summary>A track's own settings (per row of a <see cref="Sequence"/>): the name shown in its header (null = V1, A2 …), whether it is
-/// locked (its clips can't be selected, moved, cut or rippled, and nothing is edited onto it) and its height in the timeline (0 = the default).</summary>
+/// locked (its clips can't be selected, moved, cut or rippled, and nothing is edited onto it), whether it follows ripple / insert on other
+/// tracks (sync lock, on by default) and its height in the timeline (0 = the default).</summary>
 public sealed class TrackInfo
 {
     public string? Name { get; set; }
     public bool Locked { get; set; }
+    /// <summary>False = this track stays put when another track ripples or inserts (Premiere's sync lock off). Missing in older files = on.</summary>
+    public bool SyncLock { get; set; } = true;
     public double Height { get; set; }
     public TrackInfo Clone() => (TrackInfo)MemberwiseClone();
 }
@@ -238,7 +243,7 @@ public class Clip
     public Stabilize? Stab { get; set; }
     /// <summary>Lens distortion (null = off): <see cref="CutPro.Lens"/>.</summary>
     public LensDistort? Lens { get; set; }
-    /// <summary>Look effects: sharpen, glow, grain (null = none) — <see cref="CutPro.Looks"/>.</summary>
+    /// <summary>Look effects: sharpen, glow, grain, VHS, glitch (null = none) — <see cref="CutPro.Looks"/>.</summary>
     public LookFx? Looks { get; set; }
     /// <summary>Drop shadow under the clip's picture (null = none).</summary>
     public DropShadow? Shadow { get; set; }
@@ -300,8 +305,11 @@ public class Sequence
     /// <summary>How many video and audio tracks it has (projects from before: 3 + 2). See <see cref="Tracks"/> for the row order.</summary>
     public int VideoTracks { get; set; } = Tracks.DefaultVideo;
     public int AudioTracks { get; set; } = Tracks.DefaultAudio;
-    /// <summary>Per row: name, lock, height (null = all default).</summary>
+    /// <summary>Per row: name, lock, sync lock, height (null = all default).</summary>
     public List<TrackInfo>? TrackInfo { get; set; }
+    /// <summary>Source-monitor insert / overwrite land on this video / audio track number (1 = V1 / A1), Premiere's patch targeting.</summary>
+    public int VideoTarget { get; set; } = 1;
+    public int AudioTarget { get; set; } = 1;
     public MixState Mix { get; set; } = new();
     /// <summary>Per row: hidden (video) / muted (audio).</summary>
     public bool[] TrackOff { get; set; } = new bool[Tracks.DefaultVideo + Tracks.DefaultAudio];
@@ -331,6 +339,7 @@ public class Sequence
     {
         to.VideoTracks = VideoTracks; to.AudioTracks = AudioTracks;
         to.TrackInfo = TrackInfo?.Select(t => t.Clone()).ToList();
+        to.VideoTarget = VideoTarget; to.AudioTarget = AudioTarget;
         to.Fix();
     }
 }

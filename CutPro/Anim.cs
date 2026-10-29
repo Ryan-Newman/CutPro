@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace CutPro;
 
 /// <summary>Clip properties that can be keyframed / driven by a formula (Premiere's stopwatch properties).</summary>
-public enum AnimProp { Scale, X, Y, Rotation, Opacity, Blur, Volume, Pan, Speed, CropL, CropT, CropR, CropB, AnchorX, AnchorY, PinTLX, PinTLY, PinTRX, PinTRY, PinBLX, PinBLY, PinBRX, PinBRY, LensCurve, LensEdge, LensCX, LensCY }
+public enum AnimProp { Scale, X, Y, Rotation, Opacity, Blur, Volume, Pan, Speed, CropL, CropT, CropR, CropB, AnchorX, AnchorY, PinTLX, PinTLY, PinTRX, PinTRY, PinBLX, PinBLY, PinBRX, PinBRY, LensCurve, LensEdge, LensCX, LensCY, DistAmount, DistRadius, DistCX, DistCY, DistWave, DistDir, DistSpeed }
 
 /// <summary>Tangent type of one side of a keyframe. Hold (outgoing only) steps to the next key.</summary>
 public enum KeyType { Linear, Bezier, Auto, Hold }
@@ -143,6 +143,13 @@ public static class Anim
         new(AnimProp.LensEdge, "Edge curve", -100, 100, 0.5, -100, 100, "lensedge"),
         new(AnimProp.LensCX, "Centre X %", -50, 50, 0.5, -50, 50, "lenscx"),
         new(AnimProp.LensCY, "Centre Y %", -50, 50, 0.5, -50, 50, "lenscy"),
+        new(AnimProp.DistAmount, "Distort amount", -720, 720, 0.5, -180, 180, "distamount"),
+        new(AnimProp.DistRadius, "Distort radius %", 1, 400, 0.5, 1, 200, "distradius"),
+        new(AnimProp.DistCX, "Distort centre X %", -50, 50, 0.5, -50, 50, "distcx"),
+        new(AnimProp.DistCY, "Distort centre Y %", -50, 50, 0.5, -50, 50, "distcy"),
+        new(AnimProp.DistWave, "Wave length %", 1, 400, 0.5, 1, 200, "distwave"),
+        new(AnimProp.DistDir, "Wave direction °", 0, 360, 1, 0, 360, "distdir"),
+        new(AnimProp.DistSpeed, "Wave speed /s", -20, 20, 0.05, -5, 5, "distspeed"),
     };
     public static Info Of(AnimProp p) => Props[(int)p];
     public static readonly AnimProp[] Visual = { AnimProp.Scale, AnimProp.X, AnimProp.Y, AnimProp.Rotation, AnimProp.Opacity, AnimProp.Blur, AnimProp.Pan, AnimProp.AnchorX, AnimProp.AnchorY };
@@ -158,6 +165,7 @@ public static class Anim
         if (c.Kind is ClipKind.Video or ClipKind.Image && CutPro.Crop.Applied(c)) foreach (var p in Crop) yield return p;   // (lanes only once the clip is cropped)
         if (CutPro.Pin.Active(c)) foreach (var p in CutPro.Pin.Props) yield return p;                                      // (lanes only once the clip is pinned)
         if (CutPro.Lens.Active(c)) foreach (var p in CutPro.Lens.Props) yield return p;                                    // (lanes only with a lens distortion)
+        if (CutPro.Distorts.Active(c) && c.Distort!.Kind != DistortKind.Mesh) foreach (var p in CutPro.Distorts.PropsOf(c.Distort.Kind)) yield return p;
     }
 
     public static double Base(Clip c, AnimProp p) => p switch
@@ -168,6 +176,8 @@ public static class Anim
         AnimProp.AnchorX => c.AnchorX, AnimProp.AnchorY => c.AnchorY,
         >= AnimProp.PinTLX and <= AnimProp.PinBRY => c.Pin is { } pin ? pin[p - AnimProp.PinTLX] : new CornerPin()[p - AnimProp.PinTLX],
         AnimProp.LensCurve => c.Lens?.Curvature ?? 0, AnimProp.LensEdge => c.Lens?.Edge ?? 0, AnimProp.LensCX => c.Lens?.CenterX ?? 0, AnimProp.LensCY => c.Lens?.CenterY ?? 0,
+        AnimProp.DistAmount => c.Distort?.Amount ?? 0, AnimProp.DistRadius => c.Distort?.Radius ?? 50, AnimProp.DistCX => c.Distort?.CenterX ?? 0, AnimProp.DistCY => c.Distort?.CenterY ?? 0,
+        AnimProp.DistWave => c.Distort?.Wavelength ?? 25, AnimProp.DistDir => c.Distort?.Direction ?? 0, AnimProp.DistSpeed => c.Distort?.Speed ?? 1,
         _ => c.Volume,
     };
     public static void SetBase(Clip c, AnimProp p, double v)
@@ -182,6 +192,10 @@ public static class Anim
             case >= AnimProp.PinTLX and <= AnimProp.PinBRY: if (c.Pin != null) c.Pin[p - AnimProp.PinTLX] = v; break;
             case AnimProp.LensCurve: if (c.Lens != null) c.Lens.Curvature = v; break; case AnimProp.LensEdge: if (c.Lens != null) c.Lens.Edge = v; break;
             case AnimProp.LensCX: if (c.Lens != null) c.Lens.CenterX = v; break; case AnimProp.LensCY: if (c.Lens != null) c.Lens.CenterY = v; break;
+            case AnimProp.DistAmount: if (c.Distort != null) c.Distort.Amount = v; break; case AnimProp.DistRadius: if (c.Distort != null) c.Distort.Radius = v; break;
+            case AnimProp.DistCX: if (c.Distort != null) c.Distort.CenterX = v; break; case AnimProp.DistCY: if (c.Distort != null) c.Distort.CenterY = v; break;
+            case AnimProp.DistWave: if (c.Distort != null) c.Distort.Wavelength = v; break; case AnimProp.DistDir: if (c.Distort != null) c.Distort.Direction = v; break;
+            case AnimProp.DistSpeed: if (c.Distort != null) c.Distort.Speed = v; break;
             default: c.Volume = v; break;
         }
     }

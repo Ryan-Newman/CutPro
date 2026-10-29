@@ -73,6 +73,8 @@ public partial class MainWindow
         Add("Source", "Source", SourceView, "Right", ActSource);
         BuildHistoryView();
         Add("History", "History", HistoryView, "Right", ActHistory);
+        BuildMarkersView();
+        Add("Markers", "Markers", MarkersView, "Right", ActMarkers);
         Add("Program", "Program", EditorGrid, "Center", fix: true);
         Add("Timeline", "Timeline", PanelGrid, "Bottom", fix: true);
         foreach (var d in docks.Where(d => !d.Fixed)) if (d.El is DockPanel dp && dp.Children.Count > 0 && dp.Children[0] is FrameworkElement head) HookDock(head, d.Id);

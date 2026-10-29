@@ -10,7 +10,7 @@ namespace CutPro;
 /// <summary>Custom-drawn multi-track timeline with Premiere-style Selection (V) and Razor (C) tools.</summary>
 public partial class TimelineView : FrameworkElement
 {
-    public const double HeaderW = 136, RulerH = 26;                      // (the header: name, padlock, eye or M S)
+    public const double HeaderW = 148, RulerH = 26;                      // (the header: patch, name, sync lock, padlock, eye or M S)
     enum Mode { None, Scrub, Move, TrimL, TrimR, Marquee, Key, TransEdge, Band, Size, Marker, Tool }
 
     public Editor Ed = null!;
@@ -217,11 +217,18 @@ public partial class TimelineView : FrameworkElement
         {
             double y = RowY(r), rh = RowHt(r);
             if (y > H || y + rh < RulerH) continue;
-            bool locked = Ed.Locked(r);
+            bool locked = Ed.Locked(r), sync = Ed.SyncLocked(r);
             dc.DrawLine(r == Tracks.V1 ? dividerPen : rowPen, new Point(0, y + rh), new Point(HeaderW, y + rh));
+            bool targeted = Tracks.IsVideo(r) ? Tracks.Number(r) == Ed.VideoTarget : Tracks.Number(r) == Ed.AudioTarget;
+            var patch = TargetRect(r);
+            dc.DrawRoundedRectangle(targeted ? offBrush : btnBrush, null, patch, 3, 3);
+            Center(dc, Tracks.Label(r), patch, targeted ? white : btnText);
             var name = Tracks.Name(r);
-            double nameW = LockRect(r).X - 8, nameY = Tracks.IsVideo(r) || rh < 46 ? y + rh / 2 - 9 : y + Math.Min(rh / 2 - 9, rh - 37);   // (audio: above the band mode)
-            dc.DrawText(Txt(name, name.Length <= 3 ? 13 : 11.5, hdrText, true, Math.Max(10, nameW)), new Point(6, nameY + (name.Length <= 3 ? 0 : 1)));
+            double nameX = patch.Right + 4, nameW = SyncRect(r).X - nameX - 4, nameY = Tracks.IsVideo(r) || rh < 46 ? y + rh / 2 - 9 : y + Math.Min(rh / 2 - 9, rh - 37);   // (audio: above the band mode)
+            dc.DrawText(Txt(name, name.Length <= 3 ? 13 : 11.5, hdrText, true, Math.Max(10, nameW)), new Point(nameX, nameY + (name.Length <= 3 ? 0 : 1)));
+            var syn = SyncRect(r);
+            dc.DrawRoundedRectangle(sync ? offBrush : btnBrush, null, syn, 3, 3);
+            Glyph(dc, "", syn, sync ? white : btnText);                  // (link: sync lock)
             var lk = LockRect(r);
             dc.DrawRoundedRectangle(locked ? offBrush : btnBrush, null, lk, 3, 3);
             Glyph(dc, locked ? "" : "", lk, locked ? white : btnText);    // (closed / open padlock)
@@ -237,11 +244,13 @@ public partial class TimelineView : FrameworkElement
         }
         dc.Pop();
     }
-    // header buttons, right-aligned and centred in the row: video [lock][eye], audio [lock][M][S]
+    // header buttons, right-aligned and centred in the row: video [patch][sync][lock][eye], audio [patch][sync][lock][M][S]
     double BtnY(int r) => RowY(r) + RowHt(r) / 2 - 10;
+    Rect TargetRect(int r) => new(4, BtnY(r), 26, 20);
     Rect MuteRect(int r) => Tracks.IsVideo(r) ? new Rect(HeaderW - 30, BtnY(r), 24, 20) : new Rect(HeaderW - 50, BtnY(r), 20, 20);
     Rect SoloRect(int r) => new(HeaderW - 26, BtnY(r), 20, 20);
     Rect LockRect(int r) => Tracks.IsVideo(r) ? new Rect(HeaderW - 56, BtnY(r), 22, 20) : new Rect(HeaderW - 74, BtnY(r), 20, 20);
+    Rect SyncRect(int r) => Tracks.IsVideo(r) ? new Rect(HeaderW - 80, BtnY(r), 22, 20) : new Rect(HeaderW - 98, BtnY(r), 20, 20);
     static readonly FontFamily IconFont = new("Segoe MDL2 Assets");
     void Glyph(DrawingContext dc, string g, Rect r, Brush b)
     {
@@ -644,6 +653,12 @@ public partial class TimelineView : FrameworkElement
             int r = RowAt(p.Y);
             if (r < 0) return;
             if (LockRect(r).Contains(p)) { Ed.SetLocked(r, !Ed.Locked(r)); InvalidateVisual(); }
+            else if (SyncRect(r).Contains(p)) { Ed.SetSyncLock(r, !Ed.SyncLocked(r)); InvalidateVisual(); }
+            else if (TargetRect(r).Contains(p) && !Ed.Locked(r))
+            {
+                if (Tracks.IsVideo(r)) Ed.VideoTarget = Tracks.Number(r); else Ed.AudioTarget = Tracks.Number(r);
+                InvalidateVisual();
+            }
             else if (SoloRect(r).Contains(p) && !Tracks.IsVideo(r)) { Ed.Mix.Channels[r].Solo ^= true; Ed.RaiseMixChanged(); InvalidateVisual(); }
             else if (MuteRect(r).Contains(p)) { Ed.TrackOff[r] = !Ed.TrackOff[r]; Ed.RaiseMixChanged(); InvalidateVisual(); }
             else if (RowHt(r) >= 46 && BandModeRect(r).Contains(p)) CycleBand(r);
@@ -851,6 +866,10 @@ public partial class TimelineView : FrameworkElement
                 Item(name, () => { Ed.MixBegin(); Ed.Mix.Channels[r].Surround = o; Ed.MixEnd(); Ed.RaiseMixChanged(); }, sur, check: Ed.Mix.Channels[r].Surround == o);
         }
         Item("Lock Track", () => Ed.SetLocked(r, !Ed.Locked(r)), check: Ed.Locked(r), tip: "A locked track's clips can't be selected, moved, cut or rippled");
+        Item("Sync Lock", () => Ed.SetSyncLock(r, !Ed.SyncLocked(r)), check: Ed.SyncLocked(r), tip: "When on, this track moves with a ripple or insert on another track");
+        Item($"Target {Tracks.Label(r)}", () => { if (Tracks.IsVideo(r)) Ed.VideoTarget = Tracks.Number(r); else Ed.AudioTarget = Tracks.Number(r); },
+             check: Tracks.IsVideo(r) ? Ed.VideoTarget == Tracks.Number(r) : Ed.AudioTarget == Tracks.Number(r),
+             tip: "Source monitor Insert / Overwrite land on this track");
         menu.Items.Add(new Separator());
         bool last = video ? Tracks.Video <= 1 : Tracks.Audio <= 1;
         int n = Ed.Clips.Count(c => c.Track == r);

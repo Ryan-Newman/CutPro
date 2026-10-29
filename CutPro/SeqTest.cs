@@ -208,10 +208,10 @@ public static class SeqTest
                 var usable = await ExportSettings.UsableEncodersAsync();
                 log.Add("INFO usable encoders: " + string.Join(", ", usable.OrderBy(x => x)));
                 var cases = new List<(ExportSettings o, string vcodec, string acodec)>();
-                foreach (var pr in ExportSettings.Presets.Where(x => x.Name.Contains("H.265") || x.Name.Contains("AV1") || x.Name.Contains("ProRes") || x.Name.Contains("WebM") || x.Name.StartsWith("Audio") || x.Name.StartsWith("YouTube 1080")))
+                foreach (var pr in ExportSettings.Presets.Where(x => x.Name.Contains("H.265") || x.Name.Contains("AV1") || x.Name.Contains("ProRes") || x.Name.Contains("WebM") || x.Name.Contains("DNxHR") || x.Name.StartsWith("HLG") || x.Name.StartsWith("HDR10") || x.Name.StartsWith("Audio") || x.Name.StartsWith("YouTube 1080")))
                 {
                     if (!pr.AudioOnly && !usable.Contains(pr.VideoEncoder)) { log.Add($"INFO skipped {pr.Name}: {pr.VideoEncoder} not available"); continue; }
-                    cases.Add((pr, pr.Video switch { "none" => "", "prores" or "prores4444" or "prores4444a" => "prores", "vp9a" => "vp9", _ => pr.Video }, pr.Audio switch { "pcm" => pr.Container == "wav" ? "pcm_s16le" : "pcm_s24le", "mp3" => "mp3", "opus" => "opus", _ => "aac" }));
+                    cases.Add((pr, pr.Video switch { "none" => "", "prores" or "prores4444" or "prores4444a" => "prores", "dnxhr_lb" or "dnxhr_sq" or "dnxhr_hq" or "dnxhr_hqx" or "dnxhr_444" => "dnxhd", "vp9a" => "vp9", _ => pr.Video }, pr.Audio switch { "pcm" => pr.Container == "wav" ? "pcm_s16le" : "pcm_s24le", "mp3" => "mp3", "opus" => "opus", _ => "aac" }));
                 }
                 foreach (var enc in new[] { "nvenc", "qsv", "amf" })
                     foreach (var codec in new[] { "h264", "hevc", "av1" })

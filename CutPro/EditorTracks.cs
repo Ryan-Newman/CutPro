@@ -17,8 +17,11 @@ public partial class Editor
     public void RaiseTracks() => Raise(TracksChanged);
 
     public bool Locked(int track) => seq.TrackInfo is { } l && track >= 0 && track < l.Count && l[track].Locked;
+    public bool SyncLocked(int track) => Tracks.SyncLocked(track);
     /// <summary>The clip is on an unlocked track (it can be selected and edited).</summary>
     public bool Editable(Clip c) => !Locked(c.Track);
+    public int VideoTarget { get => Math.Clamp(seq.VideoTarget, 1, seq.VideoTracks); set { int n = Math.Clamp(value, 1, seq.VideoTracks); if (seq.VideoTarget == n) return; seq.VideoTarget = n; Raise(TracksChanged); } }
+    public int AudioTarget { get => Math.Clamp(seq.AudioTarget, 1, seq.AudioTracks); set { int n = Math.Clamp(value, 1, seq.AudioTracks); if (seq.AudioTarget == n) return; seq.AudioTarget = n; Raise(TracksChanged); } }
     List<TrackInfo> EnsureInfo()
     {
         if (seq.TrackInfo is not { } l || l.Count != seq.TrackCount)
@@ -125,6 +128,13 @@ public partial class Editor
         if (row < 0 || row >= seq.TrackCount || Locked(row) == locked) return;
         EnsureInfo()[row].Locked = locked;
         if (locked) { foreach (var c in Clips.Where(c => c.Track == row)) Sel.Remove(c.Id); if (SelectedId != null && !Sel.Contains(SelectedId)) SelectedId = Sel.FirstOrDefault(); if (Gap?.Track == row) Gap = null; }
+        Raise(TracksChanged); Raise(Changed);
+    }
+    /// <summary>Sync lock (an instant setting): off, this track stays put when another track ripples or inserts.</summary>
+    public void SetSyncLock(int row, bool on)
+    {
+        if (row < 0 || row >= seq.TrackCount || SyncLocked(row) == on) return;
+        EnsureInfo()[row].SyncLock = on;
         Raise(TracksChanged); Raise(Changed);
     }
     /// <summary>A track's height in the timeline (0 = the default). No undo, no event: the timeline redraws itself.</summary>

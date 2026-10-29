@@ -632,8 +632,10 @@ public partial class Editor
 
     /// <summary>Source monitor → timeline at t (Premiere's Insert "," / Overwrite "."): the source's In–Out range as a video clip on vTrack and
     /// its sound on aTrack (either null = left out; linked when both). Overwrite replaces whatever is on those tracks over the range; Insert
-    /// cuts every track at t and moves everything from t on later by the range's length (all tracks stay in sync), leaving the clips' tracks
-    /// empty there. One undo step; the playhead goes to the end of the new clip. Returns the new clips.</summary>
+    /// cuts every sync-locked track at t and moves those clips later by the range's length (tracks with sync lock off stay put), leaving the
+    /// clips' tracks empty there. Four-point: source In and Out and sequence In and Out all set → the source range is speed-changed to fit the
+    /// sequence In–Out (Fit to Fill) and lands at sequence In, not the playhead. One undo step; the playhead goes to the end of the new clip.
+    /// Returns the new clips.</summary>
     public List<Clip> PlaceSource(MediaItem m, double t, int? vTrack, int? aTrack, bool insert)
     {
         var made = new List<Clip>();
@@ -643,17 +645,27 @@ public partial class Editor
         if (vt == null && at == null) return made;
         var (s0, s1) = SourceRange(m);
         if (m.Type is ClipKind.Video or ClipKind.Audio) { s0 = Math.Round(s0 * TimeUtil.Fps) / TimeUtil.Fps; s1 = Math.Round(s1 * TimeUtil.Fps) / TimeUtil.Fps; }
-        double dur = Math.Max(OneFrame, Frame(s1 - s0)), inPt = m.Type == ClipKind.Image ? 0 : s0;
+        double src = Math.Max(OneFrame, Frame(s1 - s0)), inPt = m.Type == ClipKind.Image ? 0 : s0;
         t = Frame(Math.Max(0, t));
+        double dur = src, speed = 100;
+        if (m.SrcIn != null && m.SrcOut != null && MarkIn is double mi && MarkOut is double mo)
+        {
+            double tSeq = Frame(Math.Max(0, mi)), tEnd = Frame(mo);
+            if (tEnd - tSeq >= OneFrame / 2)
+            {
+                t = tSeq; dur = tEnd - tSeq;
+                if (m.Type != ClipKind.Image && Math.Abs(dur - src) >= OneFrame / 2) speed = Math.Round(100 * src / dur, 4);
+            }
+        }
         var link = vt != null && at != null ? NewId() : null;
-        if (vt != null) made.Add(new Clip { MediaId = m.Id, Kind = m.Type, Track = vt.Value, Start = t, Dur = dur, In = inPt, LinkId = link, NoAudio = snd });   // (its sound: the linked clip, or left out)
-        if (at != null) made.Add(new Clip { MediaId = m.Id, Kind = ClipKind.Audio, Track = at.Value, Start = t, Dur = dur, In = inPt, LinkId = link });
+        if (vt != null) made.Add(new Clip { MediaId = m.Id, Kind = m.Type, Track = vt.Value, Start = t, Dur = dur, In = inPt, Speed = speed, PitchLock = true, LinkId = link, NoAudio = snd });   // (its sound: the linked clip, or left out)
+        if (at != null) made.Add(new Clip { MediaId = m.Id, Kind = ClipKind.Audio, Track = at.Value, Start = t, Dur = dur, In = inPt, Speed = speed, PitchLock = true, LinkId = link });
         Edit(() =>
         {
             if (insert)
             {
-                CutClips(Clips.ToList(), t);
-                foreach (var c in Clips.Where(c => Editable(c) && c.Start >= t - Eps)) c.Start += dur;   // (locked tracks stay where they are)
+                CutClips(Clips.Where(c => Editable(c) && SyncLocked(c.Track)).ToList(), t);
+                foreach (var c in Clips.Where(c => Editable(c) && SyncLocked(c.Track) && c.Start >= t - Eps)) c.Start += dur;   // (locked / sync-unlocked tracks stay)
             }
             else
                 foreach (int tr in made.Select(c => c.Track))
@@ -810,8 +822,9 @@ public partial class Editor
     bool EmptyAll(double a, double b) => !Clips.Any(c => Editable(c) && c.Start < b - Eps && c.End > a + Eps);   // (locked tracks don't take part)
     void ShiftLeft(int? track, double from, double by)
     {
-        foreach (var c in Clips.Where(c => (track == null || c.Track == track) && Editable(c) && c.Start >= from - Eps)) c.Start = Math.Max(0, c.Start - by);   // (locked tracks stay)
+        foreach (var c in Clips.Where(c => (track == null ? SyncLocked(c.Track) : c.Track == track) && Editable(c) && c.Start >= from - Eps)) c.Start = Math.Max(0, c.Start - by);   // (locked tracks stay; sync lock off: other tracks stay)
     }
+    bool EmptySync(double a, double b) => !Clips.Any(c => Editable(c) && SyncLocked(c.Track) && c.Start < b - Eps && c.End > a + Eps);
     static List<(double A, double B)> Merge(IEnumerable<(double A, double B)> iv)
     {
         var res = new List<(double A, double B)>();
@@ -819,12 +832,12 @@ public partial class Editor
             if (res.Count > 0 && x.A <= res[^1].B + Eps) res[^1] = (res[^1].A, Math.Max(res[^1].B, x.B)); else res.Add(x);
         return res;
     }
-    /// <summary>Closes an empty span. If nothing on any track sits in it, everything after moves left (sync lock);
-    /// otherwise only the given tracks ripple.</summary>
+    /// <summary>Closes an empty span. If nothing on a sync-locked track sits in it, those tracks move left (Premiere's sync lock);
+    /// otherwise only the given tracks ripple. A track with sync lock off never moves here.</summary>
     void CloseGap(double a, double b, IEnumerable<int> tracks)
     {
         if (b - a < Eps) return;
-        if (EmptyAll(a, b)) { ShiftLeft(null, b, b - a); return; }
+        if (EmptySync(a, b)) { ShiftLeft(null, b, b - a); return; }
         foreach (var tr in tracks.Distinct()) if (EmptyOn(tr, a, b)) ShiftLeft(tr, b, b - a);
     }
 
@@ -845,7 +858,7 @@ public partial class Editor
             if (!ripple) return;
             foreach (var iv in Merge(dead.Select(c => (c.Start, c.End))).OrderByDescending(i => i.A))
             {
-                if (EmptyAll(iv.A, iv.B)) { ShiftLeft(null, iv.B, iv.B - iv.A); continue; }
+                if (EmptySync(iv.A, iv.B)) { ShiftLeft(null, iv.B, iv.B - iv.A); continue; }
                 foreach (var tr in dead.Select(c => c.Track).Distinct())
                     foreach (var sub in Merge(dead.Where(c => c.Track == tr && c.Start < iv.B && c.End > iv.A).Select(c => (c.Start, c.End))).OrderByDescending(i => i.A))
                         if (EmptyOn(tr, sub.A, sub.B)) ShiftLeft(tr, sub.B, sub.B - sub.A);
