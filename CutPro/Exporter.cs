@@ -166,12 +166,19 @@ public static class Exporter
     internal static bool GpuBreak;
 
     /// <summary>A file decoded on the GPU (NVIDIA: the input has -hwaccel_output_format cuda), scaled there to the clip's size with the CPU path's
-    /// bicubic and brought down in its own chroma layout and depth (4:2:0 / 4:4:4, 8 / 10 bits).</summary>
-    internal static string GpuChain(MediaItem m, int w, int h)
+    /// bicubic. <paramref name="download"/> false keeps frames on the GPU for <c>overlay_cuda</c> (plain 8-bit SDR cuts that fill the frame).
+    /// Otherwise they come down as yuv420p / p010; hwdownload drops colour tags (ffmpeg 7.1+ then treats the frames as BT.601 and the rest of
+    /// the graph shifts) — they are put back here, the way <see cref="Remap.Tag709"/> does.</summary>
+    internal static string GpuChain(MediaItem m, int w, int h, bool download = true)
     {
         bool deep = m.PixFmt.Contains("10") || m.PixFmt.Contains("12") || m.PixFmt.Contains("16"), full = m.PixFmt.Contains("444");
-        string f = full ? (deep ? "yuv444p16le" : "yuv444p") : deep ? "p010le" : "yuv420p";
-        return $"scale_cuda={w}:{h}:interp_algo={(GpuBreak ? "none_such" : "bicubic")}:format={f},hwdownload,format={f}";
+        string f = full ? (deep ? "yuv444p16le" : "yuv444p") : deep ? "p010le" : download ? "yuv420p" : "nv12";
+        string scale = $"scale_cuda={w}:{h}:interp_algo={(GpuBreak ? "none_such" : "bicubic")}:format={f}";
+        if (!download) return scale;
+        string tags = m.Hdr == "pq" ? "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv"
+                    : m.Hdr == "hlg" ? "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=tv"
+                    : "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv";
+        return $"{scale},hwdownload,format={f},{tags}";
     }
 
     /// <summary>Builds ffmpeg arguments + filter script for the current timeline.</summary>
@@ -217,10 +224,17 @@ public static class Exporter
         int inputs = 0;
         var inputIndex = new Dictionary<string, int>();
 
-        int AddInput(Clip c, MediaItem m, bool onGpu = false)
+        int AddInput(Clip c, MediaItem m, bool onGpu = false, double ss = 0, double take = 0)
         {
             if (inputIndex.TryGetValue(c.Id, out var i)) return i;
-            if (onGpu) { args.AddRange(new[] { "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", m.Path }); inputIndex[c.Id] = inputs; return inputs++; }   // (frames stay on the GPU: GpuChain)
+            if (onGpu)
+            {   // overlay_cuda: seek the GPU input to the clip (trim on CUDA frames is a frame late on NVDEC)
+                args.AddRange(new[] { "-hwaccel", "cuda", "-hwaccel_output_format", "cuda" });
+                if (ss > 0) args.AddRange(new[] { "-ss", F(ss) });
+                if (take > 0) args.AddRange(new[] { "-t", F(take) });
+                args.AddRange(new[] { "-i", m.Path });
+                inputIndex[c.Id] = inputs; return inputs++;
+            }
             if (c.Kind == ClipKind.Image) args.AddRange(new[] { "-loop", "1", "-framerate", fps, "-t", F(c.Dur) });
             if (remaps != null && c.Kind == ClipKind.Video && remaps.TryGetValue(c.Id, out var rf)) { args.AddRange(new[] { "-i", rf }); inputIndex[c.Id] = inputs; return inputs++; }   // speed / reverse / hold: its rendered frames
             if (nests != null && c.Kind == ClipKind.Video && nests.TryGetValue(c.Id, out var np)) { args.AddRange(new[] { "-i", np.File }); inputIndex[c.Id] = inputs; return inputs++; }   // nested sequence: its render
@@ -238,6 +252,16 @@ public static class Exporter
         {
             sb.AppendLine($"color=c={clear}:s={W}x{H}:r={fps}:d={F(total)},format={cfmt}[b0]");
             int bn = 0, vn = 0, xn = 0;
+            bool cudaBse = false; int gn = 0;   // composite on the GPU (overlay_cuda) until a clip needs the CPU path
+            string DownloadIfCuda(string b)
+            {
+                if (!cudaBse) return b;
+                string d = $"cd{gn++}";
+                sb.AppendLine($"[{b}]hwdownload,format=nv12,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format={cfmt}[{d}]");
+                if (cur == b) cur = d;
+                cudaBse = false;
+                return d;
+            }
             // video: bottom track (V1 = index 2) first
             var vclips = xclips.Where(c => c.Kind != ClipKind.Audio && !ed.TrackOff[c.Track] && (o.BurnCaptions || !Captioning.IsCaption(c)))
                                .OrderByDescending(c => c.Track).ThenBy(c => c.Start).ToList();
@@ -459,6 +483,7 @@ public static class Exporter
                 string bse = bWin.TryGetValue(c.Id, out var inW) ? lowerOf[inW] : cur;     // incoming clip of a cross-fade: over the tracks below
                 if (bse != cur) usedLower.Add(bse);
                 string next = $"b{++bn}";
+                if (Adjust.Is(c) || c.Kind == ClipKind.Text) bse = DownloadIfCuda(bse);
                 if (Adjust.Is(c))
                 {
                     // adjustment layer: the composite's frames under it → blur / colour / vignette at its strength (Adjust.Graph, the preview's rule) →
@@ -555,20 +580,50 @@ public static class Exporter
                     // a transition can show the clip past its media (handles): the first / last frame repeats there
                     bool still = c.Kind == ClipKind.Image;                 // looped picture input: starts at 0, as long as the clip
                     bool remapped = np == null && remaps != null && remaps.ContainsKey(c.Id); // rendered frames of the clip's whole range (handles included)
-                    // GPU scaling: a big file the GPU decodes (measured: MediaItem.GpuScaleOk) that the export shrinks, placed plainly, is scaled on
-                    // the GPU and comes down to memory at the clip's size — a 4K clip in a 1080p export moves a quarter of the pixels (measured
-                    // 191 → 367 fps). Everything after the scale stays as it is; a failure exports again without it (RunAsync)
+                    // GPU scaling: a big file the GPU decodes (GpuScaleOk) that the export shrinks, placed plainly, is scaled on the GPU and comes
+                    // down at the clip's size. SDR: only when CUDA is the play decoder — forcing it on easy 4K H.264 (a fast CPU wins) slows the
+                    // export. HDR: always, so the tone map sees 10 bits (the preview's CudaScale would flatten to nv12). A failure exports again
+                    // without it (RunAsync)
                     bool onGpu = gpu && GpuScale && np == null && !remapped && !still && c.Kind == ClipKind.Video && m.GpuScaleOk && m.Rotation % 360 == 0 && lp == null
-                                 && !BlurBackdrop(m, c) && (ow < m.Width || oh < m.Height) && !inputIndex.ContainsKey(c.Id);
-                    int i = AddInput(c, m, onGpu);
+                                 && !BlurBackdrop(m, c) && (ow < m.Width || oh < m.Height) && !inputIndex.ContainsKey(c.Id)
+                                 && (m.Hdr != null || m.PlayDecoder is Decoder.Cuda or Decoder.CudaScale);
                     double cin = np != null ? c.In - np.Offset : c.In;      // (a nested sequence's render starts at its first rendered frame)
                     double pre = still || remapped ? 0 : Math.Max(0, -cin), post = c.Kind == ClipKind.Video && m.Duration > 0 && !remapped ? Math.Max(0, c.In + c.Dur - m.Duration) : 0;
-                    string src = $"[{i}:v]trim=start={F(still || remapped ? 0 : Math.Max(0, cin))}:duration={F(c.Dur - pre)},setpts=PTS-STARTPTS"
+                    var (cpx, cpy, cpw, cph, _) = Editor.Placement(m, c, c.Start);
+                    double cx = 2 * Math.Round((cpx * S + (cpw * S - ow) / 2) / 2), cy = 2 * Math.Round((cpy * S + (cph * S - oh) / 2) / 2);
+                    // keep the scaled frames on the GPU and overlay_cuda: plain 8-bit SDR cuts that fill the frame, no transitions / handles /
+                    // effects (those need the CPU graph). overlay_cuda of a smaller layer (picture-in-picture) shifts the frames underneath —
+                    // those download and overlay on the CPU. 10-bit composites stay on the CPU (overlay_cuda is nv12).
+                    bool cudaOv = onGpu && lp == null && pre <= 0 && post <= 0 && !alpha && !deep && plan.Wins.Count == 0 && m.Hdr == null
+                                  && !m.PixFmt.Contains("10") && !m.PixFmt.Contains("12") && !m.PixFmt.Contains("16") && !m.PixFmt.Contains("444")
+                                  && !Keyer.Active(c.Key) && !Warp.Active(c) && !Crop.Applied(c) && !Looks.InDecoder(c) && Grade.For(c.Grade) == null
+                                  && c.Grade is not { HasVignette: true } && !c.FlipH && !c.FlipV && MaskExport.Exported(c).Count == 0
+                                  && c.Blend == BlendMode.Normal && c.Mask == MaskMode.None && c.Shadow == null && c.Blur <= 0.05
+                                  && c.FadeIn <= 0 && c.FadeOut <= 0 && c.Opacity >= 100 && c.TransIn == null && c.TransOut == null && !BlurBackdrop(m, c)
+                                  && cx <= 0 && cy <= 0 && cx + ow >= W && cy + oh >= H;
+                    int i = AddInput(c, m, onGpu, cudaOv ? Math.Max(0, cin) : 0, cudaOv ? c.Dur : 0);
+                    string src = cudaOv ? $"[{i}:v]{GpuChain(m, ow, oh, download: false)},setpts=PTS-STARTPTS"
+                               : $"[{i}:v]trim=start={F(still || remapped ? 0 : Math.Max(0, cin))}:duration={F(c.Dur - pre)},setpts=PTS-STARTPTS"
                                + (pre > 0 || post > 0 ? $",tpad=start_mode=clone:start_duration={F(pre)}:stop_mode=clone:stop_duration={F(post + 1 / TimeUtil.Fps)},trim=duration={F(c.Dur)}" : "");
-                    if (onGpu) src = src.Replace($"[{i}:v]", $"[{i}:v]{GpuChain(m, ow, oh)},");   // (before the trim: tpad and the rest see ordinary frames)
+                    if (onGpu && !cudaOv) src = src.Replace($"[{i}:v]", $"[{i}:v]{GpuChain(m, ow, oh)},");   // (before the trim: tpad and the rest see ordinary frames)
                     if (np != null)   // a nested sequence: from its first frame by number, exact frame times (Nest.FrameAt: the preview shows the same frames)
                         src = $"[{i}:v]trim=start_frame={Nest.FirstFrame(c, np.Offset, m.Fps)},setpts=N/(({TimeUtil.Rational(m.Fps)})*TB),trim=duration={F(c.Dur)}"
                             + (post > 0 ? $",tpad=stop_mode=clone:stop_duration={F(post + 1 / TimeUtil.Fps)},trim=duration={F(c.Dur)}" : "");
+                    if (cudaOv)
+                    {
+                        if (!cudaBse)
+                        {
+                            sb.AppendLine($"[{bse}]format=nv12,hwupload_cuda[cu{gn}]");
+                            if (cur == bse) cur = $"cu{gn}";
+                            bse = $"cu{gn++}";
+                            cudaBse = true;
+                        }
+                        sb.AppendLine($"{src},setpts=PTS+round({F(c.Start)}/TB)[{v}]");
+                        sb.AppendLine($"[{bse}][{v}]overlay_cuda=x={(int)cx}:y={(int)cy}:eof_action=pass[{next}]");
+                        Done(c, next);
+                        continue;
+                    }
+                    bse = DownloadIfCuda(bse);
                     if (BlurBackdrop(m, c))
                     {
                         // Shorts "Fit + blur": a blurred copy filling the frame behind the picture (larger than the frame by the
@@ -593,7 +648,10 @@ public static class Exporter
                     // Same size: the scale only converts the chroma, the way the preview does — after the tone mapping, which then sees the same pixels)
                     string hdr = np == null && !remapped ? Hdr.Post(m, deep) : "";
                     bool sameSize = m.Width == ow && m.Height == oh;
+                    // GPU already scaled to the clip's size: a same-size CPU scale is a format / colour-tag hand-off into the composite
+                    // (without it, ffmpeg 7.1+ treats the download as BT.601 and every overlay in the graph shifts)
                     var chain = new StringBuilder(np != null ? $"{src},format=gbrap,premultiply=inplace=1,scale={ow}:{oh},unpremultiply=inplace=1,setsar=1"
+                                                  : onGpu ? $"{src}{hdr},scale={ow}:{oh}:flags=bicubic,setsar=1"
                                                   : sameSize ? $"{src}{hdr},scale={ow}:{oh}:flags={Chroma(c)},setsar=1" : $"{src},scale={ow}:{oh}{hdr},setsar=1");
                     bool framed = false;                      // fps= applied (exact frame timestamps)
                     // a nested sequence's own alpha: taken off like a key's matte (and multiplied with it), multiplied back once below
@@ -795,6 +853,7 @@ public static class Exporter
                 Done(c, next);
             }
             foreach (var l in lowerOf.Values.Where(l => !usedLower.Contains(l))) sb.AppendLine($"[{l}]nullsink");   // (incoming clip skipped)
+            cur = DownloadIfCuda(cur);
         }
         string vout = cur;
 
@@ -1070,6 +1129,7 @@ public static class Exporter
             status?.Report("");
         }
         if (opts != null) { opts.SurroundFile = surround; opts.GpuReport = null; }
+        int cudaOv = 0;
         try
         {
             var (res, onGpu) = await RunGraph(true);
@@ -1080,7 +1140,10 @@ public static class Exporter
                 (res, _) = await RunGraph(false);
                 if (opts != null) opts.GpuReport = $"GPU scaling failed ({first}) — exported without it";
             }
-            else if (opts != null && res == null && onGpu > 0) opts.GpuReport = $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU";
+            else if (opts != null && res == null && onGpu > 0)
+                opts.GpuReport = cudaOv > 0
+                    ? $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU, {cudaOv} composited there"
+                    : $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU";
             return res;
         }
         finally { if (surround != null) try { File.Delete(surround); } catch { } }
@@ -1089,6 +1152,7 @@ public static class Exporter
         {
             var (args, script, temps) = Build(ed, output, titles, masks, opts, remaps, nests, gpu);
             int gpuClips = System.Text.RegularExpressions.Regex.Matches(script, "scale_cuda=").Count;
+            if (gpu) cudaOv = System.Text.RegularExpressions.Regex.Matches(script, "overlay_cuda=").Count;
             File.WriteAllText(args[args.IndexOf("-/filter_complex") + 1], script, new UTF8Encoding(false));
             var psi = new ProcessStartInfo(ffmpeg) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
                                                  WorkingDirectory = Path.GetTempPath() };      // sendcmd files are referenced by bare name

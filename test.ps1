@@ -257,3 +257,8 @@ if (-not $p.WaitForExit(400000)) { $p.Kill(); "HDRTEST TIMEOUT" } else { Get-Con
 $pv = Join-Path $env:TEMP 'cutpro_preview'
 $p = Start-Process $exe -ArgumentList '--previewtest', $pv -PassThru
 if (-not $p.WaitForExit(300000)) { $p.Kill(); "PREVIEWTEST TIMEOUT" } else { Get-Content "$pv\previewtest.txt" | ? { $_ -notmatch '^PASS' } }
+# 39. GPU scaling + compositing in the export (NVIDIA): calibration, the graph, GPU vs CPU picture (ProRes 4444), overlay_cuda for plain 8-bit SDR cuts, preview no worse, fallback, speed-up.
+#     A PC without a CUDA decoder skips it and passes.
+$gp = Join-Path $env:TEMP 'cutpro_gpu'
+$p = Start-Process $exe -ArgumentList '--gputest', $gp -PassThru
+if (-not $p.WaitForExit(900000)) { $p.Kill(); "GPUTEST TIMEOUT" } else { Get-Content "$gp\gputest.txt" | ? { $_ -notmatch '^PASS' } }
