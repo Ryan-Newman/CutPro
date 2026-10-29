@@ -273,7 +273,7 @@ public partial class MainWindow
                 break;
             case "Help":
                 Add(MI("Keyboard Shortcuts", "", () => ShowSideView("Settings")), MI("Command Palette…", K("view.palette"), () => OpenPalette()), "-",
-                    MI("About CutPro", "", () => Alert.Show(this, "A Premiere-style video editor.\nWPF · .NET 9 · ffmpeg · ONNX Runtime (MobileSAM)", "About CutPro")));
+                    MI("About " + AppInfo.Name, "", () => Alert.Show(this, "A Premiere-style video editor for gospel films, sermons and Bible teaching.\nWPF · .NET 9 · ffmpeg · ONNX Runtime (MobileSAM)", "About " + AppInfo.Name)));
                 break;
         }
         m.IsOpen = true;
@@ -470,7 +470,7 @@ public partial class MainWindow
         if (!ready) return;
         var project = projectPath != null ? Path.GetFileNameWithoutExtension(projectPath) : "Untitled";
         StatusProjectText.Text = project;
-        CommandCenterText.Text = "CutPro — " + project;
+        CommandCenterText.Text = AppInfo.Name + " — " + project;
         ProgramTabSub.Text = "  " + ed.Seq.Name;
         if (IsLoaded) FitEditorTools();
         int sel = ed.Clips.Count(ed.IsSel);

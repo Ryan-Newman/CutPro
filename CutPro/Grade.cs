@@ -463,7 +463,7 @@ public static class Grade
     /// <summary>Writes the LUT as a .cube file (R fastest, as ffmpeg's lut3d reads it).</summary>
     public static void WriteCube(Lut lut, string path)
     {
-        var sb = new StringBuilder("TITLE \"CutPro grade\"\nLUT_3D_SIZE " + lut.Size + "\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
+        var sb = new StringBuilder("TITLE \"VEdiT grade\"\nLUT_3D_SIZE " + lut.Size + "\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
         int n = lut.Size;
         for (int b = 0; b < n; b++)
             for (int g = 0; g < n; g++)

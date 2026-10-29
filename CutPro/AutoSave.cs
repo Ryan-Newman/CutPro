@@ -156,7 +156,7 @@ public partial class MainWindow
         foreach (var s in AutoSave.Pending())
         {
             string what = s.Project != null ? Path.GetFileName(s.Project) : "an unsaved project";
-            int r = Alert.Show(this, $"CutPro closed unexpectedly while {what} was open (last copy {s.Time:g}).\n\nRecover the project as it was then?",
+            int r = Alert.Show(this, $"{AppInfo.Name} closed unexpectedly while {what} was open (last copy {s.Time:g}).\n\nRecover the project as it was then?",
                                "Recover project", AlertKind.Question, "Recover", "Discard", "Later");
             if (r == 2) return;
             if (r == 0)

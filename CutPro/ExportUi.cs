@@ -24,7 +24,7 @@ public partial class MainWindow
         if (ff == null)
         {
             bool locate = Alert.Confirm(this,
-                "Exporting needs ffmpeg.exe, which wasn't found.\n\nInstall it with:  winget install Gyan.FFmpeg\n(or place ffmpeg.exe next to CutPro.exe).\n\nOr locate ffmpeg.exe manually.",
+                $"Exporting needs ffmpeg.exe, which wasn't found.\n\nInstall it with:  winget install Gyan.FFmpeg\n(or place ffmpeg.exe next to the {AppInfo.Name} application).\n\nOr locate ffmpeg.exe manually.",
                 "ffmpeg required", "Locate ffmpeg.exe…", "Cancel", AlertKind.Warning);
             if (!locate) return null;
             var pick = new OpenFileDialog { Filter = "ffmpeg.exe|ffmpeg.exe", Title = "Locate ffmpeg.exe" };
@@ -144,7 +144,8 @@ public partial class MainWindow
         bool hasCaptions = ed.Clips.Any(Captioning.IsCaption);
         var burn = new CheckBox { Content = "Burn into the video", IsChecked = o.BurnCaptions, ToolTip = "Draw the captions into the picture (they show everywhere and can't be turned off)" };
         var srt = new CheckBox { Content = "Save an .srt next to it", IsChecked = o.CaptionFile, Margin = new Thickness(14, 0, 0, 0), ToolTip = "A subtitle file viewers can turn on and off (upload it with the video on YouTube, Facebook, LinkedIn…)" };
-        var capRow = new StackPanel { Orientation = Orientation.Horizontal }; capRow.Children.Add(burn); capRow.Children.Add(srt);
+        var cc = new CheckBox { Content = "Embed CEA-608/708", IsChecked = o.EmbedCc, Margin = new Thickness(14, 0, 0, 0), ToolTip = "Closed captions in the file (MOV c608, MXF SMPTE 436M; MP4 is written as QuickTime so the same track fits). TVs and broadcast decks read them; they can sit beside burned-in captions." };
+        var capRow = new StackPanel { Orientation = Orientation.Horizontal }; capRow.Children.Add(burn); capRow.Children.Add(srt); capRow.Children.Add(cc);
         var norm = new CheckBox { Content = "Normalize to", VerticalAlignment = VerticalAlignment.Center, ToolTip = "One gain for the whole export so its integrated loudness (ITU BS.1770) hits the target; peaks above −1 dBTP are limited" };
         var lufs = new ComboBox { ItemsSource = Loudness.Targets.Select(x => x.label).ToList(), Width = 262, Margin = new Thickness(8, 0, 0, 0) };
         var nRow = new StackPanel { Orientation = Orientation.Horizontal }; nRow.Children.Add(norm); nRow.Children.Add(lufs);
@@ -167,10 +168,11 @@ public partial class MainWindow
         HashSet<string>? usable = null;
         var codecs = new[] { ("h264", "H.264 (AVC)"), ("hevc", "H.265 (HEVC)"), ("av1", "AV1"), ("vp9", "VP9"), ("prores", "Apple ProRes 422 HQ"), ("prores4444", "Apple ProRes 4444 (full colour)"),
                              ("dnxhr_hq", "Avid DNxHR HQ"), ("dnxhr_hqx", "Avid DNxHR HQX (10-bit)"), ("dnxhr_444", "Avid DNxHR 444"),
+                             ("mpeg2_xdcam", "MPEG-2 XDCAM HD 422 (MXF)"), ("mpeg2_imx", "MPEG-2 IMX 50 (MXF)"),
                              ("prores4444a", "ProRes 4444 with alpha (transparent)"), ("vp9a", "VP9 with alpha (transparent)"), ("qtrle", "QuickTime Animation with alpha"), ("png", "PNG sequence with alpha"),
                              ("none", "None — audio only") };
         var encoders = new[] { ("software", "CPU (best compatibility)"), ("nvenc", "NVIDIA NVENC (GPU)"), ("qsv", "Intel Quick Sync (GPU)"), ("amf", "AMD AMF (GPU)") };
-        int[] heights = { 0, 720, 1080, 1440, 2160 };
+        int[] heights = { 0, 576, 720, 1080, 1440, 2160 };
         string ResLabel(int hh) { var t = new ExportSettings { Height = hh }; return hh == 0 ? $"Sequence ({Editor.OutW}×{Editor.OutH})" : $"{t.OutW}×{t.OutH}"; }
 
         void Load(ExportSettings p)
@@ -198,6 +200,7 @@ public partial class MainWindow
             hdr.IsEnabled = !ao; hdr.SelectedIndex = p.Hdr == "hlg" ? 1 : p.Hdr == "pq" ? 2 : 0;
             norm.IsChecked = p.Normalize; norm.IsEnabled = lufs.IsEnabled = p.Audio != "none";
             lufs.SelectedIndex = Math.Max(0, Array.FindIndex(Loudness.Targets, x => Math.Abs(x.lufs - p.Lufs) < 0.01));
+            cc.IsEnabled = Captioning.CcContainer(p.Container) && !ao; cc.IsChecked = p.EmbedCc && cc.IsEnabled;
             busy = false;
             Refresh();
         }
@@ -207,7 +210,9 @@ public partial class MainWindow
             if (codec.SelectedIndex >= 0) o.Video = codecs[codec.SelectedIndex].Item1;
             var enc = encoders.Where(x => x.Item1 == "software" || usable == null || usable.Contains(new ExportSettings { Video = o.Video, Encoder = x.Item1 }.VideoEncoder)).ToList();
             o.Encoder = encoder.SelectedIndex >= 0 && encoder.SelectedIndex < enc.Count ? enc[encoder.SelectedIndex].Item1 : "software";
-            o.Height = res.SelectedIndex >= 0 ? heights[res.SelectedIndex] : 0;
+            int h = res.SelectedIndex >= 0 ? heights[res.SelectedIndex] : 0;
+            if (h != o.Height) o.Width = 0;                                     // a custom raster (IMX 720×576) only from the preset
+            o.Height = h;
             o.ConstantQuality = cq.IsChecked == true;
             o.Quality = (int)quality.Value;
             if (double.TryParse(mbps.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var mb) && mb > 0.1) o.BitrateMbps = mb;
@@ -222,7 +227,7 @@ public partial class MainWindow
             if (o.WantsHdr) { o.TenBit = true; if (!o.Supports10) o.Video = "hevc"; }
             else if (deep.IsEnabled) o.TenBit = deep.IsChecked == true;
             o.Chapters = chapters.IsChecked == true;
-            o.BurnCaptions = burn.IsChecked == true; o.CaptionFile = srt.IsChecked == true;
+            o.BurnCaptions = burn.IsChecked == true; o.CaptionFile = srt.IsChecked == true; o.EmbedCc = cc.IsChecked == true && Captioning.CcContainer(o.Container);
             o.Normalize = norm.IsChecked == true && o.Audio != "none";
             if (lufs.SelectedIndex >= 0) o.Lufs = Loudness.Targets[lufs.SelectedIndex].lufs;
         }
@@ -233,7 +238,7 @@ public partial class MainWindow
             double seqA = Editor.W / (double)Editor.H;
             bool mismatch = o.Aspect > 0 && Math.Abs(o.Aspect - seqA) > 0.02;
             aspectWarn.Visibility = mismatch ? Visibility.Visible : Visibility.Collapsed;
-            string want = o.Aspect < 0.7 ? "9:16" : o.Aspect < 0.9 ? "4:5" : o.Aspect < 1.2 ? "1:1" : "16:9";
+            string want = o.Aspect < 0.7 ? "9:16" : o.Aspect < 0.9 ? "4:5" : o.Aspect < 1.2 ? "1:1" : o.Aspect < 1.5 ? "4:3" : "16:9";
             warnText.Text = $"This preset is {want}; the sequence is {SeqAspectName()}. Switch the format (Ctrl+Z undoes), or export as it is.";
             switchBtn.Tag = want;
             qR.Visibility = o.ConstantQuality ? Visibility.Visible : Visibility.Collapsed; bR.Visibility = o.ConstantQuality ? Visibility.Collapsed : Visibility.Visible;
@@ -271,9 +276,9 @@ public partial class MainWindow
         {
             if (busy || codec.SelectedIndex < 0) return;
             var v = codecs[codec.SelectedIndex].Item1;
-            o.Container = v == "none" ? "wav" : v.StartsWith("dnxhr") || v is "prores" or "prores4444" or "prores4444a" or "qtrle" ? "mov" : v is "vp9" or "vp9a" ? "webm" : v == "png" ? "png"
-                        : o.Container is "wav" or "mp3" or "m4a" or "webm" or "png" ? "mp4" : o.Container;
-            if (v == "none") o.Audio = "pcm"; else if (v == "png") o.Audio = "none"; else if (o.Container == "webm") o.Audio = "opus";
+            o.Container = v == "none" ? "wav" : v.StartsWith("dnxhr") || v is "prores" or "prores4444" or "prores4444a" or "qtrle" ? "mov" : v is "mpeg2_xdcam" or "mpeg2_imx" ? "mxf" : v is "vp9" or "vp9a" ? "webm" : v == "png" ? "png"
+                        : o.Container is "wav" or "mp3" or "m4a" or "webm" or "png" or "mxf" ? "mp4" : o.Container;
+            if (v == "none") o.Audio = "pcm"; else if (v == "png") o.Audio = "none"; else if (o.Container == "webm") o.Audio = "opus"; else if (o.Container == "mxf") o.Audio = "pcm";
             Load(o);
         };
         cq.Checked += (_, _) => Changed(); br.Checked += (_, _) => Changed();
@@ -306,7 +311,7 @@ public partial class MainWindow
     static string SeqAspectName()
     {
         double a = Editor.W / (double)Editor.H;
-        return Math.Abs(a - 16 / 9.0) < 0.02 ? "16:9" : Math.Abs(a - 9 / 16.0) < 0.02 ? "9:16" : Math.Abs(a - 1) < 0.02 ? "1:1" : Math.Abs(a - 0.8) < 0.02 ? "4:5" : $"{Editor.OutW}×{Editor.OutH}";
+        return Math.Abs(a - 16 / 9.0) < 0.02 ? "16:9" : Math.Abs(a - 9 / 16.0) < 0.02 ? "9:16" : Math.Abs(a - 1) < 0.02 ? "1:1" : Math.Abs(a - 0.8) < 0.02 ? "4:5" : Math.Abs(a - 4 / 3.0) < 0.02 ? "4:3" : $"{Editor.OutW}×{Editor.OutH}";
     }
 
     /// <summary>Export from the Publish window (no "publish?" prompt afterwards).</summary>
@@ -351,7 +356,7 @@ public partial class MainWindow
         if (!ClipTagger.Present) missing.AddRange(ClipTagger.Files);
         if (missing.Count == 0) return true;
         string what = (!Whisper.Present ? "• Whisper base — speech to text (about 77 MB, MIT licence)\n" : "") + (!ClipTagger.Present ? "• CLIP ViT-B/32 — scene recognition (about 154 MB, MIT licence)\n" : "");
-        int pick = Alert.Show(owner, $"To describe the video, CutPro listens to the speech and looks at the scenes on this PC — nothing is uploaded. It needs:\n\n{what}\nfrom huggingface.co (downloaded once).",
+        int pick = Alert.Show(owner, $"To describe the video, {AppInfo.Name} listens to the speech and looks at the scenes on this PC — nothing is uploaded. It needs:\n\n{what}\nfrom huggingface.co (downloaded once).",
                               "Download the content models?", AlertKind.Question, "Download", "Use titles and names only", "Cancel");
         if (pick == 2) return false;
         if (pick == 1) return true;

@@ -484,7 +484,7 @@ public partial class MainWindow
         fullWin = new Window
         {
             Owner = this, WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true, Background = Brushes.Black,
-            Left = target.Left, Top = target.Top, Width = target.Width, Height = target.Height, Content = host, Title = "CutPro — full screen",
+            Left = target.Left, Top = target.Top, Width = target.Width, Height = target.Height, Content = host, Title = AppInfo.Name + " — full screen",
         };
         fullWin.PreviewKeyDown += (_, e) =>
         {
@@ -573,7 +573,7 @@ public sealed class DockWindow : Window
     public DockWindow(Window owner, string id, string title, string region, FrameworkElement content, Rect? at)
     {
         PanelId = id; Region = region; this.content = content;
-        Owner = owner; ShowInTaskbar = false; Title = "CutPro — " + title;
+        Owner = owner; ShowInTaskbar = false; Title = AppInfo.Name + " — " + title;
         Icon = owner.Icon;
         SetResourceReference(BackgroundProperty, "B.Surf.Win");
         SetResourceReference(ForegroundProperty, "B.Fg");

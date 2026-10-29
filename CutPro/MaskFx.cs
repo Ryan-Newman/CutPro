@@ -231,6 +231,39 @@ public sealed class MaskFxHost
     public Brush? CutBrush => cutBrush;
     /// <summary>Opacity mask from a transition (iris), used when there is no cut-out.</summary>
     public Brush? Extra;
+    WriteableBitmap? filmOut; byte[]? filmPx;
+    /// <summary>Film Dissolve: punch WriteFilmMask into the picture's own pixels (premultiplied alpha). OpacityMask and a
+    /// shader on Image did not punch holes; a shader on a Rectangle (the probe) did — baked pixels do the same.</summary>
+    public void SetFilm(int lim, bool invert, double left, double top, double w, double h)
+    {
+        if (Img.Effect is FilmEffect) Img.Effect = null;
+        if (cropBox.Effect is FilmEffect) cropBox.Effect = null;
+        if (Img.OpacityMask != null) Img.OpacityMask = null;
+        if (lim < 0) return;
+        if (Img.Source is not BitmapSource src) return;
+        int W = Editor.W, H = Editor.H, sw = src.PixelWidth, sh = src.PixelHeight, stride = sw * 4;
+        if (filmOut == null || filmOut.PixelWidth != sw || filmOut.PixelHeight != sh)
+        { filmOut = new WriteableBitmap(sw, sh, 96, 96, PixelFormats.Pbgra32, null); filmPx = new byte[stride * sh]; }
+        var conv = src.Format == PixelFormats.Pbgra32 || src.Format == PixelFormats.Bgra32 || src.Format == PixelFormats.Bgr32 ? src : new FormatConvertedBitmap(src, PixelFormats.Pbgra32, null, 0);
+        conv.CopyPixels(filmPx, stride, 0);
+        var gray = new byte[W * H]; Transitions.WriteFilmMask(gray, W, H, lim / 64.0);
+        double sx = w / Math.Max(1, sw), sy = h / Math.Max(1, sh);
+        Parallel.For(0, sh, y =>
+        {
+            int fy = (int)Math.Clamp(Math.Floor(top + y * sy), 0, H - 1);
+            for (int x = 0, i = y * stride; x < sw; x++, i += 4)
+            {
+                int fx = (int)Math.Clamp(Math.Floor(left + x * sx), 0, W - 1);
+                byte m = gray[fy * W + fx]; if (invert) m = (byte)(255 - m);
+                if (m == 255) continue;
+                if (m == 0) { filmPx![i] = filmPx[i + 1] = filmPx[i + 2] = filmPx[i + 3] = 0; continue; }
+                filmPx![i] = (byte)(filmPx[i] * m / 255); filmPx[i + 1] = (byte)(filmPx[i + 1] * m / 255);
+                filmPx[i + 2] = (byte)(filmPx[i + 2] * m / 255); filmPx[i + 3] = (byte)(filmPx[i + 3] * m / 255);
+            }
+        });
+        filmOut.WritePixels(new Int32Rect(0, 0, sw, sh), filmPx, stride, 0);
+        if (!ReferenceEquals(Img.Source, filmOut)) Img.Source = filmOut;
+    }
 
     /// <summary>Feathered outline as an opacity mask for a vw×vh element (absolute mapping, so effects/bounds don't stretch it).</summary>
     static Brush Brush(Geometry? area, double vw, double vh, double feather)

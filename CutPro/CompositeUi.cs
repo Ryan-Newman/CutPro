@@ -150,10 +150,10 @@ public partial class MainWindow
         var targets = GradeTargets(c).Where(x => x.Kind is ClipKind.Video or ClipKind.Image).ToList();
         if (c.Pin != null || c.Lens != null)
         {
-            body.Children.Add(new TextBlock { Text = "Turn off the corner pin and lens distortion to twirl, wave, spherize or mesh-warp this clip.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
+            body.Children.Add(new TextBlock { Text = "Turn off the corner pin and lens distortion to twirl, wave, spherize, mesh-warp or repair rolling shutter on this clip.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
             return;
         }
-        var kinds = new ComboBox { ItemsSource = new[] { "None", "Twirl", "Wave", "Spherize (bulge / pinch)", "Mesh warp (drag the points)" }, SelectedIndex = c.Distort == null ? 0 : (int)c.Distort.Kind + 1 };
+        var kinds = new ComboBox { ItemsSource = new[] { "None", "Twirl", "Wave", "Spherize (bulge / pinch)", "Mesh warp (drag the points)", "Rolling shutter" }, SelectedIndex = c.Distort == null ? 0 : (int)c.Distort.Kind + 1 };
         kinds.SelectionChanged += (_, _) =>
         {
             int i = kinds.SelectedIndex;
@@ -165,7 +165,7 @@ public partial class MainWindow
                     else x.Distort = new Distort
                     {
                         Kind = (DistortKind)(i - 1),
-                        Amount = (DistortKind)(i - 1) switch { DistortKind.Twirl => 180, DistortKind.Wave => 3, DistortKind.Spherize => 50, _ => 0 },
+                        Amount = (DistortKind)(i - 1) switch { DistortKind.Twirl => 180, DistortKind.Wave => 3, DistortKind.Spherize => 50, DistortKind.Roll => 15, _ => 0 },
                     };
                 }
             }, "Distort");
@@ -189,6 +189,11 @@ public partial class MainWindow
                 PropRow(c, AnimProp.DistDir, body);
                 PropRow(c, AnimProp.DistSpeed, body);
                 break;
+            case DistortKind.Roll:
+                PropRow(c, AnimProp.DistAmount, body);
+                PropRow(c, AnimProp.DistDir, body);
+                body.Children.Add(new TextBlock { Text = "Undo the skew from a CMOS pan. 0° = the sensor reads top to bottom (phones, most cameras): raise Amount until vertical lines stand up.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 2, 0, 4) });
+                break;
             default:
                 var reset = new Button { Content = "Reset the mesh", Padding = new Thickness(8, 2, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 4) };
                 reset.Click += (_, _) => { ed.Edit(() => { foreach (var x in targets) if (x.Distort != null) x.Distort.Mesh = new double[32]; }, "Mesh Warp"); Pv.InvalidateVisual(); meshOverlay?.InvalidateVisual(); };
@@ -196,7 +201,7 @@ public partial class MainWindow
                 body.Children.Add(new TextBlock { Text = "Pause on the clip and drag the 16 points on the Program monitor: the picture moves with them.", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim });
                 break;
         }
-        if (d.Kind != DistortKind.Mesh)
+        if (d.Kind is not DistortKind.Mesh and not DistortKind.Roll)
         {
             PropRow(c, AnimProp.DistCX, body);
             PropRow(c, AnimProp.DistCY, body);
@@ -270,6 +275,10 @@ public partial class MainWindow
             Slider("Softness", 0, 100, 1, k.Softness, v => Later(x => x.Softness = v), body);
             Slider("Choke", 0, 10, 0.5, k.Choke, v => Later(x => x.Choke = v), body);
             Slider("Soften", 0, 10, 0.5, k.Soften, v => Later(x => x.Soften = v), body);
+            Slider("Left %", 0, 80, 1, k.GarbageL, v => Later(x => x.GarbageL = v), body);
+            Slider("Top %", 0, 80, 1, k.GarbageT, v => Later(x => x.GarbageT = v), body);
+            Slider("Right %", 0, 80, 1, k.GarbageR, v => Later(x => x.GarbageR = v), body);
+            Slider("Bottom %", 0, 80, 1, k.GarbageB, v => Later(x => x.GarbageB = v), body);
             body.Children.Add(new TextBlock { Text = "Removes one brightness (0 = black, 100 = white) — for graphics, light leaks or text filmed on a plain background.",
                                               TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
             return;
@@ -293,6 +302,12 @@ public partial class MainWindow
         Slider("Spill", 0, 100, 1, k.Spill, v => Later(x => x.Spill = v), body);
         Slider("Choke", 0, 10, 0.5, k.Choke, v => Later(x => x.Choke = v), body);
         Slider("Soften", 0, 10, 0.5, k.Soften, v => Later(x => x.Soften = v), body);
+        body.Children.Add(new TextBlock { Text = "Garbage matte — hide lights, stands or the edge of the screen (transparent from each edge).",
+                                          TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 8, 0, 2) });
+        Slider("Left %", 0, 80, 1, k.GarbageL, v => Later(x => x.GarbageL = v), body);
+        Slider("Top %", 0, 80, 1, k.GarbageT, v => Later(x => x.GarbageT = v), body);
+        Slider("Right %", 0, 80, 1, k.GarbageR, v => Later(x => x.GarbageR = v), body);
+        Slider("Bottom %", 0, 80, 1, k.GarbageB, v => Later(x => x.GarbageB = v), body);
         body.Children.Add(new TextBlock { Text = "Keyed by ffmpeg in the preview's decoder and in the export, so both cut out the same pixels. Put the clip on V2 or V3 with the background below it.",
                                           TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
     }

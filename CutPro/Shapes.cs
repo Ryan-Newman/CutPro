@@ -238,6 +238,7 @@ public static class Shapes
         ("Fire", "#FFFF6A1A", "#FFFFD23C"), ("Pin", "#FFE53935", "#FFFFFFFF"), ("Play", "#FFE53935", "#FFFFFFFF"), ("Sparkle", "#FFFFE14A", "#FFFFFFFF"),
         ("Lightning", "#FFFFD23C", "#FFFF8A00"), ("Music", "#FF8E5CFF", "#FFFFFFFF"), ("Smile", "#FFFFD23C", "#FF3A2A10"), ("Alert", "#FFFF9F1A", "#FFFFFFFF"),
         ("Share", "#FF16C2B0", "#FFFFFFFF"), ("Star", "#FFFFC93C", "#FFFFFFFF"),
+        ("Cross", "#FFF2B544", "#FFFFF6E0"),
     };
     /// <summary>A new sticker layer with its art's colours.</summary>
     public static ShapeLayer Sticker(string name, double size = 120)
@@ -300,6 +301,9 @@ public static class Shapes
             case "Share": Add(P("M58,12 L94,46 L58,80 L58,60 C36,60 20,67 6,86 C11,58 27,40 58,38 Z"), 0); break;
             case "Star":
                 Add(Poly(Enumerable.Range(0, 10).Select(i => { double a = -Math.PI / 2 + i * Math.PI / 5, f = i % 2 == 0 ? 48 : 21; return new Point(50 + Math.Cos(a) * f, 53 + Math.Sin(a) * f); }).ToArray()), 0);
+                break;
+            case "Cross":
+                Add(new CombinedGeometry(GeometryCombineMode.Union, new RectangleGeometry(new Rect(42, 6, 16, 88), 4, 4), new RectangleGeometry(new Rect(18, 28, 64, 16), 4, 4)), 0);
                 break;
             default: Add(circle, 0); break;
         }
@@ -427,5 +431,25 @@ public static class GraphicLibrary
           new ShapeLayer { Kind = ShapeKind.Sticker, Sticker = "Sparkle", W = 150, H = 150, Fill = "#FFFFE14A", Fill2 = "#FFFFFFFF", In = ShapeAnim.Spin, InDur = 0.5, Loop = ShapeLoop.Pulse, Out = ShapeAnim.Fade }),
         T("Fire", "Stickers", 3, 30, -20, "", Txt(40, align: "Center"), null,
           new ShapeLayer { Kind = ShapeKind.Sticker, Sticker = "Fire", W = 130, H = 130, Fill = "#FFFF6A1A", Fill2 = "#FFFFD23C", In = ShapeAnim.Grow, InDur = 0.4, Loop = ShapeLoop.Wiggle, Out = ShapeAnim.Fade }),
+        T("Verse lower third", "Gospel", 8, -36, 30, "The Lord is my shepherd; I shall not want.", Txt(36, "#FFF6E4C1", 600, font: "Georgia"), new TextAnim { In = TextIn.FadeWords, InDur = 0.6, Out = TextIn.FadeWords, OutDur = 0.4 },
+          new ShapeLayer { Kind = ShapeKind.Rectangle, X = 280, Y = 18, W = 720, H = 118, Fill = "#E0281C12", Radius = 8, In = ShapeAnim.Draw, InDur = 0.45, Out = ShapeAnim.Fade, OutDur = 0.4 },
+          new ShapeLayer { Kind = ShapeKind.Rectangle, X = -18, Y = 18, W = 9, H = 118, Fill = "#FFF2B544", In = ShapeAnim.Grow, InDur = 0.35, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Sticker, Sticker = "Cross", X = -70, Y = 18, W = 44, H = 44, Fill = "#FFF2B544", Fill2 = "#FFFFF6E0", Above = true, In = ShapeAnim.Pop, Delay = 0.2, InDur = 0.35, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Text, Text = "Psalm 23:1", Style = Txt(22, "#FFF2B544", 700, font: "Georgia"), X = 0, Y = 50, Above = true, In = ShapeAnim.Fade, Delay = 0.35, InDur = 0.4, Out = ShapeAnim.Fade }),
+        T("Verse lower third — gold", "Gospel", 8, -30, 32, "I can do all things through Christ which strengtheneth me.", Txt(32, "#FF1A140C", 600, font: "Georgia"), new TextAnim { In = TextIn.RiseWords, InDur = 0.6, Out = TextIn.FadeWords },
+          new ShapeLayer { Kind = ShapeKind.Rectangle, X = 220, Y = 4, W = 640, H = 96, Radius = 10, Fill = "#FFF6E4C1", Shadow = true, In = ShapeAnim.SlideLeft, InDur = 0.5, Out = ShapeAnim.SlideLeft, OutDur = 0.4 },
+          new ShapeLayer { Kind = ShapeKind.Text, Text = "Philippians 4:13", Style = Txt(20, "#FF8A6A32", 700, font: "Georgia"), X = 0, Y = 48, Above = true, In = ShapeAnim.Fade, Delay = 0.35, InDur = 0.4, Out = ShapeAnim.Fade }),
+        T("Gospel text — incoming", "Gospel", 6, -22, 8, "I am the way, the truth, and the life: no man cometh unto the Father, but by me.", Txt(28, "#FF14161A", 500, font: "Segoe UI"), new TextAnim { In = TextIn.FadeWords, InDur = 0.45 },
+          new ShapeLayer { Kind = ShapeKind.Bubble, X = 0, Y = 16, W = 520, H = 160, Radius = 28, Fill = "#FFEDE6D6", Shadow = true, In = ShapeAnim.Pop, InDur = 0.45, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Text, Text = "John 14:6", Style = Txt(18, "#FF8A6A32", 700), X = 140, Y = 78, Above = true, In = ShapeAnim.Fade, Delay = 0.3, InDur = 0.35, Out = ShapeAnim.Fade }),
+        T("Gospel text — reply", "Gospel", 6, 22, 8, "For by grace are ye saved through faith; and that not of yourselves: it is the gift of God.", Txt(28, "#FFFFFFFF", 500, font: "Segoe UI"), new TextAnim { In = TextIn.FadeWords, InDur = 0.45 },
+          new ShapeLayer { Kind = ShapeKind.Bubble, X = 0, Y = 16, W = 520, H = 160, Radius = 28, Fill = "#FF1A6B3C", Shadow = true, In = ShapeAnim.Pop, InDur = 0.45, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Text, Text = "Ephesians 2:8", Style = Txt(18, "#FFB8E0C4", 700), X = 140, Y = 78, Above = true, In = ShapeAnim.Fade, Delay = 0.3, InDur = 0.35, Out = ShapeAnim.Fade }),
+        T("Scripture card", "Gospel", 8, 0, -4, "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.", Txt(34, "#FF3A2410", 500, "Center", "Georgia", true).With(s => s.Italic = true), new TextAnim { In = TextIn.FadeLines, InDur = 1.0, Out = TextIn.FadeLines },
+          new ShapeLayer { Kind = ShapeKind.Rectangle, X = 0, Y = 8, W = 720, H = 280, Radius = 16, Fill = "#FFF6E4C1", Shadow = true, In = ShapeAnim.Fade, InDur = 0.5, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Sticker, Sticker = "Cross", X = 0, Y = -150, W = 56, H = 56, Fill = "#FFB8860B", Fill2 = "#FFF6E4C1", Above = true, In = ShapeAnim.Pop, Delay = 0.2, InDur = 0.4, Out = ShapeAnim.Fade },
+          new ShapeLayer { Kind = ShapeKind.Text, Text = "John 3:16", Style = Txt(24, "#FFB8860B", 700, "Center", "Georgia"), X = 0, Y = 118, In = ShapeAnim.Fade, Delay = 0.7, InDur = 0.5, Out = ShapeAnim.Fade }),
+        T("Cross", "Stickers", 3, 30, -20, "", Txt(40, align: "Center"), null,
+          new ShapeLayer { Kind = ShapeKind.Sticker, Sticker = "Cross", W = 140, H = 140, Fill = "#FFF2B544", Fill2 = "#FFFFF6E0", Shadow = true, In = ShapeAnim.Pop, InDur = 0.45, Loop = ShapeLoop.Pulse, Out = ShapeAnim.Fade }),
     };
 }

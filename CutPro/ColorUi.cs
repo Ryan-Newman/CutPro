@@ -40,6 +40,14 @@ public partial class MainWindow
         Btn("Reset", "Back to the original colours", () => { foreach (var x in GradeTargets(c)) x.Grade = null; ed.Touch(); BuildInspector(); });
         Btn("Copy", "Copy this clip's colour", () => gradeClipboard = c.Grade?.Clone());
         Btn("Paste", "Paste the copied colour onto the selected clips", () => { if (gradeClipboard == null) return; foreach (var x in GradeTargets(c)) x.Grade = gradeClipboard.Clone(); ed.Touch(); BuildInspector(); });
+        Btn("Save .cube", "Save this grade as a 3D LUT other editors can open", () =>
+        {
+            var lut = Grade.For(c.Grade);
+            if (lut == null) { Alert.Show(this, "This clip has no colour grade to save.", "Lumetri color", AlertKind.Info); return; }
+            var dlg = new SaveFileDialog { Filter = "3D LUT (*.cube)|*.cube", FileName = "grade.cube", Title = "Save grade as .cube" };
+            if (dlg.ShowDialog(this) != true) return;
+            Grade.WriteCube(lut, dlg.FileName);
+        });
         body.Children.Add(bar);
 
         SubHead("Basic correction", body);
@@ -70,7 +78,7 @@ public partial class MainWindow
             {
                 var dlg = new OpenFileDialog { Filter = "3D LUT (*.cube)|*.cube|All files|*.*", Title = "Choose a .cube LUT" };
                 if (dlg.ShowDialog(this) != true) { BuildInspector(); return; }
-                if (Grade.Cube(dlg.FileName) == null) { Alert.Show(this, "That file isn't a .cube LUT CutPro can read.", "Look", AlertKind.Warning); BuildInspector(); return; }
+                if (Grade.Cube(dlg.FileName) == null) { Alert.Show(this, $"That file isn't a .cube LUT {AppInfo.Name} can read.", "Look", AlertKind.Warning); BuildInspector(); return; }
                 pick = dlg.FileName; if (!recentCubes.Contains(pick)) recentCubes.Insert(0, pick);
                 Grade.Forget();
             }

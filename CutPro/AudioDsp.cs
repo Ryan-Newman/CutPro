@@ -35,6 +35,10 @@ public static class AudioDsp
             new("thr", "Threshold (dB)", -60, 0, 0.5, -20), new("ratio", "Ratio", 1, 20, 0.1, 3), new("att", "Attack (ms)", 0.1, 100, 0.1, 10),
             new("rel", "Release (ms)", 10, 1000, 5, 150), new("makeup", "Makeup (dB)", 0, 24, 0.5, 3),
         }),
+        new("Limiter", "Limiter", "Stops peaks going over a ceiling (brick-wall)", new Param[]
+        {
+            new("ceil", "Ceiling (dB)", -12, 0, 0.1, -0.3), new("rel", "Release (ms)", 5, 500, 1, 50),
+        }),
         new("Gate", "Noise gate", "Turns the sound down between words", new Param[]
         {
             new("thr", "Threshold (dB)", -80, 0, 0.5, -45), new("range", "Range (dB)", -80, 0, 1, -30), new("att", "Attack (ms)", 0.1, 50, 0.1, 2),
@@ -143,6 +147,19 @@ public static class AudioDsp
         }
     }
 
+    /// <summary>Brick-wall peak limiter: instant attack to the ceiling, release back. Stereo-linked. ±1 = full scale.</summary>
+    sealed class Limiter : IProc
+    {
+        readonly double ceil, rel; double g = 1;
+        public Limiter(AudioEffect e) { ceil = Lin(Get(e, "ceil")); rel = Coef(Get(e, "rel")); }
+        public void Run(ref double l, ref double r)
+        {
+            double peak = Math.Max(Math.Abs(l), Math.Abs(r)), need = peak > ceil ? ceil / peak : 1;
+            g = need < g ? need : rel * g + (1 - rel) * need;
+            l *= g; r *= g;
+        }
+    }
+
     /// <summary>Noise gate: stereo-linked peak envelope (20 ms fall); open above the threshold, held open, closes to the range.</summary>
     sealed class Gate : IProc
     {
@@ -190,6 +207,7 @@ public static class AudioDsp
                 if (Get(e, "highcut") >= 1000) yield return new Biquad("lp", Get(e, "highcut"), 0.7071);
                 break;
             case "Compressor": yield return new Compressor(e); break;
+            case "Limiter": yield return new Limiter(e); break;
             case "Gate": yield return new Gate(e); break;
             case "DeEsser": yield return new DeEsser(e); break;
             case "Reverb": yield return new Reverb(e); break;

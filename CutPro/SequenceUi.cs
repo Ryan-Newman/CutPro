@@ -80,6 +80,7 @@ public partial class MainWindow
             "9:16" => (s, ExportSettings.Even(s * 16 / 9.0)),
             "1:1" => (s, s),
             "4:5" => (s, ExportSettings.Even(s * 5 / 4.0)),
+            "4:3" => (ExportSettings.Even(s * 4 / 3.0), s),
             _ => (ExportSettings.Even(s * 16 / 9.0), s),
         };
     }

@@ -100,6 +100,12 @@ public static class Exporter
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(W, H, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
             for (int j = 0; j < n; j++)
             {
+                if (w.D.Name == "Film Dissolve")
+                {
+                    Transitions.WriteFilmMask(g, W, H, j / (double)n);
+                    stdin.Write(g, 0, g.Length);
+                    continue;
+                }
                 var dv = new System.Windows.Media.DrawingVisual();
                 using (var dc = dv.RenderOpen())
                 {
@@ -321,6 +327,13 @@ public static class Exporter
                     sb.AppendLine($"[{x}a2]trim=start_frame={k0}:end_frame={k1},setpts=PTS-STARTPTS[{x}ma]");
                     sb.AppendLine($"[{x}b2]trim=start_frame={k0}:end_frame={k1},setpts=PTS-STARTPTS[{x}mb]");
                     sb.AppendLine($"[{x}b3]trim=start_frame={k1},setpts=PTS-STARTPTS[{x}s3]");
+                    int pi = -1;
+                    if (w.D.Name == "Bible Page Turn")
+                    {
+                        var pfile = Gospel.WritePagePng(W, H, Gospel.For(ed), temps);
+                        args.AddRange(new[] { "-loop", "1", "-framerate", fps, "-t", F(Math.Max(0.05, (k1 - k0) / TimeUtil.Fps + 0.05)), "-i", pfile });
+                        pi = inputs++;
+                    }
                     if (alpha)
                     {
                         // transparent background: a select, premultiplied — A·(1 − m) + B·m (B's empty parts must not show A, as in the preview)
@@ -328,13 +341,27 @@ public static class Exporter
                         sb.AppendLine($"[{x}mb]format=yuva444p,premultiply=inplace=1[{x}pb]");
                         sb.AppendLine($"[{mi}:v]format=gray,settb={tb},setpts=N,split=4[{x}k0][{x}k1][{x}k2][{x}k3]");
                         sb.AppendLine($"[{x}k0][{x}k1][{x}k2][{x}k3]mergeplanes=0x00102030:yuva444p[{x}mm]");   // (the mask in every plane, values untouched)
-                        sb.AppendLine($"[{x}pa][{x}pb][{x}mm]maskedmerge,unpremultiply=inplace=1,format={PA}[{x}s2]");
+                        string aTag = $"{x}pa";
+                        if (pi >= 0)
+                        {
+                            sb.AppendLine($"[{pi}:v]scale={W}:{H}:flags=neighbor,format=yuva444p,settb={tb},setpts=N,trim=end_frame={k1 - k0},premultiply=inplace=1[{x}pg]");
+                            sb.AppendLine($"[{x}pa][{x}pg]overlay=eof_action=pass{OV}[{x}pp]");
+                            aTag = $"{x}pp";
+                        }
+                        sb.AppendLine($"[{aTag}][{x}pb][{x}mm]maskedmerge,unpremultiply=inplace=1,format={PA}[{x}s2]");
                     }
                     else
                     {
                         sb.AppendLine($"[{mi}:v]format=gray,settb={tb},setpts=N[{x}mk]");
+                        string aTag = $"{x}ma";
+                        if (pi >= 0)
+                        {
+                            sb.AppendLine($"[{pi}:v]scale={W}:{H}:flags=neighbor,format={P},settb={tb},setpts=N,trim=end_frame={k1 - k0}[{x}pg]");
+                            sb.AppendLine($"[{x}ma][{x}pg]overlay=eof_action=pass{OV}[{x}mp]");
+                            aTag = $"{x}mp";
+                        }
                         sb.AppendLine($"[{x}mb][{x}mk]alphamerge[{x}mba]");
-                        sb.AppendLine($"[{x}ma][{x}mba]overlay=eof_action=pass{OV},format={P}[{x}s2]");
+                        sb.AppendLine($"[{aTag}][{x}mba]overlay=eof_action=pass{OV},format={P}[{x}s2]");
                     }
                     sb.AppendLine((k0 > 0 ? $"[{x}s1]" : "") + $"[{x}s2][{x}s3]concat=n={(k0 > 0 ? 3 : 2)}:v=1:a=0,settb={tb},setpts=N[xo{xn}]");
                     return $"xo{xn++}";
@@ -770,7 +797,7 @@ public static class Exporter
                     // work below, which sees the keyed clip's colours just as the preview's does
                     if (Keyer.Active(c.Key))
                     {
-                        sb.AppendLine(chain + $"{(framed ? "" : $",fps={fps}")},{Keyer.Graph(c.Key!, oh)},split[kc{v}][ks{v}]");
+                        sb.AppendLine(chain + $"{(framed ? "" : $",fps={fps}")},{Keyer.Graph(c.Key!, ow, oh)},split[kc{v}][ks{v}]");
                         sb.AppendLine($"[ks{v}]alphaextract[ka{v}]");
                         if (keyAlpha != null) { sb.AppendLine($"[ka{v}][{keyAlpha}]blend=all_mode=multiply:shortest=1[kn{v}]"); keyAlpha = $"kn{v}"; }
                         else keyAlpha = $"ka{v}";
@@ -1158,7 +1185,12 @@ public static class Exporter
                                                IReadOnlyDictionary<string, Nest.Picture>? nests = null)
     {
         // smart rendering: copies of unchanged stretches, the rest encoded part by part (it calls back here for those, and for a normal export)
-        if (opts != null && SmartRender.Applies(opts)) return await SmartRender.RunAsync(ffmpeg, ed, output, progress, ct, titles, masks, opts, status, nests);
+        if (opts != null && SmartRender.Applies(opts))
+        {
+            var smart = await SmartRender.RunAsync(ffmpeg, ed, output, progress, ct, titles, masks, opts, status, nests);
+            if (smart == null && opts is { EmbedCc: true }) { status?.Report("Embedding closed captions…"); smart = Captioning.EmbedIfNeeded(ffmpeg, ed, output, opts); }
+            return smart;
+        }
         // nested sequences first: their pictures and their sound (the loudness measurement below mixes it)
         if (nests == null && ed.Clips.Any(c => !ed.TrackOff[c.Track] && ed.SeqOf(c) != null))
         {
@@ -1261,6 +1293,7 @@ public static class Exporter
                 opts.GpuReport = cudaOv > 0
                     ? $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU, {cudaOv} composited there"
                     : $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU";
+            if (res == null && opts is { EmbedCc: true }) { status?.Report("Embedding closed captions…"); res = Captioning.EmbedIfNeeded(ffmpeg, ed, output, opts); }
             return res;
         }
         finally { if (surround != null) try { File.Delete(surround); } catch { } }

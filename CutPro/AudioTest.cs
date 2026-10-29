@@ -144,6 +144,13 @@ public static class AudioTest
             er.Clips.Add(new Clip { MediaId = refm.Id, Kind = ClipKind.Audio, Track = 3, Start = 0, Dur = 20 });
             var rr = Mixer.Measure(er, 0, 20);
             Check(Math.Abs(rr.Integrated + 23) <= 0.1, $"EBU Tech 3341 reference (1 kHz, −23 dBFS stereo): {rr.Integrated:0.00} LUFS (−23.0 ± 0.1)");
+            {
+                var liveM = new Loudness.Meter();
+                Mixer.Render(Mixer.Sources(er, Transitions.Compute(er), new()).ToArray(), Mixer.MasterOf(er), 0, 4, (buf, n) => liveM.Add(buf, n, 1 / 32768f));
+                var lv = liveM.Live();
+                Check(Math.Abs(lv.Momentary + 23) <= 0.2 && Math.Abs(lv.ShortTerm + 23) <= 0.2 && Math.Abs(lv.Integrated + 23) <= 0.2,
+                      $"live M/S/I of the EBU 1 kHz: M {lv.Momentary:0.00} S {lv.ShortTerm:0.00} I {lv.Integrated:0.00} (all ≈ −23)");
+            }
 
             // ---- 3. normalization ----
             var eq = new Editor(); eq.Media.Add(voice);
@@ -249,6 +256,8 @@ public static class AudioTest
                 Check(lc50 < -20 && Math.Abs(lc1k) < 0.5 && Math.Abs(mid - 6) < 0.3, $"EQ: low cut 200 Hz takes 50 Hz down {-lc50:0.0} dB, 1 kHz {lc1k:+0.0;-0.0;0.0} dB; mid +6 dB at 1 kHz → {mid:+0.0} dB");
                 double comp = Through(AudioDsp.New("Compressor", ("thr", -20), ("ratio", 4), ("att", 5), ("rel", 100), ("makeup", 0)), 1000, -6) - 6;
                 Check(Math.Abs(comp - (-20 + 14 / 4.0)) < 1, $"compressor −20 dB 4:1: a −6 dBFS tone comes out at {comp:0.0} dBFS (expected {-20 + 14 / 4.0:0.0})");
+                double lim = Through(AudioDsp.New("Limiter", ("ceil", -6), ("rel", 20)), 1000, -1), limQ = Through(AudioDsp.New("Limiter", ("ceil", -6), ("rel", 20)), 1000, -20);
+                Check(Math.Abs((-1 + lim) - (-6)) < 1.2 && Math.Abs(limQ) < 0.3, $"limiter −6 dB ceiling: a −1 dBFS tone comes out at {-1 + lim:0.0} dBFS, a −20 dBFS tone is unchanged ({limQ:+0.0;-0.0;0.0} dB)");
                 double gq = Through(AudioDsp.New("Gate", ("thr", -40), ("range", -30)), 1000, -60), gl = Through(AudioDsp.New("Gate", ("thr", -40), ("range", -30)), 1000, -20);
                 Check(Math.Abs(gq + 30) < 1.5 && Math.Abs(gl) < 0.3, $"noise gate −40 dB, range −30: a quiet tone drops {gq:0.0} dB, a loud one {gl:+0.0;-0.0;0.0} dB");
                 double ds = Through(AudioDsp.New("DeEsser", ("freq", 6000), ("thr", -30), ("amount", 10)), 6000, -10), dl = Through(AudioDsp.New("DeEsser", ("freq", 6000), ("thr", -30), ("amount", 10)), 500, -10);

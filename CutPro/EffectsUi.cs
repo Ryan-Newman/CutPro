@@ -56,6 +56,7 @@ public partial class MainWindow
         Header("Audio Transitions");
         Group("Crossfade");
         foreach (var d in Transitions.AudioDefs) EffectsList.Children.Add(EffectItem(d, d.Name == Transitions.DefaultAudio));
+        BuildTransPresetList();
         BuildPresetList();
     }
 
@@ -146,10 +147,29 @@ public partial class MainWindow
                     dc.DrawEllipse(rg, null, new Point(20, 12), 18, 18);
                     break;
                 case Transitions.Fx.Mask:
-                    dc.DrawRectangle(A, null, frame);
-                    dc.PushClip(Transitions.Shape(d, 0.5, 40, 24));
-                    dc.DrawRectangle(Bb, null, frame);
-                    dc.Pop();
+                    if (d.Name == "Film Dissolve")
+                    {
+                        dc.DrawRectangle(A, null, frame);
+                        var rnd = new Random(4);
+                        for (int i = 0; i < 70; i++)
+                        {
+                            double x = rnd.NextDouble() * 40, y = rnd.NextDouble() * 24;
+                            dc.DrawRectangle(x > 20 ? Bb : A, null, new Rect(x, y, 2.2, 2.2));
+                        }
+                    }
+                    else
+                    {
+                        dc.DrawRectangle(A, null, frame);
+                        if (d.Name == "Bible Page Turn")
+                        {
+                            var page = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(frame), Transitions.Shape(d, 0.5, 40, 24));
+                            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(246, 228, 193)), null, page);
+                            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(184, 134, 11)), null, new CombinedGeometry(GeometryCombineMode.Union, new RectangleGeometry(new Rect(18, 6, 4, 8), 0.5, 0.5), new RectangleGeometry(new Rect(14, 8, 12, 3), 0.5, 0.5)));
+                        }
+                        dc.PushClip(Transitions.Shape(d, 0.5, 40, 24));
+                        dc.DrawRectangle(Bb, null, frame);
+                        dc.Pop();
+                    }
                     break;
                 case Transitions.Fx.Move:
                 {
@@ -160,7 +180,7 @@ public partial class MainWindow
                     {
                         dc.PushTransform(new TranslateTransform(x.Dx * 40 / Editor.W, x.Dy * 24 / Editor.H));
                         dc.PushTransform(new RotateTransform(x.Rot, 20, 12));
-                        dc.PushTransform(new ScaleTransform(Math.Max(0.05, x.S), Math.Max(0.05, x.S), 20, 12));
+                        dc.PushTransform(new ScaleTransform(Math.Max(0.05, x.SX), Math.Max(0.05, x.SY), 20, 12));
                         dc.PushOpacity(x.Op);
                         dc.DrawRectangle(isB ? Bb : A, new Pen(Brushes.White, 0.6), frame);
                         dc.Pop(); dc.Pop(); dc.Pop(); dc.Pop();
@@ -197,15 +217,7 @@ public partial class MainWindow
     /// <summary>Applies a transition (or the defaults) at the selected clips' edit points / the cut nearest the playhead.</summary>
     void ApplyTransitions(bool video, bool audio, string? kind = null)
     {
-        int n;
-        if (kind == null) n = ed.ApplyDefaultTransitions(video, audio);
-        else
-        {
-            // same targets as the default command, with this kind
-            string vOld = S.DefaultVideoTransition, aOld = S.DefaultAudioTransition;
-            if (audio) S.DefaultAudioTransition = kind; else S.DefaultVideoTransition = kind;
-            try { n = ed.ApplyDefaultTransitions(video, audio); } finally { S.DefaultVideoTransition = vOld; S.DefaultAudioTransition = aOld; }
-        }
+        int n = kind == null ? ed.ApplyDefaultTransitions(video, audio) : ed.ApplyTransition(kind, null, null, video, audio);
         SetTask(n > 0 ? $"Added {n} transition{(n == 1 ? "" : "s")} — drag its edges on the timeline to lengthen it; Ctrl+Z undoes"
                       : "No cut near the playhead: park it within 2 s of a cut, select clips, or drag a transition onto a cut", 5000);
     }
@@ -253,10 +265,61 @@ public partial class MainWindow
             notes.Add(def.Help + ".");
             foreach (var n in notes) body.Children.Add(new TextBlock { Text = n, Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
         }
+        var save = new Button { Content = "Save as Transition Preset…", Margin = new Thickness(0, 10, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 3, 10, 3) };
+        save.Click += (_, _) => SaveTransPreset(tr);
+        body.Children.Add(save);
         var del = new Button { Content = "Delete transition", Margin = new Thickness(0, 10, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 3, 10, 3) };
         del.Click += (_, _) => ed.DeleteSelection(false);
         body.Children.Add(del);
         return true;
+    }
+
+    void SaveTransPreset(Transition tr)
+    {
+        var name = new TextBox { Text = tr.Kind, Margin = new Thickness(0, 10, 0, 0) };
+        name.Loaded += (_, _) => { name.Focus(); name.SelectAll(); };
+        if (Alert.Show(this, "Name this transition (type, duration and alignment). It shows in the Effects panel.", "Save as Transition Preset",
+                       AlertKind.Question, new[] { "Save", "Cancel" }, name) != 0) return;
+        if (name.Text.Trim().Length == 0) return;
+        TransPresets.Add(new TransPreset { Name = name.Text.Trim(), Kind = tr.Kind, Dur = tr.Dur, Align = tr.Align });
+        BuildEffectsList();
+        SetTask($"Transition preset “{name.Text.Trim()}” saved", 3000);
+    }
+
+    void BuildTransPresetList()
+    {
+        Header("Transition presets");
+        var note = new TextBlock { Text = "Double-click to apply at the cut nearest the playhead. Effect Controls ▸ Save as Transition Preset… adds your own.", FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 0, 8, 4) };
+        note.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
+        EffectsList.Children.Add(note);
+        foreach (var p in TransPresets.All)
+        {
+            var row = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 3, 6, 3), Margin = new Thickness(0, 1, 0, 1), Cursor = Cursors.Hand, Background = Brushes.Transparent,
+                                   ToolTip = $"{p.Kind}, {p.Dur:0.###} s" };
+            var dp = new DockPanel();
+            dp.Children.Add(new TextBlock { Text = p.Name, VerticalAlignment = VerticalAlignment.Center });
+            if (!p.BuiltIn)
+            {
+                var del = new Button { Content = "", ToolTip = "Delete this preset", FontSize = 9, Width = 20, Height = 18 };
+                del.SetResourceReference(StyleProperty, "Icon");
+                del.Click += (_, e) => { TransPresets.Remove(p); BuildEffectsList(); e.Handled = true; };
+                DockPanel.SetDock(del, Dock.Right); dp.Children.Insert(0, del);
+            }
+            row.Child = dp;
+            row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "B.Hover");
+            row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+            row.MouseLeftButtonDown += (_, e) =>
+            {
+                if (e.ClickCount == 2)
+                {
+                    bool audio = Transitions.Get(p.Kind).Fx == Transitions.Fx.Audio;
+                    int n = ed.ApplyTransition(p.Kind, p.Dur, p.Align, !audio, audio);
+                    SetTask(n > 0 ? $"“{p.Name}” on {n} cut{(n == 1 ? "" : "s")}" : "No cut near the playhead", 4000);
+                }
+            };
+            EffectsList.Children.Add(row);
+        }
+        void Header(string text) => EffectsList.Children.Add(new TextBlock { Text = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 10, 0, 4) });
     }
 
     string ClipName(Clip c) => c.Kind == ClipKind.Text ? $"\"{c.Text.Split('\n')[0]}\"" : ed.MediaOf(c)?.Name ?? "clip";

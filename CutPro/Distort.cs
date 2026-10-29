@@ -8,11 +8,11 @@ using System.Windows.Media.Media3D;
 
 namespace CutPro;
 
-public enum DistortKind { Twirl, Wave, Spherize, Mesh }
+public enum DistortKind { Twirl, Wave, Spherize, Mesh, Roll }
 
 /// <summary>A distortion of a clip's picture (null = none; not together with a corner pin or lens distortion): twirl (rotation that fades out
-/// over a radius), wave (a travelling sine displacement), spherize (bulge / pinch inside a radius) or a 4 × 4 mesh warp (drag the points on the
-/// monitor).</summary>
+/// over a radius), wave (a travelling sine displacement), spherize (bulge / pinch inside a radius), a 4 × 4 mesh warp (drag the points on the
+/// monitor), or rolling-shutter repair (row delay from a CMOS pan).</summary>
 public sealed class Distort
 {
     public DistortKind Kind { get; set; }
@@ -43,7 +43,8 @@ public static class Distorts
     public static readonly AnimProp[] TwirlProps = { AnimProp.DistAmount, AnimProp.DistRadius, AnimProp.DistCX, AnimProp.DistCY };
     public static readonly AnimProp[] WaveProps = { AnimProp.DistAmount, AnimProp.DistWave, AnimProp.DistDir, AnimProp.DistSpeed, AnimProp.DistCX, AnimProp.DistCY };
     public static readonly AnimProp[] SpherizeProps = { AnimProp.DistAmount, AnimProp.DistRadius, AnimProp.DistCX, AnimProp.DistCY };
-    public static IEnumerable<AnimProp> PropsOf(DistortKind k) => k switch { DistortKind.Wave => WaveProps, DistortKind.Spherize => SpherizeProps, DistortKind.Twirl => TwirlProps, _ => Array.Empty<AnimProp>() };
+    public static readonly AnimProp[] RollProps = { AnimProp.DistAmount, AnimProp.DistDir };
+    public static IEnumerable<AnimProp> PropsOf(DistortKind k) => k switch { DistortKind.Wave => WaveProps, DistortKind.Spherize => SpherizeProps, DistortKind.Twirl => TwirlProps, DistortKind.Roll => RollProps, _ => Array.Empty<AnimProp>() };
     public static bool Animated(Clip c) => Active(c) && c.Distort!.Kind != DistortKind.Mesh && Anim.AnyAnimated(c, PropsOf(c.Distort.Kind));
     /// <summary>The distortion at timeline time t (keyframes / formulas on amount, radius, centre, wave).</summary>
     public static Distort At(Clip c, double t)
@@ -117,6 +118,15 @@ public static class Distorts
                 string Amp = expr != null ? $"(({expr(AnimProp.DistAmount)})/100*{h})" : F(amp);
                 string Spd = expr != null ? $"({expr(AnimProp.DistSpeed)})" : F(speed);
                 pos = $"st(0,({Amp})*sin(2*PI*((X*({Nx})+Y*({Ny}))*({InvL})-({Spd})*T)));st(4,X-({Ny})*ld(0));st(5,Y+({Nx})*ld(0))";
+                break;
+            }
+            case DistortKind.Roll:
+            {
+                // CMOS readout delay along the scan axis (0° = top→bottom, shear sideways): row y was captured later, so a pan skews it — undo that shear
+                string K = expr != null ? $"(({expr(AnimProp.DistAmount)})/100*{w - 1})" : F(Math.Clamp(d.Amount, -50, 50) / 100.0 * (w - 1));
+                string Nx = expr != null ? $"cos(({expr(AnimProp.DistDir)})*PI/180)" : F(Math.Cos(d.Direction * Math.PI / 180));
+                string Ny = expr != null ? $"sin(({expr(AnimProp.DistDir)})*PI/180)" : F(Math.Sin(d.Direction * Math.PI / 180));
+                pos = $"st(0,{Nx});st(1,{Ny});st(2,({K})*((X*ld(1)+Y*ld(0))/(({w - 1})*ld(1)+({h - 1})*ld(0)+0.0001)-0.5));st(4,X-ld(0)*ld(2));st(5,Y-ld(1)*ld(2))";
                 break;
             }
             default:
@@ -204,6 +214,14 @@ float4 main(float2 uv : TEXCOORD) : COLOR
     float4 ry = float4(dot(tx, Y0), dot(tx, Y1), dot(tx, Y2), dot(tx, Y3));
     return Pick(x - float2(dot(ty, rx), dot(ty, ry)));
 }",
+        [DistortKind.Roll] = @"
+float4 main(float2 uv : TEXCOORD) : COLOR
+{
+    float2 x = uv * sz.xy - hc.xy;
+    float2 n = p.xy;
+    float t = (x.x * n.y + x.y * n.x) / max((sz.x - 1) * n.y + (sz.y - 1) * n.x, 0.0001) - 0.5;
+    return Pick(x - n * p.z * t);
+}",
     };
     static readonly Dictionary<DistortKind, PixelShader?> shaders = new();
     public static string? CompileError;
@@ -250,6 +268,12 @@ public sealed class DistortEffect : ShaderEffect
                 var (nx, ny, invL, amp, speed) = Distorts.WaveOf(d, w, h);
                 SetValue(Cs[2], new Point4D(nx, ny, invL, amp));
                 SetValue(Cs[3], new Point4D(speed * tau, 0, 0, 0));
+                break;
+            }
+            case DistortKind.Roll:
+            {
+                double a = d.Direction * Math.PI / 180, k = Math.Clamp(d.Amount, -50, 50) / 100.0 * (w - 1);
+                SetValue(Cs[2], new Point4D(Math.Cos(a), Math.Sin(a), k, 0));
                 break;
             }
             default:

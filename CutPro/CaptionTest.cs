@@ -11,7 +11,7 @@ namespace CutPro;
 /// - Whisper with timestamps on synthesized speech (Windows SAPI) with known sentence starts, a long silence and a tone: words (WER), language,
 ///   each sentence's first caption within 0.6 s of where it is said, nothing captioned in the silence / tone, listening speed;
 /// - cutting into captions: line length (characters and measured width), lines, seconds on screen, no overlaps, on frames, short phrases;
-/// - SRT / WebVTT out and back in, files with tags / cue settings / hours;
+/// - SRT / WebVTT out and back in, files with tags / cue settings / hours; CEA-608 SCC round trip and mux into MOV / MP4 (c608);
 /// - on the timeline: caption titles on a free track (V3, or V2 when V3 is taken), one undo step;
 /// - burned in: preview vs export of captions (the export stitches a track's captions into one input) incl. a fading one (the title path),
 ///   not burned in = the picture without them, 300 captions export in reasonable time.</summary>
@@ -156,6 +156,28 @@ public static class CaptionTest
                   "a WebVTT file with a note, cue settings, voice / bold tags, hours and short milliseconds");
             var inr = Captioning.InRange(cues, 5, 20);
             Check(inr.All(c => c.Start >= 0 && c.End <= 15 + 1e-9) && inr.Count > 0, $"In 5 s to Out 20 s: {inr.Count} captions, timed from 0");
+            var hello = new Cue(1, 3.5, "Hello church");
+            var scc = Captioning.ToScc(new[] { hello });
+            Check(scc.StartsWith("Scenarist_SCC V1.0") && scc.Contains("9420") && scc.Contains("942F", StringComparison.OrdinalIgnoreCase)
+                  && Captioning.SccText(scc).Replace(" ", "").Contains("Hellochurch", StringComparison.OrdinalIgnoreCase),
+                  "SCC: pop-on 608, Hello church round-trips");
+            var ccVid = Path.Combine(dir, "ccsrc.mp4");
+            if (!File.Exists(ccVid)) Run(ff, $"-y -v error -f lavfi -i testsrc2=s=640x360:r=30:d=6 -c:v libx264 -pix_fmt yuv420p \"{ccVid}\"");
+            foreach (var (cont, ext, want) in new[] { ("mov", ".mov", "eia_608"), ("mp4", ".mp4", "eia_608") })
+            {
+                var f = Path.Combine(dir, "cc" + ext); File.Copy(ccVid, f, true);
+                var mux = Captioning.MuxCc(ff, f, new[] { hello }, cont);
+                Check(mux == null && File.Exists(f), $"mux CEA-608 into {cont.ToUpperInvariant()}" + (mux == null ? "" : ": " + mux));
+                if (mux != null) continue;
+                var probe = Probe(ff, f);
+                Check(probe.Contains(want, StringComparison.OrdinalIgnoreCase) || probe.Contains("c608", StringComparison.OrdinalIgnoreCase),
+                      $"{cont}: file has a closed-caption track");
+                var dumped = Path.Combine(dir, "cc_" + cont + ".scc");
+                Run(ff, $"-y -v error -i \"{f}\" -c:s copy \"{dumped}\"");
+                if (File.Exists(dumped))
+                    Check(Captioning.SccText(File.ReadAllText(dumped)).Replace(" ", "").Contains("Hellochurch", StringComparison.OrdinalIgnoreCase),
+                          $"{cont}: dumped SCC still says Hello church");
+            }
 
             // ---------- 4. on the timeline ----------
             var fgv = Path.Combine(dir, "fg50.mp4");
@@ -309,4 +331,11 @@ public static class CaptionTest
     }
 
     static void Run(string ff, string args) { using var p = Process.Start(new ProcessStartInfo(ff, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true })!; p.StandardError.ReadToEnd(); p.WaitForExit(); }
+    static string Probe(string ff, string file)
+    {
+        var psi = new ProcessStartInfo(ff) { RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var a in new[] { "-hide_banner", "-i", file }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!; var o = p.StandardError.ReadToEnd(); p.WaitForExit();
+        return o;
+    }
 }

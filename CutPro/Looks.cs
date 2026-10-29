@@ -96,7 +96,7 @@ public static class Looks
     /// matte, as the export does.</summary>
     public static string DecoderGraph(Clip c, int w, int h, bool srcAlpha = false, bool pin = true)
     {
-        var g = Keyer.DecoderGraph(c.Key, ColourGraph(c, h), h);
+        var g = Keyer.DecoderGraph(c.Key, ColourGraph(c, h), w, h);
         if (srcAlpha && g != "")
             g = Keyer.Active(c.Key)
                 ? $"split[sa][sb];[sa]alphaextract[sx];[sb]format=gbrp,{g},split[sk][sl];[sl]alphaextract[sy];[sy][sx]blend=all_mode=multiply[sz];[sk][sz]alphamerge,format=rgba"

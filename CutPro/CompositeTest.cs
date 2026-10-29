@@ -143,6 +143,8 @@ public static class CompositeTest
             var ck = V(mGr, 1, t0, 1, 1); ck.Key = new ChromaKey { Color = "#00B140", Tolerance = 35, Softness = 25, Spill = 60 };
             double keyT = t0 + 0.5;
             cases.Add(("chroma key", keyT, 32)); t0 += 1;
+            var gm = V(mGr, 1, t0, 1, 1); gm.Key = new ChromaKey { Color = "#00B140", Tolerance = 35, Softness = 25, Spill = 60, GarbageL = 40, GarbageR = 15 };
+            cases.Add(("garbage matte", t0 + 0.5, 32)); t0 += 1;
             var all = V(mGr, 1, t0, 1, 2); all.Key = new ChromaKey { Color = "#00B140", Tolerance = 40, Softness = 20, Spill = 80, Choke = 1, Soften = 1.5 };
             all.Toon = ToonStyle.Preset(ToonMode.Cartoon); all.Grade = new ColorGrade { Contrast = 20, Saturation = 120 }; all.FlipH = true; all.CropB = 20; all.Blend = BlendMode.Screen; all.Scale = 85;
             cases.Add(("key + look + grade + flip + crop + Screen", t0 + 0.5, 30)); t0 += 1;

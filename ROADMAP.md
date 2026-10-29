@@ -1,11 +1,11 @@
-# CutPro roadmap — features the major editors have that CutPro doesn't (yet)
+# VEdiT roadmap — features the major editors have that this editor doesn't (yet)
 
 Compiled from Adobe Premiere Pro, DaVinci Resolve, Final Cut Pro, Avid Media Composer, VEGAS Pro, Kdenlive / Shotcut
 and CapCut / Filmora (2026 versions). **Editors:** P Premiere · R Resolve · F Final Cut · A Avid · V VEGAS · K Kdenlive/Shotcut · C CapCut/Filmora.
-**Effort** for CutPro's architecture (WPF preview + ffmpeg export, see Agent.md): **S** ≤ 1 session · **M** 2–3 sessions · **L** larger / needs a new subsystem.
-"Partial" = CutPro has part of it.
+**Effort** for VEdiT's architecture (WPF preview + ffmpeg export, see Agent.md): **S** ≤ 1 session · **M** 2–3 sessions · **L** larger / needs a new subsystem.
+"Partial" = VEdiT has part of it.
 
-## What CutPro has today (for reference)
+## What VEdiT has today (for reference)
 Import through ffmpeg (MKV/MP4/MOV, H.264/HEVC 4K 10-bit/VP9, rotated phone video, FLAC/Opus/WAV, images) · project bin with thumbnails, offline
 detection · up to 32 video + 32 audio tracks per sequence (names, locks, heights, hide/mute/solo) · **audio waveforms, Audio Track Mixer (faders, pan, mute, solo, master, peak meters), loudness (BS.1770 meter, normalize on export, match clips)** · select + razor tools, Add Edit, delete / ripple delete, lift / extract, in/out marks, ripple
 trim (Q/W), link/unlink, snapping, marquee, gap selection, undo/redo · audio-clock playback with hardware decoding and a scrub cache · motion
@@ -20,7 +20,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## Suggested order (most value for the effort first)
 1. AI voice isolation / upscaling / interpolation models (ask first), VST3 hosting. (Every "extra high" item is done, face blur included. Sync lock, track targeting, live distort keyframes, the Markers list, HDR output, DNxHR, glitch / VHS and 4-point fit-to-fill are done.)
 2. **Max-effort items**: GPU export compositing, HDR output and DNxHR are done.
-3. Morph cut, film dissolve, 3D transitions.
+3. Remaining S/M items (extra blend modes, effect reorder, ACES, split panels, screen/webcam, stock browser, …).
 
 ## 1. Project, media and sequences
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -62,13 +62,13 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## 3. Effects, compositing and motion graphics
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
-| More transitions: zoom, slide (one shot over the other), clock wipe, morph cut, film dissolve, 3D (cube spin, page peel), transition presets | all | done (29): dissolve, dips, wipes, push, iris (xfade) + Clock Wipe, Diagonal Wipe, Venetian Blinds, Inset, Iris Box / Diamond, Barn Doors ×2 (shape masks) + Slide ×4, Cross Zoom, Zoom In / Out, Spin In / Away (moved clips); not yet morph cut, film dissolve, 3D, presets | M |
+| More transitions: zoom, slide (one shot over the other), clock wipe, morph cut, film dissolve, 3D (cube spin, page peel), transition presets | all | done (33): dissolve, dips, Film Dissolve (4 px Bayer mask, preview = export 30–33 dB), Morph Cut (zoom-match dissolve, not optical flow), wipes, push, iris + Clock Wipe, Diagonal Wipe, Venetian Blinds, Inset, Iris Box / Diamond, Barn Doors ×2 (shape masks) + Slide ×4, Cross Zoom, Zoom In / Out, Spin In / Away, Cube Spin (2.5D), Page Peel; Effects panel ▸ Transition presets (built-ins + Save as Transition Preset…) | M |
 | Blend modes (multiply, screen, overlay, add, …) | P R F V K C | done: 19 per-channel modes (Opacity → Blend mode; preview = ps_2_0 shader over a brush of the tracks below, export = lut2, one formula); not yet Dissolve, Darker / Lighter Color, Hue / Saturation / Color / Luminosity | M |
-| Crop, flip / mirror, anchor point, corner pin, distort | all | done: crop (keyframable sides, edge feather), horizontal / vertical flip, anchor point (keyframable pivot), corner pin (keyframable corners, drag them on the monitor; preview = a perspective shader equal to the export's ffmpeg perspective, keyframes = per-frame expressions), twirl / wave / spherize / 4 × 4 mesh warp (Effect Controls ▸ Distort, mesh points on the monitor; amount / radius / centre / wave keyframable; export geq = the preview's shader), lens distortion (keyframable; preview shader = lenscorrection) | S–M |
+| Crop, flip / mirror, anchor point, corner pin, distort | all | done: crop (keyframable sides, edge feather), horizontal / vertical flip, anchor point (keyframable pivot), corner pin (keyframable corners, drag them on the monitor; preview = a perspective shader equal to the export's ffmpeg perspective, keyframes = per-frame expressions), twirl / wave / spherize / 4 × 4 mesh warp / rolling shutter (Effect Controls ▸ Distort, mesh points on the monitor; amount / radius / centre / wave keyframable; export geq = the preview's shader), lens distortion (keyframable; preview shader = lenscorrection) | S–M |
 | Adjustment layers | P R V K | done: Opacity (keyframes), Gaussian blur, Lumetri (grade, look, curves, wheels, vignette) and fades applied to everything below on V3 / V2 (preview = a ps_2_0 LUT shader over the tracks below, export = lut3d on the same 17³ cube); not yet masks, looks, keys or transforms on an adjustment layer | M |
-| Chroma key (green screen), luma key, spill suppression | all | done: Ultra key (green / blue screen, eyedropper, auto colour, tolerance, softness, spill, choke, soften) and luma key (black / white backgrounds) — ffmpeg in the preview's decoder and the export; not yet garbage matte, matte view | M |
+| Chroma key (green screen), luma key, spill suppression | all | done: Ultra key (green / blue screen, eyedropper, auto colour, tolerance, softness, spill, choke, soften, garbage matte from each edge) and luma key (black / white backgrounds) — ffmpeg in the preview's decoder and the export; not yet matte view | M |
 | Track matte key from any clip (video as matte) | P R F V | done: any video / picture as a brightness or alpha matte, reveal or cut-out, for everything below it (plus text and object masks) | M |
-| Stabilization (warp stabilizer), rolling-shutter repair | P R F V K C | done: Effect Controls → Stabilize (smooth motion / tripod, smoothness, shakiness, zoom in / zoom as needed / show edges) — vid.stab in two passes, rendered in the background like speed changes, speed-changed and reversed clips too; preview and export read the same file; not yet rolling-shutter repair | M |
+| Stabilization (warp stabilizer), rolling-shutter repair | P R F V K C | done: Effect Controls → Stabilize (smooth motion / tripod, smoothness, shakiness, zoom in / zoom as needed / show edges) — vid.stab in two passes, rendered in the background like speed changes, speed-changed and reversed clips too; preview and export read the same file. Rolling shutter: Distort → Rolling shutter (scan-axis shear, preview shader = export geq) | M |
 | Attach titles / graphics / effects to a tracked object (point / planar tracking) | P R F V C | done: Effect Controls ▸ Motion ▸ Attach to object… (position, or position and size) — the object's path baked into keys, Update after re-tracking, Detach; effects follow objects through object masks | M |
 | Effect stack: reorder, enable/disable, presets, copy between clips | all | partial: effect presets (Save Preset…, built-ins, Effects panel, drag onto clips), copy between clips (Paste Attributes), audio effects move up / down, on / off; the video chain keeps its fixed (parity) order | M |
 | Generators: colour matte, solid, gradient, noise, bars & tone, countdown | all | done: File ▸ New Item ▸ Colour Matte, Gradient (linear / radial), Bars and Tone (SMPTE HD bars + reference tone), Counting Leader (8 … 2, beep at 2) — rendered once to media files, editable | S |
@@ -98,7 +98,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
 | Basic correction: exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, vibrance | all | done: the whole grade bakes into one 33³ LUT (preview = lut3d arithmetic in C#, export = `lut3d`) | M |
-| LUT import (.cube), creative looks | all | done: 10 built-in looks + .cube files with intensity; no .cube export of a grade from the UI yet | S |
+| LUT import (.cube), creative looks | all | done: 10 built-in looks + .cube files with intensity; Effect Controls ▸ Lumetri ▸ Save .cube (the same 33³ LUT preview and export use) | S |
 | Curves (RGB, hue vs sat, luma vs sat), colour wheels (lift / gamma / gain) | all | done: RGB + R/G/B curves, lift / gamma / gain wheels; not yet hue vs sat / luma vs sat (need per-pixel HSL, outside a 3D LUT only partly) | M |
 | Secondary correction: HSL qualifier, power windows | P R F A V | done: Lumetri ▸ HSL Secondary (hue / saturation / luma ranges with softness, eyedropper, skin / sky / leaves, show mask, invert; correction baked into the LUT) and power windows (object mask effect "Colour-correct object / background" — tracked shapes) | M |
 | Scopes: waveform, vectorscope, histogram, RGB parade | all | done (Lumetri Scopes side view) | S–M |
@@ -109,9 +109,9 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
 | Audio track mixer: faders, pan, solo, mute, master bus, peak meters | all | done: Audio Track Mixer side view + M/S in the track headers; `Mixer.Mix` is the one mixer (playback, meters, loudness), export = the same math in ffmpeg (checked sample by sample). Automation done: fader / balance keyframes per track (Write records them while playing — touch; bands on the timeline; export = the same 240-sample block gains). Master automation and submixes done (up to 4 buses: routing per track, effects, fader, pan, mute, automation; export = the mixer's own render of each bus) | M |
-| Loudness meter (LUFS) and normalize to a target (−14 YouTube / −23 broadcast) | P R F A V | done: BS.1770 integrated loudness + true peak in-app (= ffmpeg ebur128 within 0.05 LU), export normalization (one gain + 4× oversampled limiter only when peaks need it), Match Clips. Next: live momentary / short-term LUFS meter, loudness range | S |
+| Loudness meter (LUFS) and normalize to a target (−14 YouTube / −23 broadcast) | P R F A V | done: BS.1770 integrated loudness + true peak in-app (= ffmpeg ebur128 within 0.05 LU), export normalization (one gain + 4× oversampled limiter only when peaks need it), Match Clips; mixer shows live M 400 ms / S 3 s / I while playing. Next: loudness range | S |
 | Audio crossfades: exponential fade, crossfade over gaps | all | done: constant power / constant gain crossfades (afade qsin / tri, preview mixer uses the same curve) | S |
-| Audio effects: parametric EQ, compressor, limiter, de-esser, reverb, pitch shift, noise gate | all | done: parametric EQ, compressor, noise gate, de-esser, hum removal, reverb (Freeverb), pitch shift (rubberband, formants kept or not, kept in sync), Voice clean-up / Room / Hall presets — on clips, tracks and submixes (pre-fader, reverb tails ring on past the clips); one C# chain run live by the mixer and rendered for the export; not yet a limiter as an effect | M–L |
+| Audio effects: parametric EQ, compressor, limiter, de-esser, reverb, pitch shift, noise gate | all | done: parametric EQ, compressor, limiter (brick-wall ceiling), noise gate, de-esser, hum removal, reverb (Freeverb), pitch shift (rubberband, formants kept or not, kept in sync), Voice clean-up / Room / Hall presets — on clips, tracks and submixes (pre-fader, reverb tails ring on past the clips); one C# chain run live by the mixer and rendered for the export | M–L |
 | Channel mapping, stereo / mono / 5.1 | P R A V | done: Audio ▸ Channels per clip (left or right on both, mono, swap), export Stereo / Mono / 5.1 (each audio track's header ▸ 5.1 Output: front, centre, surround, LFE); monitoring stays stereo | M |
 | VST3 / AU plugin hosting | P R F V (K) | | L |
 | Audio scrubbing, sample-accurate audio edits | P R F A V | done: sound under the playhead while dragging (Shift+S), Sequence ▸ Audio Time Units (audio-only clips trim / move / cut at single samples, deeper zoom) | M |
@@ -120,11 +120,11 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## 7. Export and delivery
 | Feature | Who has it | Notes for CutPro | Effort |
 |---|---|---|---|
-| Export settings: DNxHR, 10-bit (HEVC Main10 / ProRes 4444) | all | done: resolution, frame rate, CRF / bitrate, H.264, HEVC, AV1, VP9, ProRes 422 HQ / 4444, DNxHR HQ / HQX / 444 (ExportSettings.cs); 10-bit done (export dialog ▸ Colour ▸ 10-bit) | M |
-| Presets: broadcast (XDCAM / IMX), podcast (audio loudness) | P R F V C | done: YouTube 1080p/4K/Shorts, TikTok, Reels, IG feed, Facebook, X, LinkedIn, Vimeo, HEVC, AV1, ProRes, WebM, WAV, MP3 | S |
+| Export settings: DNxHR, 10-bit (HEVC Main10 / ProRes 4444) | all | done: resolution, frame rate, CRF / bitrate, H.264, HEVC, AV1, VP9, ProRes 422 HQ / 4444, DNxHR HQ / HQX / 444, MPEG-2 XDCAM HD 422 / IMX 50 MXF (ExportSettings.cs); 10-bit done (export dialog ▸ Colour ▸ 10-bit) | M |
+| Presets: broadcast (XDCAM / IMX), podcast (audio loudness) | P R F V C | done: YouTube 1080p/4K/Shorts, TikTok, Reels, IG feed, Facebook, X, LinkedIn, Vimeo, HEVC, AV1, ProRes, WebM, DNxHR, XDCAM HD 422 / IMX 50 MXF, Podcast −16 LUFS WAV, WAV, MP3 | S |
 | Export a frame (PNG), image sequence, GIF | all | done: In/Out range, audio only (WAV / MP3); the publish window already grabs the playhead frame as a thumbnail | S |
 | Alpha-channel export (ProRes 4444, QT-RLE, PNG sequence, WebM VP9 alpha) | P R F A V | done: presets ProRes 4444 with alpha, WebM VP9 with alpha, QuickTime Animation, PNG sequence — transparent where nothing is drawn | S |
-| Captions: SRT / VTT sidecar, burn-in, embedded 608/708 | all | done: burn-in + .srt beside the export, SRT / VTT export / import; embedded 608/708 not yet | S |
+| Captions: SRT / VTT sidecar, burn-in, embedded 608/708 | all | done: burn-in + .srt beside the export, SRT / VTT export / import; CEA-608 embedded in MOV (c608) and MXF (SMPTE 436M ANC, 608/708 CDP); MP4 remuxed as QuickTime so the same c608 track fits | S |
 | Render queue / batch export, background export while editing | P R F A V | done: export dialog ▸ Add to Queue… renders a snapshot of the sequence in the background while editing goes on (Render Queue panel: progress, cancel, pause, render again, show the file) | M |
 | Render previews / timeline render cache, smart rendering (no re-encode of unchanged parts) | P R F A V | both done. Smart render: export dialog ▸ Smart render copies whole GOPs of H.264 / HEVC where one plain clip shows. Render previews: Sequence ▸ Render Previews writes a lossless FFV1 picture of the sequence; Playback Uses Render Previews plays that file (sound stays the live mixer) until an edit, then the live composite until the new one is ready. A bar on the ruler is solid when the preview is ready | L |
 | Upload: resumable after a network drop, upload queue in the background, post analytics | P R F C | done: direct upload to YouTube, TikTok, Instagram, Facebook, X, LinkedIn, Pinterest, Vimeo (+ Threads share), auto-upload after export | M |

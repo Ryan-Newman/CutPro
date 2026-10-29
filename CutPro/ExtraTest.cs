@@ -696,6 +696,7 @@ public static partial class ExtraTest
             ("wave (2 %, 30°) at 0.5 s", new Distort { Kind = DistortKind.Wave, Amount = 2, Wavelength = 20, Direction = 30, Speed = 1.3 }, 0.5),
             ("wave at 0.9 s (moved on)", new Distort { Kind = DistortKind.Wave, Amount = 2, Wavelength = 20, Direction = 30, Speed = 1.3 }, 0.9),
             ("mesh warp (3 points moved)", new Distort { Kind = DistortKind.Mesh, Mesh = mesh }, 0.5),
+            ("rolling shutter 20 %", new Distort { Kind = DistortKind.Roll, Amount = 20 }, 0.5),
         };
         for (int i = 0; i < cases.Length; i++)
             ed.Clips.Add(new Clip { MediaId = pm.Id, Kind = ClipKind.Image, Track = Tracks.V1, Start = i, Dur = 1, Distort = cases[i].d });

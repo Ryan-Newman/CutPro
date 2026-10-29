@@ -37,6 +37,7 @@ public sealed class AudioOut : IDisposable
     readonly float[][] meterPk = Enumerable.Range(0, Ring).Select(_ => new float[Mixer.Slots]).ToArray();
     readonly double[] meterT = new double[Ring];
     volatile int meterW;
+    readonly Loudness.Meter liveMeter = new();
     static readonly int HdrSize = Marshal.SizeOf<WaveHdr>(), FlagsOff = (int)Marshal.OffsetOf<WaveHdr>(nameof(WaveHdr.dwFlags));
     Thread? thread;
     volatile bool running;
@@ -80,6 +81,7 @@ public sealed class AudioOut : IDisposable
         startT = t; mixedFrames = 0; this.rate = Math.Abs(rate) < 1e-9 ? 1 : Math.Clamp(rate, -MaxShuttle, MaxShuttle); scrubbing = false;
         Array.Clear(queued);
         Array.Fill(meterT, double.PositiveInfinity); meterW = 0;
+        liveMeter.Reset();
         running = true;
         thread = new Thread(Loop) { IsBackground = true, Priority = ThreadPriority.Highest, Name = "AudioOut" };
         thread.Start();
@@ -139,6 +141,9 @@ public sealed class AudioOut : IDisposable
         }
     }
 
+    /// <summary>EBU R128 of this playback pass (reset when <see cref="Start"/> runs). Safe to read from the UI thread.</summary>
+    public Loudness.LiveReading LiveLoudness() => liveMeter.Live();
+
     /// <summary>Peak levels of the sound being heard now (<see cref="Mixer.Slots"/>: track L/R pairs, then master; 1 = 0 dBFS). False when stopped.</summary>
     public bool Levels(float[] dst)
     {
@@ -160,6 +165,7 @@ public sealed class AudioOut : IDisposable
         int slot = meterW % Ring;
         Mixer.Mix(Sources, Master, T0, BufFrames, mix, bus, tmp, meterPk[slot], fxState);
         meterT[slot] = T0; meterW++;
+        liveMeter.Add(mix, BufFrames, 1 / 32768f);
         Out(i);
     }
     void Out(int i)

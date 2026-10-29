@@ -16,6 +16,10 @@ public static class Loudness
         public override string ToString() => Silent ? "silent" : $"{Integrated:0.0} LUFS · true peak {TruePeak:0.0} dBTP";
     }
 
+    /// <summary>Live EBU R128 readings (LUFS / dBTP; −∞ when there isn't enough sound yet). Momentary = last 400 ms,
+    /// short-term = last 3 s, ungated; integrated = the gated programme loudness since <see cref="Meter.Reset"/>.</summary>
+    public readonly record struct LiveReading(double Momentary, double ShortTerm, double Integrated, double TruePeak);
+
     /// <summary>Normalization targets offered in the export dialog.</summary>
     public static readonly (double lufs, string label)[] Targets =
     {
@@ -37,6 +41,7 @@ public static class Loudness
         const double B0 = 1.53512485958697, B1 = -2.69169618940638, B2 = 1.19839281085285, A1 = -1.69065929318241, A2 = 0.73248077421585;
         const double C1 = -2.0, D1 = -1.99004745483398, D2 = 0.99007225036621;
         const int Sub = Mixer.Rate / 10;                       // 100 ms sub-blocks; a gating block = 4 of them
+        readonly object gate = new();
         readonly double[] s = new double[8];                    // filter state: per channel 2 stages × (s1, s2)
         readonly List<double> subs = new();                     // sum of squares (L + R) per completed sub-block
         double acc; int accN; long frames;
@@ -71,26 +76,29 @@ public static class Loudness
         /// <summary>Adds n interleaved stereo frames (scaled by <paramref name="scale"/> to ±1 full scale).</summary>
         public void Add(float[] buf, int n, float scale = 1)
         {
-            for (int i = 0; i < n; i++)
+            lock (gate)
             {
-                double e = 0;
-                for (int ch = 0; ch < 2; ch++)
+                for (int i = 0; i < n; i++)
                 {
-                    double x = buf[i * 2 + ch] * (double)scale;
-                    int o = ch * 4;
-                    double y1 = B0 * x + s[o]; s[o] = B1 * x - A1 * y1 + s[o + 1]; s[o + 1] = B2 * x - A2 * y1;
-                    double y2 = y1 + s[o + 2]; s[o + 2] = C1 * y1 - D1 * y2 + s[o + 3]; s[o + 3] = y1 - D2 * y2;
-                    e += y2 * y2;
-                    float ax = (float)Math.Abs(x);
-                    if (ax > samplePeak) samplePeak = ax;
-                    var h = hist[ch]; h[hpos] = h[hpos + Taps] = (float)x;
+                    double e = 0;
+                    for (int ch = 0; ch < 2; ch++)
+                    {
+                        double x = buf[i * 2 + ch] * (double)scale;
+                        int o = ch * 4;
+                        double y1 = B0 * x + s[o]; s[o] = B1 * x - A1 * y1 + s[o + 1]; s[o + 1] = B2 * x - A2 * y1;
+                        double y2 = y1 + s[o + 2]; s[o + 2] = C1 * y1 - D1 * y2 + s[o + 3]; s[o + 3] = y1 - D2 * y2;
+                        e += y2 * y2;
+                        float ax = (float)Math.Abs(x);
+                        if (ax > samplePeak) samplePeak = ax;
+                        var h = hist[ch]; h[hpos] = h[hpos + Taps] = (float)x;
+                    }
+                    hpos = (hpos + 1) % Taps;
+                    Peaks();
+                    acc += e;
+                    if (++accN == Sub) { subs.Add(acc); acc = 0; accN = 0; }
                 }
-                hpos = (hpos + 1) % Taps;
-                Peaks();
-                acc += e;
-                if (++accN == Sub) { subs.Add(acc); acc = 0; accN = 0; }
+                frames += n;
             }
-            frames += n;
         }
 
         // after a frame is added the 16 newest samples are h[hpos … hpos+15] (oldest first): interpolate between x[n] = tap 7 and x[n+1] = tap 8.
@@ -119,7 +127,40 @@ public static class Loudness
             }
         }
 
-        public Result Result()
+        /// <summary>Clears the filters, the programme and the peaks (a new playback pass).</summary>
+        public void Reset()
+        {
+            lock (gate)
+            {
+                Array.Clear(s); Array.Clear(hist[0]); Array.Clear(hist[1]);
+                subs.Clear(); acc = 0; accN = 0; frames = 0; samplePeak = 0; truePeak = 0; hpos = 0;
+            }
+        }
+
+        public Result Result() { lock (gate) return ResultUnlocked(); }
+
+        /// <summary>Momentary / short-term / integrated / true peak of the samples added since <see cref="Reset"/> (the mixer UI while playing).</summary>
+        public LiveReading Live()
+        {
+            lock (gate)
+            {
+                var r = ResultUnlocked();
+                return new LiveReading(Window(4), Window(30), r.Integrated, r.TruePeak);
+            }
+        }
+
+        // ungated mean of the last n 100 ms sub-blocks (4 = 400 ms momentary, 30 = 3 s short-term)
+        double Window(int nSubs)
+        {
+            if (subs.Count == 0) return double.NegativeInfinity;
+            int n = Math.Min(nSubs, subs.Count);
+            double z = 0;
+            for (int i = subs.Count - n; i < subs.Count; i++) z += subs[i];
+            z /= n * (double)Sub;
+            return z <= 0 ? double.NegativeInfinity : -0.691 + 10 * Math.Log10(z);
+        }
+
+        Result ResultUnlocked()
         {
             // gating blocks: 400 ms, a new one every 100 ms
             int nb = subs.Count - 3;

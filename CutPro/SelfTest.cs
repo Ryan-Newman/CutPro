@@ -279,7 +279,7 @@ public static class SelfTest
         var kv = ek.Clips.First(c => c.Kind == ClipKind.Video);
         ek.Edit(() =>
         {
-            kv.Blend = BlendMode.Screen; kv.Key = new ChromaKey { Color = "#00B140", Tolerance = 40 }; kv.FlipH = true; kv.CropFeather = 12;
+            kv.Blend = BlendMode.Screen; kv.Key = new ChromaKey { Color = "#00B140", Tolerance = 40, GarbageL = 20 }; kv.FlipH = true; kv.CropFeather = 12;
             Anim.SetKey(kv, AnimProp.CropL, 2, 0); Anim.SetKey(kv, AnimProp.CropL, 8, 50);
         });
         string kBefore = System.Text.Json.JsonSerializer.Serialize(ek.Clips);
@@ -297,6 +297,7 @@ public static class SelfTest
         var (_, gk, gkTemps) = Exporter.Build(ek, "o.mp4");
         foreach (var f in gkTemps) try { File.Delete(f); } catch { }
         Check("export graph: key graph + matte multiply, lut2 blend, flip", gk.Contains("chromakey=color=0x00B140") && gk.Contains("lut2=") && gk.Contains("hflip") && gk.Contains("alphamerge"));
+        Check("garbage matte is in the key graph (preview decoder and export share it)", Keyer.HasGarbage(kv.Key!) && gk.Contains("pad=") && gk.Contains("black@0"));
 
         // transitions (shape / move), audio effects, look effects, track matte, anchor point, corner pin: they ride with the clip and reach the export graph
         var en = new Editor(); en.Media.Add(sm);
@@ -311,7 +312,51 @@ public static class SelfTest
             ta5.AudioFx = AudioDsp.VoicePreset();
         });
         var np = Transitions.Compute(en);
-        Check("shape transition resolved (mask merge) and Move transitions known", np.Wins.Any(w => w.D.Fx == Transitions.Fx.Mask) && Transitions.Get("Spin In").Fx == Transitions.Fx.Move && Transitions.VideoDefs.Length == 29);
+        Check("shape transition resolved (mask merge) and Move transitions known", np.Wins.Any(w => w.D.Fx == Transitions.Fx.Mask) && Transitions.Get("Spin In").Fx == Transitions.Fx.Move && Transitions.VideoDefs.Length == 34);
+        Check("Film Dissolve / Morph Cut / Cube Spin / Page Peel / Bible Page Turn",
+              Transitions.Get("Film Dissolve").Fx == Transitions.Fx.Mask && Transitions.Get("Morph Cut").Fx == Transitions.Fx.Move
+              && Transitions.Get("Cube Spin").Fx == Transitions.Fx.Move && Transitions.Get("Page Peel").Fx == Transitions.Fx.Mask
+              && Transitions.Get("Bible Page Turn").Fx == Transitions.Fx.Mask && Transitions.GroupOf(Transitions.Get("Bible Page Turn")) == "3D"
+              && TransPresets.BuiltIns.Length >= 7 && Transitions.FilmShader() != null);
+        Check("VEdiT name and Gospel verses", AppInfo.Name == "VEdiT" && Gospel.Verses.Length >= 8 && Gospel.Of("John 3:16").Text.Contains("loved the world")
+              && GraphicLibrary.BuiltIn.Count(t => t.Category == "Gospel") >= 4 && Shapes.Stickers.Any(s => s.name == "Cross")
+              && Gospel.PageBitmap(64, 36, Gospel.Verses[0]).PixelWidth == 64);
+        Check("Film Dissolve shader compiles" + (Transitions.FilmShaderError != null ? ": " + Transitions.FilmShaderError : ""), Transitions.FilmShader() != null);
+        {
+            var cube = Path.Combine(Path.GetTempPath(), "cutpro_grade.cube");
+            Grade.WriteCube(Grade.For(new ColorGrade { Exposure = 0.5 })!, cube);
+            var cubeFile = Grade.Cube(cube);
+            Check("Lumetri Save .cube writes a 33³ LUT other editors can open", cubeFile != null && cubeFile.Size == Grade.N && File.ReadAllText(cube).Contains("LUT_3D_SIZE"));
+            try { File.Delete(cube); } catch { }
+        }
+        var xdcam = ExportSettings.Presets.First(p => p.Name.Contains("XDCAM"));
+        var imx = ExportSettings.Presets.First(p => p.Name.Contains("IMX"));
+        var pod = ExportSettings.Presets.First(p => p.Name.Contains("Podcast"));
+        Check("broadcast XDCAM / IMX MXF + podcast −16 LUFS presets",
+              xdcam.VideoEncoder == "mpeg2video" && xdcam.Container == "mxf" && xdcam.OutH == 1080
+              && imx.Video == "mpeg2_imx" && imx.OutW == 720 && imx.OutH == 576
+              && pod.AudioOnly && pod.Normalize && Math.Abs(pod.Lufs + 16) < 0.01);
+        {
+            var liveM = new Loudness.Meter();
+            int liveN = Mixer.Rate; var liveBuf = new float[liveN * 2];
+            double liveAmp = Math.Pow(10, -23 / 20.0);
+            for (int sec = 0; sec < 4; sec++)
+            {
+                for (int si = 0; si < liveN; si++)
+                {
+                    float samp = (float)(liveAmp * Math.Sin(2 * Math.PI * 1000 * (sec * liveN + si) / (double)liveN));
+                    liveBuf[si * 2] = liveBuf[si * 2 + 1] = samp;
+                }
+                liveM.Add(liveBuf, liveN, 1);
+            }
+            var lv = liveM.Live();
+            Check($"live LUFS M/S/I of −23 dBFS 1 kHz: M {lv.Momentary:0.00} S {lv.ShortTerm:0.00} I {lv.Integrated:0.00}",
+                  Math.Abs(lv.Momentary + 23) <= 0.25 && Math.Abs(lv.ShortTerm + 23) <= 0.25 && Math.Abs(lv.Integrated + 23) <= 0.25);
+        }
+        {
+            string? filmWhy = TransTest.FilmLookProbe();
+            Check("Film Dissolve preview = WriteFilmMask merge" + (filmWhy == null ? "" : ": " + filmWhy), filmWhy == null);
+        }
         var (_, ng, ngTemps) = Exporter.Build(en, "o.mp4");
         foreach (var f in ngTemps) try { File.Delete(f); } catch { }
         Check("export graph: shape transition (alphamerge through a mask video), look effects, drop shadow, corner pin, audio effects file",

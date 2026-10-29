@@ -9,7 +9,7 @@ public sealed class ExportSettings
 {
     public string Name { get; set; } = "Match sequence (H.264)";
     public string Container { get; set; } = "mp4";        // mp4 mov mkv webm | wav mp3 m4a (audio only)
-    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores prores4444 dnxhr_* | with alpha: prores4444a vp9a qtrle png | none
+    public string Video { get; set; } = "h264";           // h264 hevc av1 vp9 prores prores4444 dnxhr_* mpeg2_xdcam mpeg2_imx | with alpha: prores4444a vp9a qtrle png | none
     public string Encoder { get; set; } = "software";     // software nvenc qsv amf
     public bool ConstantQuality { get; set; } = true;
     public int Quality { get; set; } = 18;                // CRF / CQ (lower = better)
@@ -18,6 +18,8 @@ public sealed class ExportSettings
     public string Audio { get; set; } = "aac";            // aac opus mp3 pcm flac none
     public int AudioKbps { get; set; } = 192;
     public int Height { get; set; }                       // 0 = the sequence's output height
+    /// <summary>Forced output width (0 = follow the sequence aspect from <see cref="Height"/>). IMX 50 is 720×576.</summary>
+    public int Width { get; set; }
     public bool InOutOnly { get; set; }
     /// <summary>Aspect the preset is made for (0 = any): a 9:16 preset on a 16:9 sequence asks to switch the format first.</summary>
     public double Aspect { get; set; }
@@ -50,7 +52,8 @@ public sealed class ExportSettings
     [System.Text.Json.Serialization.JsonIgnore] public bool Alpha { get; set; }
     /// <summary>A background render (nested sequences while editing): ffmpeg runs below normal priority, so playback keeps its CPU.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public bool Background { get; set; }
-    /// <summary>Captions (caption-role titles) drawn into the picture; and / or written as an .srt next to the file (<see cref="Captioning"/>).</summary>
+    /// <summary>Captions (caption-role titles) drawn into the picture; and / or written as an .srt next to the file; and / or muxed as CEA-608
+    /// (<see cref="EmbedCc"/>) — <see cref="Captioning"/>.</summary>
     public bool BurnCaptions { get; set; } = true;
     /// <summary>Sound channels in the file: "stereo", "mono" (the stereo mix folded to one channel) or "5.1" (tracks to front / centre / surround /
     /// LFE by their 5.1 output, <see cref="TrackMix.Surround"/>).</summary>
@@ -58,6 +61,9 @@ public sealed class ExportSettings
     /// <summary>Filled by <see cref="Exporter.RunAsync"/> for a 5.1 export: the rendered 6-channel float file the exporter reads.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public string? SurroundFile { get; set; }
     public bool CaptionFile { get; set; }
+    /// <summary>CEA-608 closed captions muxed into the file (MOV c608 / MXF SMPTE 436M; MP4 remuxed as QuickTime). Preview still burns in
+    /// or not by <see cref="BurnCaptions"/>.</summary>
+    public bool EmbedCc { get; set; }
     /// <summary>Smart rendering (H.264 / HEVC): stretches showing one plain clip of a matching file are copied, only the rest is encoded (<see cref="SmartRender"/>).</summary>
     public bool Smart { get; set; }
     /// <summary>Filled by a smart render: how much was copied (or why nothing could be).</summary>
@@ -75,7 +81,7 @@ public sealed class ExportSettings
     /// <summary>The ffmpeg output name: an image sequence gets its frame number pattern.</summary>
     public string OutputPath(string file) => ImageSequence && !file.Contains('%') ? Path.Combine(Path.GetDirectoryName(file) ?? "", Path.GetFileNameWithoutExtension(file) + "_%05d" + Path.GetExtension(file)) : file;
     public int OutH => Height > 0 ? Even(Height) : Editor.OutH;
-    public int OutW => Height > 0 ? Even(Editor.W * (double)Height / Editor.H) : Editor.OutW;
+    public int OutW => Width > 0 ? Even(Width) : Height > 0 ? Even(Editor.W * (double)Height / Editor.H) : Editor.OutW;
     /// <summary>Output pixels per logical (preview) pixel.</summary>
     public double Scale => OutH / (double)Editor.H;
     public static int Even(double v) => Math.Max(2, (int)Math.Round(v / 2) * 2);
@@ -112,11 +118,14 @@ public sealed class ExportSettings
         new ExportSettings { Name = "WebM VP9 with alpha", Video = "vp9a", Container = "webm", Audio = "opus", Quality = 31, Note = "Transparent video for the web and OBS" },
         new ExportSettings { Name = "QuickTime Animation with alpha (.mov)", Video = "qtrle", Container = "mov", Audio = "pcm", Note = "Lossless RGB + alpha; very large files" },
         new ExportSettings { Name = "PNG sequence with alpha", Video = "png", Container = "png", Audio = "none", Note = "One picture per frame (name_00000.png …), transparent background, no sound" },
+        new ExportSettings { Name = "XDCAM HD 422 50 Mbps (.mxf)", Video = "mpeg2_xdcam", Container = "mxf", Audio = "pcm", ConstantQuality = false, BitrateMbps = 50, Height = 1080, Aspect = 16 / 9.0, Note = "Sony XDCAM HD 422: MPEG-2 4:2:2 CBR, 24-bit PCM, MXF OP1a" },
+        new ExportSettings { Name = "IMX 50 (.mxf)", Video = "mpeg2_imx", Container = "mxf", Audio = "pcm", ConstantQuality = false, BitrateMbps = 50, Height = 576, Width = 720, Aspect = 4 / 3.0, Note = "D-10 / IMX 50: MPEG-2 4:2:2 intra, 720×576 PAL, 24-bit PCM" },
+        new ExportSettings { Name = "Podcast (−16 LUFS WAV)", Video = "none", Container = "wav", Audio = "pcm", Normalize = true, Lufs = -16, Note = "Stereo WAV normalized to −16 LUFS" },
         new ExportSettings { Name = "Audio only — WAV", Video = "none", Container = "wav", Audio = "pcm" },
         new ExportSettings { Name = "Audio only — MP3 320 kbps", Video = "none", Container = "mp3", Audio = "mp3", AudioKbps = 320 },
     };
 
-    public static readonly string[] Containers = { "mp4", "mov", "mkv", "webm", "png" };
+    public static readonly string[] Containers = { "mp4", "mov", "mkv", "webm", "mxf", "png" };
     public static readonly string[] AudioContainers = { "wav", "mp3", "m4a" };
 
     /// <summary>ffmpeg video encoder name for a codec + encoder choice.</summary>
@@ -127,6 +136,7 @@ public sealed class ExportSettings
         ("h264", "amf") => "h264_amf", ("hevc", "amf") => "hevc_amf", ("av1", "amf") => "av1_amf",
         ("hevc", _) => "libx265", ("av1", _) => "libsvtav1", ("vp9", _) or ("vp9a", _) => "libvpx-vp9", ("prores", _) or ("prores4444", _) or ("prores4444a", _) => "prores_ks", ("ffv1", _) => "ffv1",
         ("dnxhr_lb", _) or ("dnxhr_sq", _) or ("dnxhr_hq", _) or ("dnxhr_hqx", _) or ("dnxhr_444", _) => "dnxhd",
+        ("mpeg2_xdcam", _) or ("mpeg2_imx", _) => "mpeg2video",
         ("qtrle", _) => "qtrle", ("png", _) => "png",
         _ => "libx264",
     };
@@ -179,6 +189,11 @@ public sealed class ExportSettings
                 case "dnxhd":
                     a.AddRange(new[] { "-profile:v", Video is "dnxhr_lb" or "dnxhr_sq" or "dnxhr_hqx" or "dnxhr_444" ? Video : "dnxhr_hq",
                                        "-pix_fmt", Video == "dnxhr_444" ? "yuv444p10le" : Video == "dnxhr_hqx" ? "yuv422p10le" : "yuv422p" });
+                    break;
+                case "mpeg2video":
+                    a.AddRange(new[] { "-b:v", kbps, "-minrate", kbps, "-maxrate", kbps, "-bufsize", buf, "-pix_fmt", "yuv422p" });
+                    if (Video == "mpeg2_imx") a.AddRange(new[] { "-g", "1", "-bf", "0", "-dc", "10", "-flags", "+ildct+low_delay" });
+                    else a.AddRange(new[] { "-g", "12", "-bf", "2", "-dc", "10" });
                     break;
                 case "ffv1":       // lossless, every frame a key frame (instant seeks), slices for threaded decoding
                     a.AddRange(new[] { "-level", "3", "-g", "1", "-slicecrc", "0", "-slices", OutH >= 480 ? "16" : "4", "-pix_fmt", Alpha ? (Full444 ? "yuva444p" : "yuva420p") : Full444 ? "yuv444p" : "yuv420p" });
@@ -244,11 +259,11 @@ public sealed class ExportSettings
         var set = new HashSet<string> { "libx264" };
         if (ff == null) return usable = set;
         string list = await Task.Run(() => Run(ff, "-hide_banner -encoders").output);
-        var candidates = new[] { "libx265", "libsvtav1", "libvpx-vp9", "prores_ks", "dnxhd", "h264_nvenc", "hevc_nvenc", "av1_nvenc", "h264_qsv", "hevc_qsv", "av1_qsv", "h264_amf", "hevc_amf", "av1_amf" }
+        var candidates = new[] { "libx265", "libsvtav1", "libvpx-vp9", "prores_ks", "dnxhd", "mpeg2video", "h264_nvenc", "hevc_nvenc", "av1_nvenc", "h264_qsv", "hevc_qsv", "av1_qsv", "h264_amf", "hevc_amf", "av1_amf" }
             .Where(e => list.Contains(" " + e + " ")).ToList();
         foreach (var e in candidates)
         {
-            string extra = e == "dnxhd" ? "-profile:v dnxhr_hq -pix_fmt yuv422p" : "";
+            string extra = e == "dnxhd" ? "-profile:v dnxhr_hq -pix_fmt yuv422p" : e == "mpeg2video" ? "-b:v 2M -pix_fmt yuv422p" : "";
             var (code, _) = await Task.Run(() => Run(ff, $"-hide_banner -v error -f lavfi -i color=black:s=256x144:d=0.2 -frames:v 3 -c:v {e} {extra} -f null -"));
             if (code == 0) set.Add(e);
         }

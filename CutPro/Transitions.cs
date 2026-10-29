@@ -1,6 +1,9 @@
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 
 namespace CutPro;
 
@@ -36,6 +39,8 @@ public static class Transitions
         new("Cross Dissolve", Fx.Dissolve, "fade", 0, 0, "Fades from one shot to the next"),
         new("Dip to Black", Fx.Dip, null, 0, 0, "Fades to black, then up into the next shot", "#000000"),
         new("Dip to White", Fx.Dip, null, 0, 0, "Fades to white, then down into the next shot", "#FFFFFF"),
+        new("Film Dissolve", Fx.Mask, null, 0, 0, "A dithered dissolve, like a cut on film"),
+        new("Morph Cut", Fx.Move, null, 0, 0, "The shots ease into each other (a zoom-match dissolve)"),
         new("Wipe Left", Fx.Wipe, "wipeleft", -1, 0, "A straight edge sweeps from right to left"),
         new("Wipe Right", Fx.Wipe, "wiperight", 1, 0, "A straight edge sweeps from left to right"),
         new("Wipe Up", Fx.Wipe, "wipeup", 0, -1, "A straight edge sweeps from bottom to top"),
@@ -62,6 +67,9 @@ public static class Transitions
         new("Zoom Out", Fx.Move, null, 0, 0, "The current shot shrinks into the centre, revealing the next one"),
         new("Spin In", Fx.Move, null, 0, 0, "The next shot spins in from the centre"),
         new("Spin Away", Fx.Move, null, 0, 0, "The current shot spins away into the centre"),
+        new("Cube Spin", Fx.Move, null, 1, 0, "The shots turn like two faces of a cube"),
+        new("Page Peel", Fx.Mask, null, 1, 1, "The current shot peels away from the bottom right, like a page"),
+        new("Bible Page Turn", Fx.Mask, null, 1, 1, "A parchment page with Scripture turns over, revealing the next shot"),
     };
     /// <summary>Effects panel group of a transition.</summary>
     public static string GroupOf(Def d) => d.Fx switch
@@ -69,8 +77,9 @@ public static class Transitions
         Fx.Dissolve or Fx.Dip => "Dissolve",
         Fx.Wipe => "Wipe",
         Fx.Push => "Slide",
-        Fx.Mask => d.Name is "Clock Wipe" or "Diagonal Wipe" or "Venetian Blinds" or "Inset" ? "Wipe" : "Iris",
-        Fx.Move => d.Name.StartsWith("Slide") ? "Slide" : "Zoom",
+        Fx.Mask => d.Name is "Clock Wipe" or "Diagonal Wipe" or "Venetian Blinds" or "Inset" ? "Wipe"
+                 : d.Name is "Page Peel" or "Bible Page Turn" ? "3D" : d.Name == "Film Dissolve" ? "Dissolve" : "Iris",
+        Fx.Move => d.Name.StartsWith("Slide") ? "Slide" : d.Name == "Morph Cut" ? "Dissolve" : d.Name == "Cube Spin" ? "3D" : "Zoom",
         _ => "Iris",
     };
     public static readonly Def[] AudioDefs =
@@ -199,32 +208,38 @@ public static class Transitions
     // ---------------- what each clip looks like during a transition ----------------
     /// <summary>A clip's look at time t: opacity factor, clip region / opacity mask in FRAME coordinates (logical pixels),
     /// offset (push), and whether it is drawn above the other clip of the transition.</summary>
-    public readonly record struct LookInfo(double Opacity, Geometry? Region, Brush? Mask, double Dx, double Dy, bool Top, double S = 1, double Rot = 0, bool Moves = false)
+    public readonly record struct LookInfo(double Opacity, Geometry? Region, Brush? Mask, double Dx, double Dy, bool Top, double S = 1, double Rot = 0, bool Moves = false, double Sx = double.NaN, double Sy = double.NaN, int FilmLim = -1)
     {
+        public double SX => double.IsNaN(Sx) ? S : Sx;
+        public double SY => double.IsNaN(Sy) ? S : Sy;
         /// <summary>A clip's placement (left, top, size, rotation about its centre) moved by this look: offset, plus for Move transitions a
         /// scale and turn about the frame's centre — what the preview draws and LayerPlan exports.</summary>
         public (double x, double y, double w, double h, double rot) Apply((double x, double y, double w, double h, double rot) p)
         {
             if (!Moves) return (p.x + Dx, p.y + Dy, p.w, p.h, p.rot);
-            double cx = Editor.W / 2.0, cy = Editor.H / 2.0, a = Rot * Math.PI / 180, cs = Math.Cos(a), sn = Math.Sin(a);
+            double sx = SX, sy = SY, cx = Editor.W / 2.0, cy = Editor.H / 2.0, a = Rot * Math.PI / 180, cs = Math.Cos(a), sn = Math.Sin(a);
             double vx = p.x + p.w / 2 - cx, vy = p.y + p.h / 2 - cy;
-            double nx = cx + S * (vx * cs - vy * sn) + Dx, ny = cy + S * (vx * sn + vy * cs) + Dy, w = p.w * S, h = p.h * S;
+            double nx = cx + sx * (vx * cs - vy * sn) + Dx, ny = cy + sy * (vx * sn + vy * cs) + Dy, w = p.w * sx, h = p.h * sy;
             return (nx - w / 2, ny - h / 2, w, h, p.rot + Rot);
         }
         /// <summary>A title's motion (scale and turn about its anchor, then placed at X / Y) moved the same way.</summary>
         public TitleVisual.Motion Apply(TitleVisual.Motion m)
         {
             if (!Moves) return m;
-            double W = Editor.W, H = Editor.H, cx = W / 2, cy = H / 2, a = Rot * Math.PI / 180, cs = Math.Cos(a), sn = Math.Sin(a);
+            double sx = SX, sy = SY, W = Editor.W, H = Editor.H, a = Rot * Math.PI / 180, cs = Math.Cos(a), sn = Math.Sin(a);
             double vx = m.X * W / 100, vy = m.Y * H / 100;                    // anchor relative to the centre
-            double nx = S * (vx * cs - vy * sn) + Dx, ny = S * (vx * sn + vy * cs) + Dy;
-            return m with { Scale = m.Scale * S, Rotation = m.Rotation + Rot, X = nx / W * 100, Y = ny / H * 100 };
+            double nx = sx * (vx * cs - vy * sn) + Dx, ny = sy * (vx * sn + vy * cs) + Dy;
+            return m with { Scale = m.Scale * (sx + sy) / 2, Rotation = m.Rotation + Rot, X = nx / W * 100, Y = ny / H * 100 };
         }
     }
     static readonly LookInfo Plain = new(1, null, null, 0, 0, false);
 
     /// <summary>Move transitions: the clip's offset (logical px), scale and turn about the frame centre, opacity, and whether it is on top.</summary>
-    public readonly record struct Xf(double Dx, double Dy, double S, double Rot, double Op, bool Top);
+    public readonly record struct Xf(double Dx, double Dy, double S, double Rot, double Op, bool Top, double Sx = double.NaN, double Sy = double.NaN)
+    {
+        public double SX => double.IsNaN(Sx) ? S : Sx;
+        public double SY => double.IsNaN(Sy) ? S : Sy;
+    }
     static double Ease(double x) { x = Math.Clamp(x, 0, 1); return x * x * (3 - 2 * x); }
     /// <summary>True for Move transitions that move the outgoing shot (drawn on top of the incoming one).</summary>
     public static bool ATop(Def d) => d.Name is "Zoom Out" or "Spin Away";
@@ -237,6 +252,18 @@ public static class Transitions
             // the outgoing shot zooms in, the incoming one zooms out from close up and blends in over it in the middle
             if (!isB) return new(0, 0, 1 + 3 * Ease(q / 0.6), 0, w.B == null ? 1 - q : 1, false);
             return new(0, 0, 1 + 3 * (1 - Ease((q - 0.4) / 0.6)), 0, w.A == null ? q : Math.Clamp((q - 0.4) / 0.2, 0, 1), true);
+        }
+        if (d.Name == "Morph Cut")
+        {
+            // both shots dissolve while easing a little toward a matched scale (optical-flow morph needs a model)
+            if (!isB) return new(0, 0, 1 + 0.12 * Ease(q), 0, w.B == null ? 1 - q : 1 - q, false);
+            return new(0, 0, 1 + 0.12 * (1 - Ease(q)), 0, w.A == null ? q : q, true);
+        }
+        if (d.Name == "Cube Spin")
+        {
+            double th = q * Math.PI / 2, c = Math.Max(0.001, Math.Cos(th)), s = Math.Max(0.001, Math.Sin(th));
+            if (!isB) return new(W / 2 * (c - 1), 0, c, 0, w.B == null ? 1 - q : 1, false, c, 1);
+            return new(W / 2 * (1 - s), 0, s, 0, w.A == null ? q : 1, true, s, 1);
         }
         // one shot moves (on top): the incoming one arrives, or for Zoom Out / Spin Away the outgoing one leaves; with only one shot
         // present (from / to nothing), that one does the moving
@@ -252,7 +279,7 @@ public static class Transitions
     public static Xf Xform(Plan plan, Clip c, double t)
     {
         var l = Look(plan, c, t, _ => null);
-        return new(l.Dx, l.Dy, l.S, l.Rot, l.Moves ? l.Opacity : 1, l.Top);
+        return new(l.Dx, l.Dy, l.S, l.Rot, l.Moves ? l.Opacity : 1, l.Top, l.SX, l.SY);
     }
     /// <summary>True when the clip has a Move transition (exported per frame through LayerPlan / the per-frame title renderer).</summary>
     public static bool Moves(Plan plan, Clip c) => plan.HeadOf(c) is { D.Fx: Fx.Move } || plan.TailOf(c) is { D.Fx: Fx.Move };
@@ -301,6 +328,37 @@ public static class Transitions
                 g = sg; break;
             }
             case "Barn Doors": g = new RectangleGeometry(new Rect(cx - cx * q, 0, W * q, H)); break;
+            case "Film Dissolve":
+                // preview / export use WriteFilmMask bytes (a 1 px Clip geometry antialiases into a dissolve on RenderTargetBitmap)
+                g = q >= 1 ? new RectangleGeometry(new Rect(-W, -H, 3 * W, 3 * H)) : Geometry.Empty;
+                break;
+            case "Page Peel":
+            case "Bible Page Turn":
+            {
+                // incoming shot revealed from the bottom-right: x/W + y/H ≥ 2 − 2q (a page turning toward the top left)
+                double t = 2 - 2 * q;
+                var sg = new StreamGeometry();
+                using (var s = sg.Open())
+                {
+                    if (q <= 0) { s.BeginFigure(new Point(W, H), true, true); s.LineTo(new Point(W, H), true, false); }
+                    else if (q < 0.5)
+                    {
+                        s.BeginFigure(new Point(W, H), true, true);
+                        s.LineTo(new Point((t - 1) * W, H), true, false);
+                        s.LineTo(new Point(W, (t - 1) * H), true, false);
+                    }
+                    else if (q < 1)
+                    {
+                        s.BeginFigure(new Point(W, H), true, true);
+                        s.LineTo(new Point(W, 0), true, false);
+                        s.LineTo(new Point(t * W, 0), true, false);
+                        s.LineTo(new Point(0, t * H), true, false);
+                        s.LineTo(new Point(0, H), true, false);
+                    }
+                    else { s.BeginFigure(new Point(0, 0), true, true); s.LineTo(new Point(W, 0), true, false); s.LineTo(new Point(W, H), true, false); s.LineTo(new Point(0, H), true, false); }
+                }
+                g = sg; break;
+            }
             default: g = new RectangleGeometry(new Rect(0, cy - cy * q, W, H * q)); break;       // Barn Doors Horizontal
         }
         g.Freeze();
@@ -350,6 +408,8 @@ public static class Transitions
                 // the incoming shot inside the shape, the outgoing one outside it (the export merges the two composites through the same shape);
                 // an outgoing shot fully covered by an opaque incoming one stays whole — clipping both doubled the soft edge pixels
                 if (!isB && w.A != null && w.B != null && rectOf(w.A) is { } ma && rectOf(w.B) is { } mb && mb.Contains(ma) && Opaque(w.B)) return Plain;
+                if (w.D.Name == "Film Dissolve")
+                    return new(1, null, null, 0, 0, isB, FilmLim: (int)Math.Round(Math.Clamp(q, 0, 1) * 64));
                 var shape = Shape(w.D, q, W, H);
                 Geometry region = isB ? shape : new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(-W, -H, 3 * W, 3 * H)), shape);
                 region.Freeze();
@@ -358,7 +418,7 @@ public static class Transitions
             case Fx.Move:
             {
                 var x = XformOf(w, isB, q);
-                return new(x.Op, null, null, x.Dx, x.Dy, x.Top, x.S, x.Rot, Moves: true);
+                return new(x.Op, null, null, x.Dx, x.Dy, x.Top, x.S, x.Rot, Moves: true, Sx: x.SX, Sy: x.SY);
             }
             case Fx.Iris:
             {
@@ -392,6 +452,109 @@ public static class Transitions
         return g;
     }
 
+    /// <summary>8×8 Bayer threshold (0…63). Incoming shows where the cell is below progress. Cells are <see cref="FilmCell"/> px so H.264
+    /// keeps the pattern (1 px Bayer was ~18 dB vs the export).</summary>
+    public const int FilmCell = 4;
+    internal static readonly byte[] Bayer8 =
+    {
+        0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26,
+        12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+        3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
+        15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21
+    };
+    public static void WriteFilmMask(byte[] gray, int W, int H, double q)
+    {
+        int lim = (int)Math.Round(Math.Clamp(q, 0, 1) * 64);
+        Parallel.For(0, H, y =>
+        {
+            for (int x = 0; x < W; x++) gray[y * W + x] = Bayer8[((y / FilmCell) & 7) * 8 + ((x / FilmCell) & 7)] < lim ? (byte)255 : (byte)0;
+        });
+    }
+
+    const string FilmHlsl = @"
+sampler2D input : register(s0);
+float4 c0 : register(c0);
+float4 c1 : register(c1);
+float Bayer(float x, float y)
+{
+    float x0 = x - 2 * floor(x / 2), y0 = y - 2 * floor(y / 2);
+    float x1 = floor(x / 2); x1 = x1 - 2 * floor(x1 / 2);
+    float y1 = floor(y / 2); y1 = y1 - 2 * floor(y1 / 2);
+    float x2 = floor(x / 4); x2 = x2 - 2 * floor(x2 / 2);
+    float y2 = floor(y / 4); y2 = y2 - 2 * floor(y2 / 2);
+    return 16 * (2 * x0 + 3 * y0 - 4 * x0 * y0)
+         +  4 * (2 * x1 + 3 * y1 - 4 * x1 * y1)
+         +      (2 * x2 + 3 * y2 - 4 * x2 * y2);
+}
+float4 main(float2 uv : TEXCOORD) : COLOR
+{
+    float4 c = tex2D(input, uv);
+    float fx = c1.x + uv.x * c1.z, fy = c1.y + uv.y * c1.w;
+    float on = Bayer(floor(fx), floor(fy)) < c0.x ? 1 : 0;
+    if (c0.y > 0.5) on = 1 - on;
+    return c * on;
+}";
+    static PixelShader? filmPs; static bool filmTried; public static string? FilmShaderError;
+    /// <summary>ps_2_0 dither for Film Dissolve. ImageBrush / Clip antialiased the Bayer into a dissolve on RenderTargetBitmap;
+    /// this is the same 8×8 threshold as <see cref="WriteFilmMask"/>, nearest-neighbour like the blend shaders.</summary>
+    public static PixelShader? FilmShader()
+    {
+        if (filmTried) return filmPs;
+        filmTried = true;
+        try
+        {
+            var code = Blend.Compile(FilmHlsl, "ps_2_0");
+            var ps = new PixelShader(); ps.SetStreamSource(new MemoryStream(code)); ps.Freeze();
+            filmPs = ps;
+        }
+        catch (Exception ex) { FilmShaderError = ex.Message; }
+        return filmPs;
+    }
+    /// <summary>Null if the preview shader's 8×8 Bayer on a white square matches <see cref="WriteFilmMask"/>; otherwise the mismatch.</summary>
+    public static string? FilmShaderProbe()
+    {
+        if (FilmShader() is not { } sh) return FilmShaderError ?? "shader missing";
+        const int S = 64, lim = 32;
+        var r = new System.Windows.Shapes.Rectangle { Width = S, Height = S, Fill = Brushes.White };
+        var e = new FilmEffect(sh); e.Set(lim, false, 0, 0, S, S); r.Effect = e;
+        var cv = new System.Windows.Controls.Canvas { Width = S, Height = S, Background = Brushes.Black };
+        cv.Children.Add(r);
+        cv.Measure(new Size(S, S)); cv.Arrange(new Rect(0, 0, S, S)); cv.UpdateLayout();
+        var rtb = new RenderTargetBitmap(S, S, 96, 96, PixelFormats.Pbgra32); rtb.Render(cv);
+        var px = new byte[S * S * 4]; rtb.CopyPixels(px, S * 4, 0);
+        var gray = new byte[S * S]; WriteFilmMask(gray, S, S, lim / 64.0);
+        int match = 0, white = 0, want = 0;
+        for (int i = 0; i < gray.Length; i++)
+        {
+            bool on = px[i * 4 + 1] > 127; if (on) white++;
+            if (gray[i] > 127) want++;
+            if (on == gray[i] > 127) match++;
+        }
+        return match == gray.Length ? null : $"{match}/{gray.Length} pixels, {white} white (mask {want})";
+    }
+    /// <summary>Null if a blue square with the film shader over a red square matches WriteFilmMask (incoming = blue).</summary>
+    public static string? FilmCompositeProbe()
+    {
+        if (FilmShader() is not { } sh) return FilmShaderError ?? "shader missing";
+        const int S = 64, lim = 32;
+        var under = new System.Windows.Shapes.Rectangle { Width = S, Height = S, Fill = Brushes.Red };
+        var over = new System.Windows.Shapes.Rectangle { Width = S, Height = S, Fill = Brushes.Blue };
+        var e = new FilmEffect(sh); e.Set(lim, false, 0, 0, S, S); over.Effect = e;
+        var cv = new System.Windows.Controls.Canvas { Width = S, Height = S };
+        cv.Children.Add(under); cv.Children.Add(over);
+        cv.Measure(new Size(S, S)); cv.Arrange(new Rect(0, 0, S, S)); cv.UpdateLayout();
+        var rtb = new RenderTargetBitmap(S, S, 96, 96, PixelFormats.Pbgra32); rtb.Render(cv);
+        var px = new byte[S * S * 4]; rtb.CopyPixels(px, S * 4, 0);
+        var gray = new byte[S * S]; WriteFilmMask(gray, S, S, lim / 64.0);
+        int match = 0;
+        for (int i = 0; i < gray.Length; i++)
+        {
+            bool incoming = gray[i] > 127;
+            byte wantB = incoming ? (byte)255 : (byte)0, wantR = incoming ? (byte)0 : (byte)255;
+            if (px[i * 4] == wantB && px[i * 4 + 2] == wantR) match++;
+        }
+        return match == gray.Length ? null : $"{match}/{gray.Length} pixels match red/blue film merge";
+    }
     /// <summary>Opacity of a dip's colour layer on a track at t (0 = none), and its colour.</summary>
     public static (double alpha, Color color)? DipAt(Plan plan, int track, double t)
     {
@@ -402,6 +565,13 @@ public static class Transitions
             double a = w.A == null ? 1 - q : w.B == null ? q : q < 0.5 ? 2 * q : 2 - 2 * q;
             return (a, (Color)ColorConverter.ConvertFromString(w.D.Color ?? "#000000"));
         }
+        return null;
+    }
+    /// <summary>Bible Page Turn on this track at t — the parchment overlay covers the outgoing shot, clipped to the unpeeled side.</summary>
+    public static Win? BiblePageAt(Plan plan, int track, double t)
+    {
+        foreach (var w in plan.Wins)
+            if (w.Track == track && w.D.Name == "Bible Page Turn" && t >= w.T0 && t < w.T1) return w;
         return null;
     }
 
@@ -419,4 +589,74 @@ public static class Transitions
         double x = fadeIn ? q : 1 - q;
         return power ? Math.Sin(x * Math.PI / 2) : x;
     }
+}
+
+/// <summary>Nearest-neighbour 8×8 Bayer threshold on a clip layer (Film Dissolve). OpacityMask / Clip bilinear-filter the same bits
+/// into a dissolve on the software renderer; this matches <see cref="Transitions.WriteFilmMask"/> pixel for pixel.</summary>
+public sealed class FilmEffect : ShaderEffect
+{
+    public static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty("Input", typeof(FilmEffect), 0, SamplingMode.NearestNeighbor);
+    public static readonly DependencyProperty C0Property = DependencyProperty.Register("C0", typeof(Point4D), typeof(FilmEffect), new UIPropertyMetadata(new Point4D(), PixelShaderConstantCallback(0)));
+    public static readonly DependencyProperty C1Property = DependencyProperty.Register("C1", typeof(Point4D), typeof(FilmEffect), new UIPropertyMetadata(new Point4D(), PixelShaderConstantCallback(1)));
+    public Brush Input { get => (Brush)GetValue(InputProperty); set => SetValue(InputProperty, value); }
+    public Point4D C0 { get => (Point4D)GetValue(C0Property); set => SetValue(C0Property, value); }
+    public Point4D C1 { get => (Point4D)GetValue(C1Property); set => SetValue(C1Property, value); }
+    public FilmEffect(PixelShader shader)
+    {
+        PixelShader = shader;
+        UpdateShaderValue(InputProperty); UpdateShaderValue(C0Property); UpdateShaderValue(C1Property);
+    }
+    public void Set(int lim, bool invert, double left, double top, double w, double h)
+    {
+        C0 = new Point4D(lim, invert ? 1 : 0, Editor.W, Editor.H);
+        C1 = new Point4D(left, top, w, h);
+    }
+}
+
+/// <summary>A named transition (kind, duration, alignment) shown in the Effects panel — built-ins plus the user's, like effect presets.</summary>
+public sealed class TransPreset
+{
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "Cross Dissolve";
+    public double Dur { get; set; } = 1;
+    public TransAlign Align { get; set; } = TransAlign.Center;
+    public bool BuiltIn { get; set; }
+}
+
+public static class TransPresets
+{
+    public static string? FileOverride;
+    static string File_ => FileOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CutPro", "trans-presets.json");
+    static List<TransPreset>? user;
+
+    public static readonly TransPreset[] BuiltIns =
+    {
+        new() { Name = "Quick dissolve", Kind = "Cross Dissolve", Dur = 0.5, BuiltIn = true },
+        new() { Name = "Film 12 frames", Kind = "Film Dissolve", Dur = 0.4, BuiltIn = true },
+        new() { Name = "Morph", Kind = "Morph Cut", Dur = 1.2, BuiltIn = true },
+        new() { Name = "Cube", Kind = "Cube Spin", Dur = 1, BuiltIn = true },
+        new() { Name = "Page peel", Kind = "Page Peel", Dur = 1, BuiltIn = true },
+        new() { Name = "Bible page", Kind = "Bible Page Turn", Dur = 1, BuiltIn = true },
+        new() { Name = "Dip 2 s", Kind = "Dip to Black", Dur = 2, BuiltIn = true },
+    };
+    public static List<TransPreset> User
+    {
+        get
+        {
+            if (user != null) return user;
+            try { user = File.Exists(File_) ? System.Text.Json.JsonSerializer.Deserialize<List<TransPreset>>(File.ReadAllText(File_)) ?? new() : new(); }
+            catch { user = new(); }
+            return user;
+        }
+    }
+    public static IEnumerable<TransPreset> All => User.Concat(BuiltIns);
+    public static void Save()
+    {
+        if (AppSettings.ReadOnly && FileOverride == null) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(File_)!);
+        File.WriteAllText(File_, System.Text.Json.JsonSerializer.Serialize(User, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    }
+    public static void Add(TransPreset p) { User.RemoveAll(x => x.Name.Equals(p.Name, StringComparison.CurrentCultureIgnoreCase)); User.Insert(0, p); Save(); }
+    public static void Remove(TransPreset p) { User.Remove(p); Save(); }
+    internal static void Reload() => user = null;
 }

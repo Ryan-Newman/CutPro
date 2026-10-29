@@ -31,7 +31,8 @@ public static class TransTest
             var ed = new Editor(); ed.Media.Add(a); ed.Media.Add(b);
             string[] kinds = { "Cross Dissolve", "Wipe Left", "Push Left", "Iris Round", "Dip to Black", "Wipe Up", "Push Down", "Dip to White", "Wipe Right", "Push Up",
                                "Clock Wipe", "Diagonal Wipe", "Venetian Blinds", "Inset", "Iris Box", "Iris Diamond", "Barn Doors", "Barn Doors Horizontal",
-                               "Slide Left", "Slide Right", "Slide Up", "Slide Down", "Cross Zoom", "Zoom In", "Zoom Out", "Spin In", "Spin Away" };
+                               "Slide Left", "Slide Right", "Slide Up", "Slide Down", "Cross Zoom", "Zoom In", "Zoom Out", "Spin In", "Spin Away",
+                               "Film Dissolve", "Morph Cut", "Cube Spin", "Page Peel", "Bible Page Turn" };
             // V1: alternating pictures, 2 s each, a transition at every cut (centre, 1 s); a fade in from nothing at the start
             var v1 = new List<Clip>();
             for (int i = 0; i <= kinds.Length; i++)
@@ -78,7 +79,7 @@ public static class TransTest
                         var (sx, sy) = SeqTest.Shift(pa, pb, W, H);
                         // (spins turn the 1 px grid pattern: WPF and ffmpeg resample it differently — 23 dB, like rotated layers in --animtest;
                         //  near-identical frames (> 45 dB) can't show a shift, e.g. a mostly black iris to nothing)
-                        double min = w.D.Name.StartsWith("Spin") ? 22 : 28;
+                        double min = w.D.Name.StartsWith("Spin") || w.D.Name is "Cube Spin" or "Morph Cut" ? 22 : 28;
                         Check(psnr >= min && worst <= 40 && (psnr > 45 || Math.Abs(sx) <= 1 && Math.Abs(sy) <= 1), $"{where} {w.T.Kind}{(w.A == null ? " (from nothing)" : w.B == null ? " (to nothing)" : "")} at {q:0.##}: PSNR {psnr:0.0} dB (≥ {min}), worst block {worst:0.0}/255, shift ({sx},{sy})");
                         FxTest.Save(FxTest.SideBySide(pa, pb), Path.Combine(dir, $"trans_{f}.png"));
                     }
@@ -161,6 +162,56 @@ public static class TransTest
         }
         var rtb = new RenderTargetBitmap(W, H, 96, 96, PixelFormats.Pbgra32); rtb.Render(dv); rtb.Freeze();
         return rtb;
+    }
+
+    /// <summary>Null if the program monitor's Film Dissolve at halfway equals a C# WriteFilmMask merge of the two pictures.</summary>
+    public static string? FilmLookProbe()
+    {
+        Editor.SetSequence(1280, 720, 30, ReframeMode.Fit);
+        var dir = Path.Combine(Path.GetTempPath(), "cutpro_filmprobe");
+        Directory.CreateDirectory(dir);
+        var p1 = Path.Combine(dir, "a.png"); var p2 = Path.Combine(dir, "b.png");
+        FxTest.Save(FxTest.Pattern(), p1); FxTest.Save(Second(), p2);
+        var ma = new MediaItem { Path = p1, Type = ClipKind.Image, Width = W, Height = H, Duration = 5 };
+        var mb = new MediaItem { Path = p2, Type = ClipKind.Image, Width = W, Height = H, Duration = 5 };
+        var ed = new Editor(); ed.Media.Add(ma); ed.Media.Add(mb);
+        ed.Clips.Add(new Clip { MediaId = ma.Id, Kind = ClipKind.Image, Track = Tracks.V1, Start = 0, Dur = 2 });
+        ed.Clips.Add(new Clip { MediaId = mb.Id, Kind = ClipKind.Image, Track = Tracks.V1, Start = 2, Dur = 2, TransIn = new Transition { Kind = "Film Dissolve", Dur = 1 } });
+        var plan = Transitions.Compute(ed);
+        var w = plan.Wins.FirstOrDefault(x => x.D.Name == "Film Dissolve");
+        if (w?.A == null || w.B == null) return "no Film Dissolve window";
+        double t = Math.Round((w.T0 + 0.5 * w.Dur) * TimeUtil.Fps) / TimeUtil.Fps;
+        var la = Transitions.Look(plan, w.A, t, _ => new Rect(0, 0, W, H));
+        var lb = Transitions.Look(plan, w.B, t, _ => new Rect(0, 0, W, H));
+        var pv = new Preview { Ed = ed, Width = W, Height = H, Background = Brushes.Black };
+        pv.Sync(t, false); pv.Measure(new Size(W, H)); pv.Arrange(new Rect(0, 0, W, H)); pv.UpdateLayout();
+        var rtb = new RenderTargetBitmap(W, H, 96, 96, PixelFormats.Pbgra32); rtb.Render(pv);
+        var pa = new byte[W * H * 4]; rtb.CopyPixels(pa, W * 4, 0);
+        byte[] Pix(string path)
+        {
+            var bi = new BitmapImage(); bi.BeginInit(); bi.UriSource = new Uri(path); bi.CacheOption = BitmapCacheOption.OnLoad; bi.EndInit();
+            var conv = new FormatConvertedBitmap(bi, PixelFormats.Bgra32, null, 0);
+            var px = new byte[W * H * 4]; conv.CopyPixels(px, W * 4, 0); return px;
+        }
+        var ia = Pix(p1); var ib = Pix(p2);
+        var gray = new byte[W * H]; Transitions.WriteFilmMask(gray, W, H, w.Q(t));
+        var merge = new byte[W * H * 4];
+        for (int i = 0; i < gray.Length; i++)
+        {
+            var src = gray[i] > 127 ? ib : ia; int o = i * 4;
+            merge[o] = src[o]; merge[o + 1] = src[o + 1]; merge[o + 2] = src[o + 2]; merge[o + 3] = 255;
+        }
+        var (psnr, worst) = FxTest.Compare(pa, merge);
+        var (px, py, pw, ph, rot) = Editor.Placement(mb, w.B, t);
+        if (psnr >= 28 && worst <= 40) return null;
+        return $"preview vs mask-merge {psnr:0.0} dB worst {worst:0.0}; A lim={la.FilmLim} top={la.Top} B lim={lb.FilmLim} top={lb.Top} q={w.Q(t):0.###} place=({px:0.##},{py:0.##},{pw:0.##}x{ph:0.##},rot={rot:0.##}) imgFx={HasFilmFx(pv)}";
+    }
+    static bool HasFilmFx(DependencyObject d)
+    {
+        if (d is System.Windows.Controls.Image { Effect: FilmEffect }) return true;
+        int n = VisualTreeHelper.GetChildrenCount(d);
+        for (int i = 0; i < n; i++) if (HasFilmFx(VisualTreeHelper.GetChild(d, i))) return true;
+        return false;
     }
 
     static void Run(string ff, string args) { using var p = Process.Start(new ProcessStartInfo(ff, args) { UseShellExecute = false, CreateNoWindow = true })!; p.WaitForExit(); }

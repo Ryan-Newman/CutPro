@@ -18,7 +18,7 @@ public partial class MainWindow
     readonly List<Strip> strips = new();
     readonly float[] levels = new float[Mixer.Slots];
     long meterTick;
-    TextBlock? loudText;
+    TextBlock? loudText, liveLoud;
     bool mixRefreshing;
 
     void InitMixer()
@@ -244,12 +244,19 @@ public partial class MainWindow
             int k = s.Track < 0 ? Mixer.Slots - 2 : s.Track >= SubBase ? Mixer.SubSlot(s.Track - SubBase) : s.Track * 2;
             s.Meter.Push(on ? levels[k] : 0, on ? levels[k + 1] : 0, dt);
         }
+        if (on && liveLoud != null)
+        {
+            var L = audio.LiveLoudness();
+            liveLoud.Text = $"M {FmtLufs(L.Momentary)}   S {FmtLufs(L.ShortTerm)}   I {FmtLufs(L.Integrated)}   TP {Fmt(L.TruePeak)} dBTP";
+        }
     }
 
     void BuildLoudness()
     {
         LoudnessPanel.Children.Clear();
         LoudnessPanel.Children.Add(new TextBlock { Text = "Loudness", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 2) });
+        liveLoud = new TextBlock { Text = "Play to see live loudness (M 400 ms / S 3 s / I integrated).", TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 0, 0, 4) };
+        LoudnessPanel.Children.Add(liveLoud);
         loudText = new TextBlock { Text = "Measure the sequence to see how loud it is (ITU BS.1770 / EBU R128).", TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) };
         loudText.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
         LoudnessPanel.Children.Add(loudText);
@@ -279,12 +286,13 @@ public partial class MainWindow
         match.Click += async (_, _) => await MatchLoudnessAsync();
         row.Children.Add(measure); row.Children.Add(match);
         LoudnessPanel.Children.Add(row);
-        var hint = new TextBlock { Text = "YouTube, TikTok, Instagram, Facebook, X and LinkedIn export presets normalize to −14 LUFS with peaks under −1 dBTP (Export → Loudness).",
+        var hint = new TextBlock { Text = "Live M / S / I while playing. YouTube, TikTok, Instagram, Facebook, X and LinkedIn export presets normalize to −14 LUFS with peaks under −1 dBTP (Export → Loudness).",
                                    TextWrapping = TextWrapping.Wrap, FontSize = 11 };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
         LoudnessPanel.Children.Add(hint);
     }
     static string Fmt(double v) => v.ToString("0.0", CultureInfo.InvariantCulture).Replace('-', '−');
+    static string FmtLufs(double v) => double.IsFinite(v) ? Fmt(v) : "—";
 
     /// <summary>Clip loudness matching: each selected clip with sound gets the volume that makes it −14 LUFS on its own (one undo step).</summary>
     async Task MatchLoudnessAsync(double target = -14)

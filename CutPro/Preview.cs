@@ -112,6 +112,23 @@ public class Preview : Canvas
     /// w×h rotated about its centre. A cut-out object mask keeps the opacity mask (it wins over an iris).</summary>
     static void ApplyLook(FrameworkElement el, MaskFxHost? fx, Transitions.LookInfo look, double left, double top, double w, double h, double rot)
     {
+        if (look.FilmLim >= 0)
+        {
+            if (el.Clip != null) el.Clip = null;
+            if (fx != null)
+            {
+                fx.Extra = null;
+                fx.SetFilm(look.FilmLim, !look.Top, left, top, w, h);
+                var want = fx.CutBrush;
+                if (!ReferenceEquals(el.OpacityMask, want)) el.OpacityMask = want;
+                if (el.Effect is FilmEffect) el.Effect = null;
+            }
+            else SetFilm(el, look.FilmLim, !look.Top, left, top, w, h);
+            return;
+        }
+        fx?.SetFilm(-1, false, 0, 0, 0, 0);
+        if (el.Effect is FilmEffect) el.Effect = null;
+        if (RenderOptions.GetEdgeMode(el) != EdgeMode.Unspecified) RenderOptions.SetEdgeMode(el, EdgeMode.Unspecified);
         Transform? xf = null;
         if (look.Region != null || look.Mask != null)
         {
@@ -127,6 +144,15 @@ public class Preview : Canvas
         if (look.Mask != null) { mask = look.Mask.Clone(); mask.Transform = xf; mask.Freeze(); }
         if (fx != null) { fx.Extra = mask; var want = fx.CutBrush ?? mask; if (!ReferenceEquals(el.OpacityMask, want)) el.OpacityMask = want; }
         else if (!ReferenceEquals(el.OpacityMask, mask)) el.OpacityMask = mask;
+    }
+    static void SetFilm(FrameworkElement el, int lim, bool invert, double left, double top, double w, double h)
+    {
+        var sh = Transitions.FilmShader();
+        if (sh == null) { if (el.Effect is FilmEffect) el.Effect = null; return; }
+        var e = el.Effect as FilmEffect ?? new FilmEffect(sh);
+        e.Set(lim, invert, left, top, w, h);
+        if (!ReferenceEquals(el.Effect, e)) el.Effect = e;
+        RenderOptions.SetEdgeMode(el, EdgeMode.Aliased);
     }
 
     /// <summary>Dip to black / white: a full-frame colour layer on the track, above its clips.</summary>
@@ -144,6 +170,29 @@ public class Preview : Canvas
             if (r.Fill is not SolidColorBrush sb || sb.Color != dip.Value.color) r.Fill = new SolidColorBrush(dip.Value.color);
             Set(r, OpacityProperty, dip.Value.alpha);
             Vis(r, Visibility.Visible);
+        }
+    }
+
+    /// <summary>Bible Page Turn: a parchment page with Scripture, clipped to the unpeeled side (the incoming shot shows through the peel).</summary>
+    Image?[] biblePage = Array.Empty<Image?>();
+    void SyncGospelPages(double t)
+    {
+        for (int k = 0; k < trackCv.Length; k++)
+        {
+            var w = Ed.TrackOff[k] ? null : Transitions.BiblePageAt(plan, k, t);
+            if (w == null) { if (biblePage[k] != null) Vis(biblePage[k]!, Visibility.Collapsed); continue; }
+            var img = biblePage[k] ??= new Image { Stretch = Stretch.Fill, IsHitTestVisible = false };
+            if (img.Parent != trackCv[k]) { Detach(img); trackCv[k].Children.Add(img); }
+            Z(img, 1);
+            Set(img, WidthProperty, Editor.W); Set(img, HeightProperty, Editor.H);
+            Set(img, LeftProperty, 0); Set(img, TopProperty, 0);
+            var bmp = Gospel.PageBitmap(Editor.W, Editor.H, Gospel.For(Ed));
+            if (img.Source != bmp) img.Source = bmp;
+            var shape = Transitions.Shape(w.D, w.Q(t), Editor.W, Editor.H);
+            Geometry clip = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(-Editor.W, -Editor.H, 3 * Editor.W, 3 * Editor.H)), shape);
+            clip.Freeze();
+            if (!Equals(img.Clip, clip)) img.Clip = clip;
+            Vis(img, Visibility.Visible);
         }
     }
 
@@ -265,6 +314,7 @@ public class Preview : Canvas
             if (adjVig[k].Visibility != Visibility.Collapsed) adjVig[k].Visibility = Visibility.Collapsed;
         }
         for (int k = 0; k < dipRect.Length; k++) if (dipRect[k] != null) Vis(dipRect[k]!, Visibility.Collapsed);
+        for (int k = 0; k < biblePage.Length; k++) if (biblePage[k] != null) Vis(biblePage[k]!, Visibility.Collapsed);
     }
 
     void LeaveCache()
@@ -284,6 +334,7 @@ public class Preview : Canvas
         SyncLayers(t);
         SyncAdjust(t);
         SyncDips(t);
+        SyncGospelPages(t);
         SyncAudio();
         if (ffmpeg == null) { SyncBlendHosts(); SyncShadows(); return; }
 
@@ -540,6 +591,7 @@ public class Preview : Canvas
         maskBmp = new BitmapSource?[m]; maskF = new double[m]; maskKey = Enumerable.Repeat("", m).ToArray();
         adjVigCache = new (object?, string, Brush?)[m]; belowBrush = new VisualBrush?[m];
         dipRect = new System.Windows.Shapes.Rectangle?[n];
+        biblePage = new Image?[n];
         foreach (var (e, bh) in blendHosts.ToList()) blendHosts[e] = (bh.Host, -1);   // (their shader samples the new tree: rebuilt by Place)
     }
 
@@ -734,7 +786,7 @@ public class Preview : Canvas
     /// <summary>Gaussian blur on a layer (radius in sequence pixels; the exporter uses gblur with sigma = radius / 3).</summary>
     static void SetBlur(UIElement e, double r)
     {
-        if (r <= 0.05) { if (e.Effect != null) e.Effect = null; return; }
+        if (r <= 0.05) { if (e.Effect is not FilmEffect && e.Effect != null) e.Effect = null; return; }
         if (e.Effect is BlurEffect b) { if (Math.Abs(b.Radius - r) > 1e-3) b.Radius = r; }
         else e.Effect = new BlurEffect { Radius = r, KernelType = KernelType.Gaussian };
     }

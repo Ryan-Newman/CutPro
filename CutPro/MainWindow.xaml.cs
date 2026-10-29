@@ -52,7 +52,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             if (Exporter.FindFfmpeg() == null)
-                Alert.Show(this, "CutPro needs ffmpeg for playback and export, but ffmpeg.exe was not found.\n\nInstall it with:  winget install Gyan.FFmpeg\nthen restart CutPro.",
+                Alert.Show(this, $"{AppInfo.Name} needs ffmpeg for playback and export, but ffmpeg.exe was not found.\n\nInstall it with:  winget install Gyan.FFmpeg\nthen restart {AppInfo.Name}.",
                     "ffmpeg required", AlertKind.Warning);
         };
         OnChanged();
@@ -69,7 +69,7 @@ public partial class MainWindow : Window
         DurText.Text = TimeUtil.Format(ed.End);
         McButtonState();
         BuildInspector(); UpdateScrollBar(); Tl.InvalidateVisual(); Ph.InvalidateVisual();
-        Title = "CutPro" + (projectPath != null ? " — " + Path.GetFileName(projectPath) : "") + (Dirty && !AppSettings.ReadOnly ? " •" : "");
+        Title = AppInfo.Name + (projectPath != null ? " — " + Path.GetFileName(projectPath) : "") + (Dirty && !AppSettings.ReadOnly ? " •" : "");
         UpdateStatus();
     }
 
@@ -369,12 +369,12 @@ public partial class MainWindow : Window
     {
         if (projectPath == null)
         {
-            var dlg = new SaveFileDialog { Filter = "CutPro project|*.cutpro", DefaultExt = ".cutpro", FileName = "Untitled" };
+            var dlg = new SaveFileDialog { Filter = $"{AppInfo.Name} project|*.cutpro", DefaultExt = ".cutpro", FileName = "Untitled" };
             if (dlg.ShowDialog(this) != true) return;
             projectPath = dlg.FileName;
         }
         File.WriteAllText(projectPath, ProjectJson(true));
-        Title = "CutPro — " + Path.GetFileName(projectPath);
+        Title = AppInfo.Name + " — " + Path.GetFileName(projectPath);
         MarkSaved(true);
         histStale = true; RefreshHistory();
     }
@@ -391,7 +391,7 @@ public partial class MainWindow : Window
 
     async void Open_Click(object s, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog { Filter = "CutPro project|*.cutpro|All files|*.*" };
+        var dlg = new OpenFileDialog { Filter = $"{AppInfo.Name} project|*.cutpro|All files|*.*" };
         if (dlg.ShowDialog(this) != true) return;
         if (!ConfirmDiscard()) return;
         await OpenProjectFile(dlg.FileName, dlg.FileName);

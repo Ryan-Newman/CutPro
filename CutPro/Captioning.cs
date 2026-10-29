@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,6 +19,8 @@ public sealed record CaptionLayout(string Name, int MaxChars, int MaxLines, doub
 /// inside each segment — pauses after punctuation weigh more —, lines balanced and measured with the caption style's font against the frame,
 /// sentence ends preferred as breaks, short gaps closed, everything on frames) → caption titles (<see cref="TextRole.Caption"/> clips on a
 /// free top video track, styled by the title theme), which the preview draws and the export burns in like any title. SRT / WebVTT out and in.
+/// CEA-608 closed captions: <see cref="ToScc"/> writes Scenarist SCC (pop-on, channel 1); the export muxes that as a c608 track in MOV
+/// (MP4 is remuxed as QuickTime so the same track fits) and as SMPTE 436M ANC in MXF (the broadcast 608/708 packet).
 /// </summary>
 public static class Captioning
 {
@@ -313,5 +316,116 @@ public static class Captioning
             if (txt.Length > 0) cues.Add(new Cue(T(m, 1), T(m, 5), txt));
         }
         return cues.OrderBy(c => c.Start).ToList();
+    }
+
+    // ---------------- CEA-608 / SCC (embedded closed captions) ----------------
+    /// <summary>MOV carries a c608 track; MXF carries SMPTE 436M ANC (608 + 708 in the CDP); MP4 is remuxed as QuickTime so c608 fits
+    /// (the ISO mp4 muxer has no eia_608 tag).</summary>
+    public static bool CcContainer(string container) => container is "mp4" or "mov" or "mxf";
+
+    static byte Odd(int b)
+    {
+        b &= 0x7F;
+        int n = 0; for (int x = b; x != 0; x >>= 1) n += x & 1;
+        return (byte)((n & 1) == 0 ? b | 0x80 : b);
+    }
+    static string Word(int a, int b) => $"{Odd(a):X2}{Odd(b):X2}";
+    static readonly int[] PacRow = { 0, 0x11, 0x11, 0x12, 0x12, 0x15, 0x15, 0x16, 0x16, 0x17, 0x17, 0x10, 0x13, 0x13, 0x14, 0x14 };
+    static string Pac(int row) { row = Math.Clamp(row, 1, 15); return Word(PacRow[row], (row & 1) == 1 ? 0x40 : 0x60); }
+    static string Tc(int frames) { frames = Math.Max(0, frames); return $"{frames / 108000:00}:{frames / 1800 % 60:00}:{frames / 30 % 60:00}:{frames % 30:00}"; }
+    static byte CcByte(char ch) => ch switch
+    {
+        >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' => (byte)ch,
+        ' ' or '!' or '"' or '#' or '$' or '%' or '&' or '\'' or '(' or ')' or '+' or ',' or '-' or '.' or '/'
+            or ':' or ';' or '<' or '=' or '>' or '?' or '@' or '[' or ']' => (byte)ch,
+        '\u2018' or '\u2019' => 0x27, '\u201C' or '\u201D' => 0x22, '\u2013' or '\u2014' => (byte)'-',
+        'á' or 'Á' => 0x2A, 'é' or 'É' => 0x5C, 'í' or 'Í' => 0x5E, 'ó' or 'Ó' => 0x5F, 'ú' or 'Ú' => 0x60,
+        'ñ' => 0x7E, 'Ñ' => 0x7D, 'ç' or 'Ç' => 0x7B,
+        _ => (byte)'?'
+    };
+
+    /// <summary>Pop-on CEA-608 as Scenarist SCC (channel 1, white, bottom-aligned, 30 fps non-drop times). Extended Latin becomes the 608
+    /// character or '?'.</summary>
+    public static string ToScc(IEnumerable<Cue> cues)
+    {
+        var at = new SortedDictionary<int, List<string>>();
+        void Add(int f, IEnumerable<string> w)
+        {
+            f = Math.Max(0, f);
+            if (!at.TryGetValue(f, out var L)) at[f] = L = new();
+            L.AddRange(w);
+        }
+        foreach (var c in cues.OrderBy(x => x.Start))
+        {
+            var lines = (c.Text ?? "").Replace("\r", "").Split('\n')
+                .Select(l => l.Trim()).Where(l => l.Length > 0).Take(4)
+                .Select(l => l.Length > 32 ? l[..32] : l).ToList();
+            if (lines.Count == 0) continue;
+            int start = (int)Math.Round(Math.Max(0, c.Start) * 30), end = Math.Max(start + 2, (int)Math.Round(Math.Max(0, c.End) * 30));
+            var words = new List<string> { Word(0x14, 0x20), Word(0x14, 0x2E) };   // RCL, ENM
+            int row0 = 16 - lines.Count;
+            foreach (var line in lines)
+            {
+                words.Add(Pac(row0++));
+                var bytes = line.Select(CcByte).ToList();
+                if ((bytes.Count & 1) != 0) bytes.Add((byte)' ');
+                for (int k = 0; k < bytes.Count; k += 2) words.Add(Word(bytes[k], bytes[k + 1]));
+            }
+            words.Add(Word(0x14, 0x2F));                                          // EOC
+            for (int i = 0, f = start; i < words.Count; i += 16, f++) Add(f, words.Skip(i).Take(16));
+            Add(end, new[] { Word(0x14, 0x2C) });                                 // EDM
+        }
+        var sb = new StringBuilder("Scenarist_SCC V1.0\r\n\r\n");
+        foreach (var (f, w) in at) sb.Append(Tc(f)).Append('\t').Append(string.Join(' ', w)).Append("\r\n");
+        return sb.ToString();
+    }
+
+    /// <summary>Printable 608 characters from an SCC file (control / PAC words skipped) — for tests.</summary>
+    public static string SccText(string scc)
+    {
+        var sb = new StringBuilder();
+        foreach (Match m in Regex.Matches(scc, @"\b([0-9A-Fa-f]{4})\b"))
+        {
+            int w = Convert.ToInt32(m.Groups[1].Value, 16), a = (w >> 8) & 0x7F, b = w & 0x7F;
+            if (a is >= 0x10 and <= 0x17) continue;
+            if (a >= 0x20) sb.Append((char)a);
+            if (b >= 0x20) sb.Append((char)b);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>After a successful picture export: mux CEA-608 onto the file when the settings ask. Null = nothing to do or done.</summary>
+    public static string? EmbedIfNeeded(string ffmpeg, Editor ed, string output, ExportSettings? o)
+    {
+        if (o is not { EmbedCc: true } || o.AudioOnly || !CcContainer(o.Container) || !File.Exists(output)) return null;
+        var (t0, t1) = Exporter.Range(ed, o);
+        var cues = InRange(CuesOf(ed), t0, t1);
+        return cues.Count == 0 ? null : MuxCc(ffmpeg, output, cues, o.Container);
+    }
+
+    /// <summary>Remux <paramref name="video"/> in place with a CEA-608 stream from <paramref name="cues"/>.</summary>
+    public static string? MuxCc(string ffmpeg, string video, IEnumerable<Cue> cues, string container)
+    {
+        if (!CcContainer(container)) return "This format cannot carry CEA-608 captions (use MP4, MOV or MXF).";
+        var scc = Path.Combine(Path.GetTempPath(), $"cutpro_cc_{Guid.NewGuid().ToString("N")[..8]}.scc");
+        var tmp = video + ".ccmux" + Path.GetExtension(video);
+        try
+        {
+            File.WriteAllText(scc, ToScc(cues), new UTF8Encoding(false));
+            var psi = new ProcessStartInfo(ffmpeg) { RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "-y", "-v", "error", "-i", video, "-i", scc, "-map", "0", "-map", "1:s:0", "-c", "copy", "-c:s", "copy" })
+                psi.ArgumentList.Add(a);
+            if (container is "mp4" or "mov") { psi.ArgumentList.Add("-movflags"); psi.ArgumentList.Add("+faststart"); }
+            if (container == "mp4") { psi.ArgumentList.Add("-f"); psi.ArgumentList.Add("mov"); }
+            psi.ArgumentList.Add(tmp);
+            using var p = Process.Start(psi)!;
+            var err = p.StandardError.ReadToEnd();
+            if (!p.WaitForExit(120000)) { try { p.Kill(true); } catch { } return "Embedding closed captions timed out."; }
+            if (p.ExitCode != 0) return string.IsNullOrWhiteSpace(err) ? "Embedding closed captions failed." : err.Trim();
+            File.Copy(tmp, video, true);
+            return null;
+        }
+        catch (Exception ex) { return ex.Message; }
+        finally { try { File.Delete(scc); } catch { } try { File.Delete(tmp); } catch { } }
     }
 }

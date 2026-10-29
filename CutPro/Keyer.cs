@@ -22,6 +22,11 @@ public sealed class ChromaKey
     /// <summary>Luma key instead of colour: removes the brightness <see cref="Level"/> (0 = black, 100 = white) ± tolerance.</summary>
     public bool Luma { get; set; }
     public double Level { get; set; }
+    /// <summary>Garbage matte: extra transparency from each edge of the picture (0…80 %), so lights / stands off the screen never leak. Preview and export share the same crop of the matte.</summary>
+    public double GarbageL { get; set; }
+    public double GarbageT { get; set; }
+    public double GarbageR { get; set; }
+    public double GarbageB { get; set; }
     public ChromaKey Clone() => (ChromaKey)MemberwiseClone();
 }
 
@@ -39,7 +44,8 @@ public static class Keyer
     public static Color KeyColor(ChromaKey k) => TitleVisual.ParseColor(k.Color, Color.FromRgb(0, 0xB1, 0x40));
     public static bool BlueScreen(ChromaKey k) { var c = KeyColor(k); return c.B > c.G; }
 
-    public static string Graph(ChromaKey k, int height)
+    public static string Graph(ChromaKey k, int height) => Graph(k, Math.Max(2, height * 16 / 9 / 2 * 2), height);
+    public static string Graph(ChromaKey k, int width, int height)
     {
         double s = Math.Max(0.25, height / 720.0);
         var c = KeyColor(k);
@@ -61,18 +67,33 @@ public static class Keyer
             if (sigma > 0.05) g.Append($",gblur=sigma={F(sigma)}:planes=8");
             g.Append(",format=rgba");
         }
+        if (HasGarbage(k))
+        {
+            // crop the keyed picture to the keep-rect and pad with transparent — outside is always empty (lights / stands / the edge of the screen)
+            double l = Math.Clamp(k.GarbageL, 0, 80) / 100, t = Math.Clamp(k.GarbageT, 0, 80) / 100;
+            double r = Math.Clamp(k.GarbageR, 0, 80) / 100, btm = Math.Clamp(k.GarbageB, 0, 80) / 100;
+            if (l + r > 0.98) { l = Math.Min(l, 0.49); r = Math.Min(r, 0.49); }
+            if (t + btm > 0.98) { t = Math.Min(t, 0.49); btm = Math.Min(btm, 0.49); }
+            int x = Math.Max(0, (int)Math.Round(width * l) & ~1), y = Math.Max(0, (int)Math.Round(height * t) & ~1);
+            int x1 = width - Math.Max(0, (int)Math.Round(width * r) & ~1), y1 = height - Math.Max(0, (int)Math.Round(height * btm) & ~1);
+            int cw = Math.Max(2, x1 - x), ch = Math.Max(2, y1 - y);
+            if (x + cw > width) cw = Math.Max(2, width - x); if (y + ch > height) ch = Math.Max(2, height - y);
+            g.Append($",crop={cw}:{ch}:{x}:{y}:exact=1,pad={width}:{height}:{x}:{y}:color=black@0,format=rgba");
+        }
         return g.ToString();
     }
 
-    public static string Sig(ChromaKey? k) => k == null ? "" : FormattableString.Invariant($"{k.Color}|{k.Tolerance}|{k.Softness}|{k.Spill}|{k.Choke}|{k.Soften}|{k.Luma}|{k.Level}");
+    public static bool HasGarbage(ChromaKey k) => k.GarbageL > 0.05 || k.GarbageT > 0.05 || k.GarbageR > 0.05 || k.GarbageB > 0.05;
+    public static string Sig(ChromaKey? k) => k == null ? "" : FormattableString.Invariant($"{k.Color}|{k.Tolerance}|{k.Softness}|{k.Spill}|{k.Choke}|{k.Soften}|{k.Luma}|{k.Level}|{k.GarbageL}|{k.GarbageT}|{k.GarbageR}|{k.GarbageB}");
 
     /// <summary>The decoder graph for a clip: key, then the colour work (drawn look, look effects) with the matte carried around it (those
     /// works in planar RGB without alpha).</summary>
-    public static string DecoderGraph(ChromaKey? key, string colour, int height)
+    public static string DecoderGraph(ChromaKey? key, string colour, int height) => DecoderGraph(key, colour, Math.Max(2, height * 16 / 9 / 2 * 2), height);
+    public static string DecoderGraph(ChromaKey? key, string colour, int width, int height)
     {
         // colour = the drawn look + look effects (Looks.ColourGraph), which work without alpha: with a key the matte is carried around them
         if (!Active(key)) return colour;
-        var kg = Graph(key!, height);
+        var kg = Graph(key!, width, height);
         return colour != "" ? $"{kg},split[ka][kb];[kb]{colour}[kt];[ka]alphaextract[kx];[kt][kx]alphamerge,format=rgba" : kg;
     }
 

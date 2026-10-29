@@ -766,7 +766,9 @@ public partial class Editor
 
     /// <summary>Premiere's Ctrl+D / Ctrl+Shift+D / Shift+D: default transitions at the selected clips' edit points, or else at the
     /// edit point nearest the playhead on each track (within 2 s).</summary>
-    public int ApplyDefaultTransitions(bool video, bool audio)
+    public int ApplyDefaultTransitions(bool video, bool audio) => ApplyTransition(null, null, null, video, audio);
+    /// <summary>A named transition (or a preset: kind / duration / alignment) at the same targets as the default command.</summary>
+    public int ApplyTransition(string? kind, double? dur = null, TransAlign? align = null, bool video = true, bool audio = false)
     {
         var targets = new List<(Clip c, bool head)>();
         bool Want(Clip c) => c.Kind == ClipKind.Audio ? audio : video && !(c.Kind == ClipKind.Text && c.Mask != MaskMode.None);
@@ -785,7 +787,14 @@ public partial class Editor
                 if (points.Count > 0 && Math.Abs(points[0].t - Time) <= 2) targets.Add((points[0].c, points[0].head));
             }
         if (targets.Count == 0) return 0;
-        Edit(() => { foreach (var (c, head) in targets) PlaceTransition(c, head, c.Kind == ClipKind.Audio ? Transitions.DefaultAudio : Transitions.DefaultVideo); });
+        Edit(() =>
+        {
+            foreach (var (c, head) in targets)
+            {
+                string k = kind ?? (c.Kind == ClipKind.Audio ? Transitions.DefaultAudio : Transitions.DefaultVideo);
+                PlaceTransition(c, head, k, dur, align);
+            }
+        });
         return targets.Count;
     }
 
