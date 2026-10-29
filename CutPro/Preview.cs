@@ -183,14 +183,16 @@ public class Preview : Canvas
             if (Stab.Ready(c, m, ss, se) is { } sf)
                 return new Need(c, m, active, Math.Clamp(t - ss, 0, Math.Max(0, se - ss - 0.5 / TimeUtil.Fps)), w, h, sf, 0, SrcAt(c, m, t), false, se - ss, vf, alpha);
         }
-        if (!TimeMap.IsRemapped(c)) { double s = SrcAt(c, m, t); return new Need(c, m, active, s, w, h, Proxies.PathOf(m), 0, s, false, m.Duration, vf, alpha); }   // (proxies on: the small copy)
+        // (HDR footage: tone-mapped right after scaling when the original file is read — the export does the same; proxies and renders are SDR already)
+        string withHdr = Hdr.Of(m) is { Length: > 0 } hdr ? (vf == "" ? hdr : hdr + "," + vf) : vf;
+        if (!TimeMap.IsRemapped(c)) { double s = SrcAt(c, m, t); var pth = Proxies.PathOf(m); return new Need(c, m, active, s, w, h, pth, 0, s, false, m.Duration, pth == m.Path ? withHdr : vf, alpha); }   // (proxies on: the small copy)
         var (rs, re) = plan.Range(c);
         double fps = TimeMap.NativeFps(m);
         long i = TimeMap.NativeIndex(c, m, t);
         double map = (i + 0.5) / fps;                                  // (the middle of the native frame: no rounding at its edges)
         if (Remap.Ready(c, m, rs, re) is { } file)
             return new Need(c, m, active, Math.Clamp(t - rs, 0, Math.Max(0, re - rs - 0.5 / TimeUtil.Fps)), w, h, file, 0, map, false, re - rs, vf, alpha);
-        return new Need(c, m, active, map, w, h, m.Path, fps, map, c.Reverse, m.Duration, vf, alpha);
+        return new Need(c, m, active, map, w, h, m.Path, fps, map, c.Reverse, m.Duration, withHdr, alpha);
     }
     readonly Dictionary<(string, string, int), string> decGraphs = new();
     string DecoderGraph(Clip c, int w, int h, bool srcAlpha = false)
@@ -264,7 +266,8 @@ public class Preview : Canvas
             if (double.IsNaN(L.PrevSrc) || Math.Abs(n.Src - L.PrevSrc) > 1e-6) { L.PrevSrc = n.Src; L.SrcMovedAt = now; }
             // paused and the wanted frame is still moving (playhead scrub, clip drag): the scrub cache shows it instantly
             bool moving = !playing && now - L.SrcMovedAt < StableMs;
-            bool proxy = (!playing || n.Backward) && n.Active && n.Vf == "" && !(Stab.Active(n.C) && n.Path != n.M.Path) && ScrubCache.Has(n.M.Path, n.MapSrc);   // (a drawn look comes from the decoder only; the proxy isn't stabilized)
+            bool proxy = (!playing || n.Backward) && n.Active && (n.Vf == "" || n.Vf == Hdr.Of(n.M)) &&   // (the scrub cache is tone-mapped too)
+                         !(Stab.Active(n.C) && n.Path != n.M.Path) && ScrubCache.Has(n.M.Path, n.MapSrc);   // (a drawn look comes from the decoder only; the proxy isn't stabilized)
             bool same = fs != null && fs.Path == n.Path && fs.Rate == RateOf(n) && fs.Vf == n.Vf && fs.Alpha == n.Alpha && fs.W == n.W && fs.H == n.H;
             bool fits = same && fs!.CanServe(n.Src);
             bool restart = !fits && !(playing && n.Backward) && (     // (reversed, not rendered yet: the scrub cache plays it)
@@ -852,10 +855,11 @@ public class Preview : Canvas
             if (c == null) { if (below[k].OpacityMask != null) below[k].OpacityMask = null; maskBmp[k] = null; maskKey[k] = ""; continue; }
             if (c.Kind != ClipKind.Text) { ClipMatte(k, c, t); continue; }
             maskKey[k] = "";
-            bool animT = Anim.AnyAnimated(c, Anim.Visual);
+            bool animT = Anim.AnyAnimated(c, Anim.Visual), animS = Shapes.Animated(c);
             var mo = animT ? TitleVisual.MotionAt(c, t) : TitleVisual.MotionOf(c);
-            var sig = TitleVisual.Signature(c, true) + $"|{mo}";                     // (motion isn't in Signature)
-            if (!mattes.TryGetValue(c.Id, out var mt) || mt.sig != sig) mattes[c.Id] = mt = (sig, TitleVisual.Render(c, matte: true, motion: mo));
+            double? local = animS ? t - c.Start : null;                               // (moving shape layers: the matte at this moment, like the export's per-frame render)
+            var sig = TitleVisual.Signature(c, true) + $"|{mo}|{local}";               // (motion isn't in Signature)
+            if (!mattes.TryGetValue(c.Id, out var mt) || mt.sig != sig) mattes[c.Id] = mt = (sig, TitleVisual.Render(c, matte: true, motion: mo, local: local));
             double f = Math.Clamp(Anim.Value(c, AnimProp.Opacity, t) / 100 * c.Fade(t), 0, 1);
             if (ReferenceEquals(mt.bmp, maskBmp[k]) && Math.Abs(f - maskF[k]) < 0.002) continue;
             maskBmp[k] = mt.bmp; maskF[k] = f;

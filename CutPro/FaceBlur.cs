@@ -182,7 +182,7 @@ public static class FaceTracks
         int n = f1 - f0 + 1;
         var psi = new ProcessStartInfo(ff) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var a in new[] { "-v", "error", "-nostdin", "-ss", Math.Max(0, f0 / TimeUtil.Fps - 1e-4).ToString("0.######", CultureInfo.InvariantCulture), "-i", m.Path, "-an", "-sn",
-                                  "-vf", $"fps={TimeUtil.Rate},scale={w}:{h}:flags=bilinear", "-frames:v", n.ToString(), "-pix_fmt", "bgr24", "-f", "rawvideo", "pipe:1" })
+                                  "-vf", $"fps={TimeUtil.Rate},scale={w}:{h}:flags=bilinear{Hdr.Post(m)}", "-frames:v", n.ToString(), "-pix_fmt", "bgr24", "-f", "rawvideo", "pipe:1" })
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         p.ErrorDataReceived += (_, _) => { }; p.BeginErrorReadLine();

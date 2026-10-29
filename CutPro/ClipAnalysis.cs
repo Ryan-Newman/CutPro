@@ -144,7 +144,7 @@ public static class AudioSync
         }
         double mean = sum / cnt, sd = Math.Sqrt(Math.Max(1e-30, sum2 / cnt - mean * mean));
         // sub-sample: parabola through the peak and its neighbours
-        double y0 = A[(best - 1 + n) % n].Real, y1 = bv, y2 = A[(best + 1) % n].Real;
+        double y0 = A[(best - 1 + n) % n].Real, y1 = bv, y2 = A[(best + 1 + n) % n].Real;   // (+ n: C#'s % keeps the sign — a negative lag indexed below 0)
         double den = y0 - 2 * y1 + y2, frac = Math.Abs(den) > 1e-12 ? Math.Clamp(0.5 * (y0 - y2) / den, -0.5, 0.5) : 0;
         return new Result((best + frac) / rate, (bv - mean) / sd);
     }

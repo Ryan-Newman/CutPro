@@ -397,6 +397,7 @@ public partial class TimelineView : FrameworkElement
         string label = c.Kind == ClipKind.Text ? (c.Mask != MaskMode.None ? "◐ mask: " : "") + c.Text.Replace('\n', ' ')
                      : c.Kind == ClipKind.Adjustment ? "◑ Adjustment layer" + (Adjust.Works(c) ? "" : " (nothing below it on V1)")
                      : nested ? "▤ " + m!.Name : (m?.Name ?? "(offline)");
+        if (c.Cam != null) label = (c.Cam.Angle >= 0 ? $"[MC{c.Cam.Angle + 1}] " : "[MC] ") + label;   // (Premiere's multicam label: the camera shown)
         if (c.LinkId != null) label = "🔗 " + label;
         label += TimeMap.Label(c);                                             // "[200%]", "[-100%]", "[hold]", "[time remap]"
         if (c.Stab != null && c.Kind == ClipKind.Video) label += " [stabilized]";

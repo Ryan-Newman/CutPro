@@ -124,7 +124,7 @@ public static class Reframe
     static byte[]? Grab(string ff, MediaItem m, double t, int w, int h)
     {
         if (Nest.SourceOf(m, m.Type == ClipKind.Image ? 0 : t) is not var (path, ft, _)) return null;   // (a nested sequence: its render)
-        using var fs = new FrameStream(ff, path, ft, w, h, 2, 0, 0, m.Seq != null ? Decoder.SwFrame : m.SeekDecoder);
+        using var fs = new FrameStream(ff, path, ft, w, h, 2, 0, 0, m.Seq != null ? Decoder.SwFrame : m.SeekDecoder, vf: path == m.Path ? Hdr.Of(m) : null);
         var sw = Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < 10000)
         {

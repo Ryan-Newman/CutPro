@@ -344,7 +344,7 @@ public partial class MainWindow
         var psi = new ProcessStartInfo(ff) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         var args = new List<string> { "-v", "error", "-nostdin" };
         if (m.Type != ClipKind.Image) args.AddRange(new[] { "-ss", fsrc.ToString("0.###", CultureInfo.InvariantCulture) });
-        args.AddRange(new[] { "-i", path, "-frames:v", "1", "-vf", $"scale={w}:{h},format=bgra", "-f", "rawvideo", "pipe:1" });
+        args.AddRange(new[] { "-i", path, "-frames:v", "1", "-vf", $"scale={w}:{h}{(path == m.Path ? Hdr.Post(m) : "")},format=bgra", "-f", "rawvideo", "pipe:1" });
         foreach (var a in args) psi.ArgumentList.Add(a);
         try
         {

@@ -54,6 +54,13 @@ public static class ScrubCache
         lock (queue) if (worker == null) { worker = new Thread(Work) { IsBackground = true, Name = "ScrubCache", Priority = ThreadPriority.BelowNormal }; worker.Start(); }
     }
 
+    /// <summary>Drops the file's cache (HDR ▸ Show as is changed what its frames look like) and builds the right one.</summary>
+    public static void Rebuild(MediaItem m)
+    {
+        lock (entries) { if (entries.Remove(m.Path, out var old)) old.Reader?.Dispose(); }
+        Ensure(m);
+    }
+
     static Entry? Get(string path) { lock (entries) return entries.TryGetValue(path, out var e) ? e : null; }
     public static bool IsDone(string path) => Get(path)?.Done == true;
     public static long BuildMs(string path) => Get(path)?.BuildMs ?? -1;
@@ -70,10 +77,10 @@ public static class ScrubCache
         lock (e.Frames) return k >= 0 && k < e.Frames.Count;
     }
 
-    static string CacheName(string path)
+    static string CacheName(MediaItem m)
     {
-        var fi = new FileInfo(path);
-        var key = $"{path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+        var fi = new FileInfo(m.Path);
+        var key = $"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|601{Hdr.Mark(m)}";   // (HDR: the tone-mapped frames have their own cache)
         return System.IO.Path.Combine(Dir, Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(key)))[..20]);
     }
 
@@ -116,7 +123,7 @@ public static class ScrubCache
     static void Build(MediaItem m, Entry e)
     {
         Directory.CreateDirectory(Dir);
-        var baseName = CacheName(m.Path);
+        var baseName = CacheName(m);
         e.File = baseName + ".jpgs";
         var idx = baseName + ".idx";
         if (File.Exists(idx) && File.Exists(e.File) && TryLoadIndex(idx, e)) { Open(e); e.Done = true; return; }
@@ -124,7 +131,7 @@ public static class ScrubCache
         var ff = Exporter.FindFfmpeg(); if (ff == null) return;
         var psi = new ProcessStartInfo(ff) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var a in new[] { "-hide_banner", "-v", "error", "-nostdin" }.Concat(Decoders.InputArgs(m.PlayDecoder))
-                 .Concat(new[] { "-i", m.Path, "-an", "-sn", "-dn", "-vf", Decoders.Filter(m.PlayDecoder, e.W, e.H, "yuvj420p", Fps.ToString()),
+                 .Concat(new[] { "-i", m.Path, "-an", "-sn", "-dn", "-vf", Decoders.Filter(m.PlayDecoder, e.W, e.H, Jpeg, Fps.ToString(), Hdr.Of(m)),
                                  "-c:v", "mjpeg", "-q:v", "5", "-f", "image2pipe", "pipe:1" }))
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
@@ -175,6 +182,10 @@ public static class ScrubCache
         }
         return false;
     }
+
+    /// <summary>JPEG's own colour (JFIF: BT.601, full range), converted from the frame's — a BT.709 frame stored as is was read back as BT.601
+    /// (ffmpeg 7.1 on keeps the matrix through a pixel format change).</summary>
+    const string Jpeg = "yuvj420p:color_spaces=bt470bg:color_ranges=pc";
 
     static void Open(Entry e) => e.Reader ??= new FileStream(e.File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 16, FileOptions.RandomAccess);
 

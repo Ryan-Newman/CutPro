@@ -28,6 +28,7 @@ public partial class MainWindow
         Po.Edited = () => { RefreshProps(); Tl.InvalidateVisual(); if (Kfe.IsVisible) Kfe.InvalidateVisual(); };
         meshOverlay = new MeshOverlay { Ed = ed, Edited = () => Pv.InvalidateVisual() };
         ((System.Windows.Controls.Grid)Po.Parent).Children.Add(meshOverlay);
+        InitShapeOverlay();
         ed.PropsChanged += Po.InvalidateVisual;
         ed.Seeked += Po.InvalidateVisual;
         ed.MasksChanged += () => { Mo.InvalidateVisual(); RefreshMaskKeys(); };
@@ -402,6 +403,17 @@ public partial class MainWindow
                 }
             }
             card.Children.Add(trow);
+            if (c.Kind == ClipKind.Video && trackingId != m.Id && tr is { Frames.Count: > 0 })
+            {   // object removal / a clean plate (ObjectRemoval)
+                var rrow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+                var rem = new Button { Content = "Remove Object…", Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(0, 0, 4, 0),
+                                       ToolTip = "Fill the object with the background from frames where it had moved away — the clip then plays a cleaned copy (Ctrl+Z goes back)" };
+                rem.Click += (_, _) => _ = RemoveObjectDialog(c, m);
+                var plate = new Button { Content = "Clean Plate", Padding = new Thickness(8, 3, 8, 3), ToolTip = "A still of the background without the masked objects, added to the Project panel" };
+                plate.Click += (_, _) => _ = CleanPlateAsync(c, m);
+                rrow.Children.Add(rem); rrow.Children.Add(plate);
+                card.Children.Add(rrow);
+            }
             if (active)
                 card.Children.Add(new TextBlock { Text = "Correct any frame in the monitor: drag points, drag inside to move (a keyframe is added), then Track ▶ to re-track from it.",
                                                   Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });

@@ -63,7 +63,7 @@ public static class Nest
             if (ed.Media.FirstOrDefault(m => m.Id == id) is { } m)
             {
                 string stamp;
-                try { var fi = new FileInfo(m.Path); stamp = fi.Exists ? $"|{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}" : $"|{m.Path.ToLowerInvariant()}|offline"; }
+                try { var fi = new FileInfo(m.Path); stamp = (fi.Exists ? $"|{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}" : $"|{m.Path.ToLowerInvariant()}|offline") + Hdr.Mark(m); }
                 catch { stamp = "|" + m.Path; }
                 v.Append(stamp); a.Append(stamp);
             }

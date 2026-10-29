@@ -36,7 +36,7 @@ public partial class MainWindow
 
     /// <summary>The monitor's tool strip shares the row with the Program tab: when they'd overlap, drop the labels ("Format",
     /// "Objects", "Select object" keeps its ✦ icon and tooltip) and the sequence name.</summary>
-    void EditorGrid_SizeChanged(object? s, SizeChangedEventArgs? e) => FitEditorTools();
+    void EditorGrid_SizeChanged(object? s, SizeChangedEventArgs? e) { FitEditorTools(); McLayout(); }
     void FitEditorTools()
     {
         void Compact(bool c)

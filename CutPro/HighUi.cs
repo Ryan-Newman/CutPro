@@ -64,8 +64,9 @@ public partial class MainWindow
             mi("Blur Faces…", K("clip.blurFaces"), () => _ = BlurFacesDialog(), false, vid),
             mi("Auto Reframe with Push-in…", K("seq.reframeZoom"), ReframeZoomDialog, false, ed.Clips.Any(Editor.CoversFrame)), "-",
             mi("Save Preset…", K("clip.savePreset"), SavePresetDialog, false, ed.Selected != null),
+            mi("Save as Graphic Template…", "", () => { if (ed.Selected is { Kind: ClipKind.Text } t) SaveGraphicTemplate(t); }, false, ed.Selected is { Kind: ClipKind.Text }),
         });
-        add(new object[] { preset });
+        add(new object[] { preset, "-", MultiCamMenu() });
     }
 
     void ClipMenuHigh(ContextMenu menu, Clip c)
@@ -82,6 +83,33 @@ public partial class MainWindow
         if (c.Kind is ClipKind.Video or ClipKind.Image) Item("Colour Match…", ColorMatchDialog, K("color.match"));
         if (c.Kind == ClipKind.Video) { Item("Remove Background", () => _ = RemoveBackground(), K("clip.removeBg")); Item("Blur Faces…", () => _ = BlurFacesDialog(), K("clip.blurFaces")); }
         Item("Save Preset…", SavePresetDialog, K("clip.savePreset"));
+        if (c.Cam != null) menu.Items.Add(MultiCamMenu());
+    }
+
+    /// <summary>HDR footage: tone-mapped to SDR (the default) or shown as is (a file wrongly marked as HDR). Every place that reads its frames
+    /// follows: preview decoders restart, the scrub cache and thumbnails are rebuilt, renders of it are made again (their signatures change).</summary>
+    MenuItem HdrMenu(List<MediaItem> sel)
+    {
+        var mi = new MenuItem { Header = "HDR" };
+        bool keep = sel.All(x => x.KeepHdr);
+        foreach (var (h, v) in new[] { ("Tone-map to SDR", false), ("Show as is", true) })
+        {
+            var x = new MenuItem { Header = h, IsCheckable = true, IsChecked = keep == v };
+            x.Click += async (_, _) => await SetKeepHdr(sel, v);
+            mi.Items.Add(x);
+        }
+        return mi;
+    }
+
+    async Task SetKeepHdr(List<MediaItem> sel, bool keep)
+    {
+        foreach (var m in sel.Where(x => x.KeepHdr != keep))
+        {
+            m.KeepHdr = keep;
+            ScrubCache.Rebuild(m);
+            await MediaProbe.FillAsync(m);                                   // (its thumbnail)
+        }
+        binRef = null; RefreshBin(); Pv.Sync(ed.Time, false);
     }
 
     /// <summary>The Project panel's extras for a media item.</summary>
@@ -91,8 +119,10 @@ public partial class MainWindow
         cm.Items.Add(new Separator());
         if (m.HasAudio) Item(m.Words == null ? "Transcribe (text-based editing)" : "Transcribe Again", () => { m.Words = null; ShowDock("Transcript"); _ = TranscribeAsync(new() { m }); });
         Item("Replace Selected Clip with This", () => { BinList.SelectedItem = m; ReplaceFromBin(); }, ed.Selected != null);
+        if (SelectedBinMedia().Count > 1) Item("Create Multi-Camera Source Sequence…", () => _ = CreateMultiCamDialog());
         if (m.Gen != null) Item("Edit " + m.Gen.Title + "…", () => _ = EditGenerated(m));
         if (m.Type == ClipKind.Video && m.Seq == null) { var sel = SelectedBinMedia(); cm.Items.Add(ProxyMenu(sel.Contains(m) ? sel : new() { m })); }
+        if (m.Hdr != null) { var sel = SelectedBinMedia(); cm.Items.Add(HdrMenu((sel.Contains(m) ? sel : new() { m }).Where(x => x.Hdr != null).ToList())); }
         if (m.Type is ClipKind.Video or ClipKind.Image && m.Seq == null && m.Gen == null && !m.Offline)
         {
             var up = new MenuItem { Header = "Create Upscaled Copy" };

@@ -48,7 +48,7 @@ public static class ObjectTracker
         {
             var dec = m.Seq != null ? Decoder.SwFrame : dec0;
             if (back > 0 && t == 0 && dec0 == m.SeekDecoder) continue;
-            using var fs = new FrameStream(ff, path, Math.Max(0, t - back), w, h, 2, 0, 0, dec);
+            using var fs = new FrameStream(ff, path, Math.Max(0, t - back), w, h, 2, 0, 0, dec, vf: path == m.Path ? Hdr.Of(m) : null);   // (HDR: as the preview shows it)
             var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < 20000)
             {
@@ -150,7 +150,7 @@ public static class ObjectTracker
         if (dir > 0)
         {
             var (fp, ft, fd) = Src(m, (from + 1) / (double)TimeUtil.Fps, m.PlayDecoder);
-            using var fs = new FrameStream(ff, fp, ft, w, h, 8, 0, 0, fd);
+            using var fs = new FrameStream(ff, fp, ft, w, h, 8, 0, 0, fd, vf: fp == m.Path ? Hdr.Of(m) : null);
             for (int k = 0; from + 1 + k <= to; k++)
             {
                 var px = Wait(fs, k, ct);
@@ -164,7 +164,7 @@ public static class ObjectTracker
             int begin = Math.Max(to, end - 29);
             var chunk = new List<byte[]>();
             var (bp, bt, bd) = Src(m, begin / (double)TimeUtil.Fps, m.PlayDecoder);
-            using (var fs = new FrameStream(ff, bp, bt, w, h, 8, 0, 0, bd))
+            using (var fs = new FrameStream(ff, bp, bt, w, h, 8, 0, 0, bd, vf: bp == m.Path ? Hdr.Of(m) : null))
                 for (int k = 0; begin + k <= end; k++) { var px = Wait(fs, k, ct); if (px == null) break; chunk.Add(px); }
             for (int k = chunk.Count - 1; k >= 0; k--) yield return (begin + k, chunk[k]);
         }

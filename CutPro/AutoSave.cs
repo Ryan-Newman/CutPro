@@ -108,7 +108,7 @@ public partial class MainWindow
     string ProjectJson(bool commit) => JsonSerializer.Serialize(BuildProjectFile(commit), new JsonSerializerOptions { WriteIndented = true });
 
     /// <summary>What the Project panel holds that isn't in the undo history (imports, bins, labels, ratings, keywords, transcripts, relinks).</summary>
-    string OrgSig() => string.Join(";", ed.Bins) + "|" + string.Join(";", ed.Media.Select(m => $"{m.Id},{m.Path},{m.Bin},{m.Label},{m.Rating},{m.Keywords},{m.Words?.Count}"));
+    string OrgSig() => string.Join(";", ed.Bins) + "|" + string.Join(";", ed.Media.Select(m => $"{m.Id},{m.Path},{m.Bin},{m.Label},{m.Rating},{m.Keywords},{m.Words?.Count},{m.KeepHdr}"));
     bool Dirty => histGen != savedGen || OrgSig() != savedOrg;
     void MarkSaved(bool saved)
     {

@@ -39,7 +39,7 @@ public static class Proxies
         var tmp = outF + ".part.mp4";
         var psi = new ProcessStartInfo(ff) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var a in new[] { "-y", "-v", "error", "-progress", "pipe:1", "-nostats", "-i", m.Path, "-map", "0:v:0", "-an", "-sn", "-dn",
-                                  "-vf", $"scale={w}:{h}:flags=bicubic,format=yuv420p", "-fps_mode", "passthrough",
+                                  "-vf", $"scale={w}:{h}:flags=bicubic{Hdr.Post(m)},format=yuv420p", "-fps_mode", "passthrough",
                                   "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-g", "15", "-bf", "0", "-tune", "fastdecode", "-movflags", "+faststart", tmp })
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;

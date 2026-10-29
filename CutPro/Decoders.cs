@@ -64,13 +64,18 @@ public static class Decoders
         int h = Math.Max(2, (int)Math.Round(Math.Min(1280.0 / m.Width, 720.0 / m.Height) * m.Height / 2) * 2);
         double at = m.Duration * 0.4;
         var cands = new List<Decoder> { Decoder.SwFrame, Decoder.SwSlice, Decoder.Cuda, Decoder.D3D11 };
-        if (m.Rotation % 360 == 0) cands.Add(Decoder.CudaScale);          // GPU scaling can't follow ffmpeg's auto-rotate
+        if (m.Rotation % 360 == 0) cands.Add(Decoder.CudaScale);         // GPU scaling can't follow ffmpeg's auto-rotate
         var results = new List<(Decoder d, double first, double fps)>();
         foreach (var d in cands)
         {
             var r = Measure(ff, m.Path, d, at, w, h, 31);
             if (r != null) results.Add((d, r.Value.first, r.Value.fps));
         }
+        // (a hardware decoder that can't take the file falls back to software, and then scale_cuda fails: success here means the GPU decodes
+        // and scales it — the export shrinks such files on the GPU. The preview's CudaScale downloads nv12, which would cut HDR to 8 bits
+        // before the tone mapping, so HDR files never play through it)
+        m.GpuScaleOk = results.Any(r => r.d == Decoder.CudaScale);
+        if (m.Hdr != null) results.RemoveAll(r => r.d == Decoder.CudaScale);
         if (results.Count == 0) return;
         // scrub/stop: fastest first frame (but must decode forward at least ~realtime for stepping)
         var seek = results.Where(r => r.fps >= 20).DefaultIfEmpty(results[0]).MinBy(r => r.first);

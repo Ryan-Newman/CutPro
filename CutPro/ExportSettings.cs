@@ -34,6 +34,12 @@ public sealed class ExportSettings
     /// <summary>Composite in 4:4:4 (full colour: titles, keys and overlays keep their chroma; the encoder subsamples once at the end) — false =
     /// 4:2:0 throughout (a little faster, softer colour edges).</summary>
     public bool Full444 { get; set; } = true;
+    /// <summary>10-bit colour: the composite and the file keep 10 bits per channel (HEVC Main 10, AV1 10-bit, VP9 profile 2; ProRes is 10-bit
+    /// already and gets the 10-bit composite) — smoother gradients from 10-bit and HDR footage. H.264 and the alpha codecs stay 8-bit.</summary>
+    public bool TenBit { get; set; }
+    /// <summary>The export runs at 10 bits (<see cref="TenBit"/> with a codec that keeps them).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool Deep => TenBit && Supports10;
+    [System.Text.Json.Serialization.JsonIgnore] public bool Supports10 => Video is "hevc" or "av1" or "vp9" or "prores" or "prores4444";
     /// <summary>The sequence's chapter markers as the file's chapters (MP4 / MOV / MKV / M4A).</summary>
     public bool Chapters { get; set; } = true;
     /// <summary>Transparent background (a nested sequence's render: <see cref="Nest"/>): the composite keeps alpha, yuva444p FFV1 (yuva420p with 4:2:0).</summary>
@@ -48,6 +54,14 @@ public sealed class ExportSettings
     /// <summary>Filled by <see cref="Exporter.RunAsync"/> for a 5.1 export: the rendered 6-channel float file the exporter reads.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public string? SurroundFile { get; set; }
     public bool CaptionFile { get; set; }
+    /// <summary>Smart rendering (H.264 / HEVC): stretches showing one plain clip of a matching file are copied, only the rest is encoded (<see cref="SmartRender"/>).</summary>
+    public bool Smart { get; set; }
+    /// <summary>Filled by a smart render: how much was copied (or why nothing could be).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? SmartReport { get; set; }
+    /// <summary>Filled by the export: how many clips the GPU scaled (<see cref="Exporter.GpuChain"/>), or that it failed and the export ran without it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? GpuReport { get; set; }
+    /// <summary>Set by smart rendering for the parts it encodes: the encoder's own parameters (x264: parameter set ids, headers in every key frame; x265: closed GOPs).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? PartParams { get; set; }
     public bool AudioOnly => Video == "none";
     /// <summary>A codec that keeps transparency (ProRes 4444 with alpha, VP9 with alpha, QuickTime Animation, PNG sequence): the export composites
     /// on a transparent background like a nested render (<see cref="Alpha"/>) — where nothing is drawn the file is see-through.</summary>
@@ -128,16 +142,17 @@ public sealed class ExportSettings
                     else a.AddRange(new[] { "-b:v", kbps, "-maxrate", max, "-bufsize", buf });
                     if (enc == "libx264") a.AddRange(new[] { "-profile:v", "high" });
                     if (enc == "libx265") a.AddRange(new[] { "-tag:v", "hvc1" });
-                    a.AddRange(new[] { "-pix_fmt", "yuv420p" });
+                    if (PartParams != null) a.AddRange(new[] { enc == "libx265" ? "-x265-params" : "-x264-params", PartParams });
+                    a.AddRange(new[] { "-pix_fmt", Deep ? "yuv420p10le" : "yuv420p" });            // (x265: Main 10 then)
                     break;
                 case "libsvtav1":
                     a.AddRange(new[] { "-preset", Speed switch { "slow" or "slower" or "veryslow" => "5", "fast" or "faster" or "veryfast" or "ultrafast" => "10", _ => "8" } });
                     if (ConstantQuality) a.AddRange(new[] { "-crf", Quality.ToString() }); else a.AddRange(new[] { "-b:v", kbps });
-                    a.AddRange(new[] { "-pix_fmt", "yuv420p" });
+                    a.AddRange(new[] { "-pix_fmt", Deep ? "yuv420p10le" : "yuv420p" });
                     break;
                 case "libvpx-vp9":
                     if (ConstantQuality) a.AddRange(new[] { "-crf", Quality.ToString(), "-b:v", "0" }); else a.AddRange(new[] { "-b:v", kbps });
-                    a.AddRange(new[] { "-row-mt", "1", "-deadline", "good", "-cpu-used", Speed is "slow" or "slower" or "veryslow" ? "1" : "3", "-pix_fmt", Video == "vp9a" ? "yuva420p" : "yuv420p" });
+                    a.AddRange(new[] { "-row-mt", "1", "-deadline", "good", "-cpu-used", Speed is "slow" or "slower" or "veryslow" ? "1" : "3", "-pix_fmt", Video == "vp9a" ? "yuva420p" : Deep ? "yuv420p10le" : "yuv420p" });   // (10-bit: profile 2)
                     if (Video == "vp9a") a.AddRange(new[] { "-auto-alt-ref", "0" });           // (libvpx: alt-ref frames and alpha don't mix)
                     break;
                 case "qtrle": a.AddRange(new[] { "-pix_fmt", "argb" }); break;
@@ -164,7 +179,7 @@ public sealed class ExportSettings
                         else a.AddRange(new[] { "-rc", "cqp", "-qp_i", Quality.ToString(), "-qp_p", Quality.ToString() });
                     }
                     else a.AddRange(new[] { "-b:v", kbps, "-maxrate", max, "-bufsize", buf });
-                    a.AddRange(new[] { "-pix_fmt", Encoder == "qsv" ? "nv12" : "yuv420p" });
+                    a.AddRange(new[] { "-pix_fmt", Deep ? "p010le" : Encoder == "qsv" ? "nv12" : "yuv420p" });   // (10-bit: HEVC / AV1 only)
                     break;
             }
             a.AddRange(new[] { "-r", TimeUtil.Rate });

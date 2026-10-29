@@ -121,10 +121,21 @@ public class MediaItem
     [JsonIgnore] public int Rotation { get; set; }
     [JsonIgnore] public string Codec { get; set; } = "";
     [JsonIgnore] public bool TenBit { get; set; }
+    /// <summary>HDR footage: "hlg" / "pq" (its colour transfer; null = SDR) — tone-mapped to SDR wherever it is decoded (<see cref="CutPro.Hdr"/>).</summary>
+    [JsonIgnore] public string? Hdr { get; set; }
+    /// <summary>PQ footage: the brightest it gets, cd/m² (its MaxCLL / mastering display; 1000 when it says nothing) — the tone curve's top.</summary>
+    [JsonIgnore] public double HdrPeak { get; set; } = 1000;
+    /// <summary>Show an HDR file as is (no tone mapping) — Project panel ▸ HDR.</summary>
+    public bool KeepHdr { get; set; }
     /// <summary>Decoder used when a frame is needed now (scrubbing, stopping, stepping).</summary>
     [JsonIgnore] public Decoder SeekDecoder { get; set; } = Decoder.SwFrame;
     /// <summary>Decoder used for playback (sustained throughput).</summary>
     [JsonIgnore] public Decoder PlayDecoder { get; set; } = Decoder.SwFrame;
+    /// <summary>The GPU decodes and scales this file (measured by <see cref="Decoders.Calibrate"/>): the export shrinks it there before it comes
+    /// down to memory (<see cref="Exporter.GpuChain"/>).</summary>
+    [JsonIgnore] public bool GpuScaleOk { get; set; }
+    /// <summary>The video stream's pixel format (ffprobe's pix_fmt).</summary>
+    [JsonIgnore] public string PixFmt { get; set; } = "";
     [JsonIgnore] public string DecodeNote { get; set; } = "";
     /// <summary>What the file says about itself (container, streams, timecode, reel, camera …; <see cref="MediaProbe"/>), its start timecode and reel name.</summary>
     [JsonIgnore] public List<KeyValuePair<string, string>> Meta { get; set; } = new();
@@ -136,7 +147,7 @@ public class MediaItem
 
     [JsonIgnore] public string Info => Folder != null ? $"Bin  {FolderCount} item{(FolderCount == 1 ? "" : "s")}" : Seq != null ? $"Sequence  {TimeUtil.Format(Duration, false)}  {Width}×{Height}  {TimeUtil.Label(Fps)} fps" :
         (Offline ? "OFFLINE  " : "") + Type + (Type == ClipKind.Image ? "" : "  " + TimeUtil.Format(Duration, false))
-        + (Type == ClipKind.Video && Width > 0 ? $"  {Width}×{Height} {Codec.ToUpperInvariant()}{(TenBit ? " 10-bit" : "")}" : "")
+        + (Type == ClipKind.Video && Width > 0 ? $"  {Width}×{Height} {Codec.ToUpperInvariant()}{(TenBit ? " 10-bit" : "")}{CutPro.Hdr.Label(this)}" : "")
         + (Timecode != null ? "  TC " + Timecode : "") + (Reel != null ? "  Reel " + Reel : "") + (Rating > 0 ? "  " + Stars : "") + (Keywords.Length > 0 ? "  #" + Keywords : "")
         + (Proxy != null ? (ProxyOk ? "  · proxy" : "  · proxy missing") : "")
         + (Decoders.IsHardware(PlayDecoder) || Decoders.IsHardware(SeekDecoder) ? $"  · {Decoders.Label(Decoders.IsHardware(PlayDecoder) ? PlayDecoder : SeekDecoder)} decode" : "");
@@ -193,6 +204,8 @@ public class Clip
     public string? LinkId { get; set; }
     /// <summary>Clips sharing a GroupId are selected and moved together (Ctrl+G), without linking their edits.</summary>
     public string? GroupId { get; set; }
+    /// <summary>Cut from a multi-camera source sequence: which one and which camera (null = an ordinary clip). See <see cref="MultiCamInfo"/>.</summary>
+    public CamRef? Cam { get; set; }
     /// <summary>Clip markers (source seconds: they stay with the content).</summary>
     public List<Marker>? Markers { get; set; }
     /// <summary>Transition at the clip's head (with the clip that ends where this one starts, or from nothing) and at its tail
@@ -239,6 +252,8 @@ public class Clip
     public FrameInterp Interp { get; set; }
     /// <summary>Titles: text animation (in / out by letter, word or line; roll / crawl) — <see cref="TitleAnim"/>.</summary>
     public TextAnim? TextFx { get; set; }
+    /// <summary>Titles: shape layers (shapes, arrows, stickers, texts of their own) drawn with the title (null = none) — <see cref="Shapes"/>.</summary>
+    public List<ShapeLayer>? Shapes { get; set; }
     /// <summary>Attached to a tracked object (null = not): its Position / Scale keys were baked from it (<see cref="Editor.AttachToObject"/>).</summary>
     public Follow? Follow { get; set; }
     /// <summary>Audio effects on the clip's sound, in order (null = none): <see cref="AudioDsp"/>.</summary>
@@ -295,6 +310,8 @@ public class Sequence
     public double? MarkOut { get; set; }
     /// <summary>Sequence markers (timeline seconds; chapters for the export / YouTube). See <see cref="Marker"/>.</summary>
     public List<Marker>? Markers { get; set; }
+    /// <summary>Set on a multi-camera source sequence (camera n on video track n; <see cref="MultiCamInfo"/>).</summary>
+    public MultiCamInfo? MultiCam { get; set; }
     [JsonIgnore] public double End => Clips.Count == 0 ? 0 : Clips.Max(c => c.End);
     [JsonIgnore] public int TrackCount => VideoTracks + AudioTracks;
 

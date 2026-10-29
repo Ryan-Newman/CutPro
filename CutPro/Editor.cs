@@ -277,10 +277,20 @@ public partial class Editor
     public void Commit()
     {
         if (pending != null && pending != Snap()) Push(new Hist(pending, SeqId: seq.Id), pendingLabel ?? "Edit");
+        else if (pending != null) Settle();
         pending = null; pendingLabel = null;
     }
-    /// <summary>Call after mutating a clip property from the inspector (debounced undo entry).</summary>
-    public void Touch([CallerMemberName] string name = "", [CallerFilePath] string file = "") { Checkpoint(name, file); debounce?.Stop(); debounce?.Start(); Raise(PropsChanged); }
+    /// <summary>Call after mutating a clip property from the inspector (debounced undo entry). The change was made before this is called, so the
+    /// step goes back to the clips as the last history step left them (<see cref="Settle"/>) — a Snap() here would already hold the change, and a
+    /// single change (a check box, a colour, a button) would not be undoable at all (Ctrl+Z then undid the step before it).</summary>
+    public void Touch([CallerMemberName] string name = "", [CallerFilePath] string file = "")
+    {
+        if (pending == null) { pending = settled != null && settledSeq == seq.Id ? settled : Snap(); pendingLabel = HistoryLabels.Of(name, file); }
+        debounce?.Stop(); debounce?.Start(); Raise(PropsChanged);
+    }
+    /// <summary>The clips after the last history step (an edit, undo / redo, switching or opening sequences) — <see cref="Touch"/>'s "before".</summary>
+    string? settled; string? settledSeq;
+    void Settle() { settled = Snap(); settledSeq = seq.Id; }
 
     public void Edit(Action a, [CallerMemberName] string name = "", [CallerFilePath] string file = "")
     {
@@ -291,7 +301,7 @@ public partial class Editor
         PruneSelection(); RefreshSeqItems();
         Raise(Changed);
     }
-    void Push(Hist h, string label) { undo.Push(h with { Label = label }); redo.Clear(); HistoryChanged?.Invoke(); }
+    void Push(Hist h, string label) { undo.Push(h with { Label = label }); redo.Clear(); Settle(); HistoryChanged?.Invoke(); }
     /// <summary>An entry was added, undone or redone (the History panel).</summary>
     public event Action? HistoryChanged;
     /// <summary>The names of the undo steps, most recent first, and of the redo steps, next first (History panel).</summary>
@@ -311,9 +321,9 @@ public partial class Editor
     }
     /// <summary>Raised before undo/redo (running mask tracking stops first).</summary>
     public event Action? HistoryMoving;
-    public void Undo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (undo.Count == 0) return; var h = undo.Pop(); Visit(h); redo.Push(Now(h)); Apply(h); HistoryChanged?.Invoke(); }
-    public void Redo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (redo.Count == 0) return; var h = redo.Pop(); Visit(h); undo.Push(Now(h)); Apply(h); HistoryChanged?.Invoke(); }
-    public void ResetHistory() { undo.Clear(); redo.Clear(); pending = null; pendingMix = null; pendingMarks = null; HistoryChanged?.Invoke(); }
+    public void Undo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (undo.Count == 0) return; var h = undo.Pop(); Visit(h); redo.Push(Now(h)); Apply(h); Settle(); HistoryChanged?.Invoke(); }
+    public void Redo() { HistoryMoving?.Invoke(); Commit(); MixEnd(); MarkEnd(); if (redo.Count == 0) return; var h = redo.Pop(); Visit(h); undo.Push(Now(h)); Apply(h); Settle(); HistoryChanged?.Invoke(); }
+    public void ResetHistory() { undo.Clear(); redo.Clear(); pending = null; pendingMix = null; pendingMarks = null; Settle(); HistoryChanged?.Invoke(); }
     /// <summary>An entry of another sequence: open that sequence first (its state is what the entry restores).</summary>
     void Visit(Hist h) { if (h.SeqId != null && h.SeqId != seq.Id && Sequences.FirstOrDefault(s => s.Id == h.SeqId) is { } s) Activate(s); }
     Hist Now(Hist h) => (h.Proj != null ? new Hist(null, Proj: SnapProj()) : h.Mix != null ? new Hist(null, Mix: SnapMix(), SeqId: seq.Id)
@@ -355,7 +365,7 @@ public partial class Editor
         seq = s;
         SetSequence(s.SeqW, s.SeqH, s.SeqFps, s.Reframe); Tracks.Use(s);
         Sel.Clear(); SelectedId = null; Gap = null; SelTrans = null;
-        RefreshSeqItems();
+        RefreshSeqItems(); Settle();
         Raise(Switched); Raise(TracksChanged); Raise(MixChanged); Raise(Changed);
     }
 
@@ -366,7 +376,7 @@ public partial class Editor
         seq = Sequences.FirstOrDefault(s => s.Id == active) ?? Sequences[0];
         SetSequence(seq.SeqW, seq.SeqH, seq.SeqFps, seq.Reframe); Tracks.Use(seq);
         Sel.Clear(); SelectedId = null; Gap = null; SelTrans = null;
-        RefreshSeqItems();
+        RefreshSeqItems(); Settle();
         Raise(SequencesChanged); Raise(Switched); Raise(TracksChanged); Raise(MixChanged);
     }
 
@@ -415,7 +425,7 @@ public partial class Editor
         if (src == seq) CaptureFormat();
         var s = new Sequence { Name = FreeName(src.Name.TrimEnd(' ', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9') is { Length: > 0 } stem ? stem : "Sequence"),
                                SeqW = src.SeqW, SeqH = src.SeqH, SeqFps = src.SeqFps, Reframe = src.Reframe, Mix = src.Mix.Clone(), TrackOff = (bool[])src.TrackOff.Clone(),
-                               Markers = src.Markers?.Select(m => m.Clone()).ToList(),
+                               Markers = src.Markers?.Select(m => m.Clone()).ToList(), MultiCam = src.MultiCam?.Clone(),
                                Clips = JsonSerializer.Deserialize<List<Clip>>(JsonSerializer.Serialize(src.Clips))! };
         src.CopyLayout(s);                                                // (its clips keep their rows)
         var links = new Dictionary<string, string>();
@@ -560,6 +570,12 @@ public partial class Editor
     public void AddMedia(MediaItem m, int? track, double start, bool video = true, bool audio = true)
     {
         if (!CanAdd(m)) return;
+        if (MultiCamOf(m) != null)
+        {   // a multi-camera source: its switchable clips, overwriting from start (on V1 / A1 unless a track is given)
+            int row = track is int r && !Locked(r) ? r : Tracks.VideoRows.Concat(Tracks.AudioRows).FirstOrDefault(x => !Locked(x), -1);
+            if (row >= 0) DropMedia(m, row, start, video, audio, false);
+            return;
+        }
         bool wasEmpty = Clips.Count == 0;
         var (s0, s1) = SourceRange(m);
         bool marked = m.Seq == null && (m.SrcIn != null || m.SrcOut != null);

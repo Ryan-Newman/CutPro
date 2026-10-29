@@ -159,6 +159,8 @@ public partial class MainWindow
                 Add("-", MI("Add Tracks…", "", () => AddTracksDialog()), MI("Delete Empty Tracks", "", DeleteEmptyTracks),
                     "-", MI("Add Adjustment Layer", "", AddAdjustment), MI("Nest…", "", NestSelected, enabled: ed.Sel.Count > 0),
                     MI("Open Nested Sequence", "", () => { if (ed.Selected is { } nc) OpenNested(nc); }, enabled: ed.Selected is { } sc && ed.SeqOf(sc) != null), "-",
+                    MI("Create Multi-Camera Source Sequence…", K("mc.create"), () => _ = CreateMultiCamDialog(), enabled: SelectedBinMedia().Count > 1),
+                    MI("Multi-Camera View", K("view.multicam"), ToggleMultiCamView, mcOn), "-",
                     MI("Sequence Settings…", "", SequenceSettings), "-",
                     MI("Landscape 16:9", "", () => Format_Click(Fmt169, e), Math.Abs(a - 16 / 9.0) < 0.02),
                     MI("Shorts 9:16 (YouTube Shorts, TikTok, Reels)", "", () => Format_Click(Fmt916, e), Math.Abs(a - 9 / 16.0) < 0.02),
@@ -341,6 +343,7 @@ public partial class MainWindow
     {
         galleryBusy = true;
         StyleGallery.Items.Clear();
+        AddGraphicsToGallery();
         foreach (var ns in StyleLibrary.All)
         {
             var sp = new StackPanel { Tag = ns, Margin = new Thickness(0, 2, 0, 2) };
@@ -357,9 +360,14 @@ public partial class MainWindow
 
     void StyleGallery_Changed(object s, SelectionChangedEventArgs e)
     {
-        if (galleryBusy || StyleGallery.SelectedItem is not FrameworkElement { Tag: NamedStyle ns }) return;
-        if (!ed.Clips.Any(c => c.Kind == ClipKind.Text && ed.IsSel(c))) ed.AddTitle(TextRole.Title);
-        ed.ApplyStyle(ns.Style);
+        if (galleryBusy) return;
+        if (StyleGallery.SelectedItem is FrameworkElement { Tag: GraphicTemplate gt }) AddGraphic(gt);
+        else if (StyleGallery.SelectedItem is FrameworkElement { Tag: NamedStyle ns })
+        {
+            if (!ed.Clips.Any(c => c.Kind == ClipKind.Text && ed.IsSel(c))) ed.AddTitle(TextRole.Title);
+            ed.ApplyStyle(ns.Style);
+        }
+        else return;
         galleryBusy = true; StyleGallery.SelectedIndex = -1; galleryBusy = false;
     }
 
@@ -545,6 +553,7 @@ public partial class MainWindow
         foreach (var w in BuiltInWorkspaces.Concat(S.Workspaces.Keys)) list.Add(new($"Window: Workspace — {w}", "", () => UseWorkspace(w)));
         foreach (var th in ThemeManager.All) list.Add(new($"Preferences: Color Theme: {th.Name}", "", () => SetEditorTheme(th.Name)));
         foreach (var t in Themes.All) list.Add(new($"Title Theme: {t.Name}", "", () => ThemeCombo.SelectedItem = t.Name));
+        foreach (var g in GraphicLibrary.All) list.Add(new($"Graphic: {g.Name}", "", () => AddGraphic(g)));
         list.Add(new("Sequence: Duplicate", "", () => ed.DuplicateSequence(ed.Seq)));
         list.Add(new("Sequence: Rename…", "", () => RenameSeq(ed.Seq)));
         list.Add(new("Sequence: Add Tracks…", "", () => AddTracksDialog()));

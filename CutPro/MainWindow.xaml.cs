@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         var sig = string.Join("\n", items.Select(m => m.Id + "|" + m.Name + "|" + m.Info));
         if (!ReferenceEquals(binRef, ed.Media) || sig != binSig) { BinList.ItemsSource = null; BinList.ItemsSource = items; binRef = ed.Media; binSig = sig; }
         DurText.Text = TimeUtil.Format(ed.End);
+        McButtonState();
         BuildInspector(); UpdateScrollBar(); Tl.InvalidateVisual(); Ph.InvalidateVisual();
         Title = "CutPro" + (projectPath != null ? " — " + Path.GetFileName(projectPath) : "") + (Dirty && !AppSettings.ReadOnly ? " •" : "");
         UpdateStatus();
@@ -118,9 +119,11 @@ public partial class MainWindow : Window
         }
         Pv.ClockRunning = playing && clockRunning && playRate == 1;
         Pv.Sync(ed.Time, playing && playRate == 1);                            // (shuttling: the scrub machinery — cached frames while the time moves)
+        McTick();
         if (Mo.Playing != playing) { Mo.Playing = playing; Mo.InvalidateVisual(); }
         if (Po.Playing != playing) { Po.Playing = playing; Po.InvalidateVisual(); }
         if (ed.Time != lastDrawnT && ed.Selected is { Pin: not null }) Po.InvalidateVisual();
+        if (shapeOverlay != null && (shapeOverlay.Playing != playing || ed.Time != lastDrawnT && ed.Selected is { Shapes: not null })) { shapeOverlay.Playing = playing; shapeOverlay.InvalidateVisual(); }
         if (meshOverlay != null && (meshOverlay.Playing != playing || ed.Time != lastDrawnT && ed.Selected is { Distort.Kind: DistortKind.Mesh })) { meshOverlay.Playing = playing; meshOverlay.InvalidateVisual(); }
         if (ed.Time != lastDrawnT && (Mo.Tool != ObjectTool.None || Mo.Target is { Masks.Count: > 0 })) Mo.InvalidateVisual();
         if (ed.Time != lastDrawnT && liveKeys.Count > 0) RefreshMaskKeys();
@@ -159,6 +162,7 @@ public partial class MainWindow : Window
         audio.Stop();
         playing = false; clockRunning = false; playRate = 1; UpdatePlayArt(); ShuttleBadge();
         ed.Time = Math.Floor(ed.Time * TimeUtil.Fps + 1e-3) / TimeUtil.Fps;   // park on the frame that is showing
+        McStop();                                                            // (camera switches recorded while playing become cuts)
     }
     void Res_Changed(object s, SelectionChangedEventArgs e) { Pv.ResDiv = ResCombo.SelectedIndex switch { 1 => 2, 2 => 4, _ => 1 }; UpdateStatus(); }
     void TogglePlay() { if (playing) Pause(); else Play(); }
@@ -1113,6 +1117,8 @@ public partial class MainWindow : Window
             }
             // the extra-high features: trim tools, opacity band, render queue, HSL secondary, distort, text animation, New Item
             await ExtraShots(path, vc, Shot, Save);
+            await MultiCamShot(path, Shot);
+            await GraphicsShots(path, Shot);
             // Shorts: 9:16, Fill (crop + pan) then Fit + blurred background
             Format_Click(Fmt916, new RoutedEventArgs()); ed.Select(vc); BuildInspector();
             await Task.Delay(1500); Shot(Path.ChangeExtension(path, ".shorts.png"));

@@ -280,8 +280,8 @@ public static class ThumbFrames
         double src = m.Type == ClipKind.Image ? 0 : Math.Clamp(TimeMap.Src(c, t), 0, Math.Max(0, m.Duration - 0.05));
         int w = Math.Min(maxW, m.Width > 0 ? m.Width : maxW); w -= w % 2;
         int h = m.Width > 0 ? (int)Math.Round(w * m.Height / (double)m.Width / 2) * 2 : (int)(w * 9.0 / 16) / 2 * 2;
-        string vf = $"scale={w}:{h}" + (Toon.Active(c.Toon) ? "," + Toon.Graph(c.Toon!, h) : "") + ",format=bgra";
         if (Nest.SourceOf(m, src) is not var (path, fsrc, _)) return null;                // (a nested sequence: its render)
+        string vf = $"scale={w}:{h}" + (path == m.Path ? Hdr.Post(m) : "") + (Toon.Active(c.Toon) ? "," + Toon.Graph(c.Toon!, h) : "") + ",format=bgra";
         var psi = new ProcessStartInfo(ff) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         var args = new List<string> { "-v", "error", "-nostdin" };
         if (m.Type != ClipKind.Image) args.AddRange(new[] { "-ss", fsrc.ToString("0.###", CultureInfo.InvariantCulture) });

@@ -119,6 +119,17 @@ public static class Keymap
         new("tl.zoomOut", "Timeline: Zoom Out", new[] { "-", "Num -" }),
         new("tl.zoomSeq", "Timeline: Zoom to Sequence", new[] { "\\" }),
         new("tl.zoomSel", "Timeline: Zoom to Selection", Array.Empty<string>()),
+        new("view.multicam", "View: Multi-Camera View", new[] { "Shift+0" }),
+        new("mc.create", "Multi-Camera: Create Source Sequence…", Array.Empty<string>()),
+        new("mc.cam1", "Multi-Camera: Cut to Camera 1", new[] { "1", "Num 1" }),
+        new("mc.cam2", "Multi-Camera: Cut to Camera 2", new[] { "2", "Num 2" }),
+        new("mc.cam3", "Multi-Camera: Cut to Camera 3", new[] { "3", "Num 3" }),
+        new("mc.cam4", "Multi-Camera: Cut to Camera 4", new[] { "4", "Num 4" }),
+        new("mc.cam5", "Multi-Camera: Cut to Camera 5", new[] { "5", "Num 5" }),
+        new("mc.cam6", "Multi-Camera: Cut to Camera 6", new[] { "6", "Num 6" }),
+        new("mc.cam7", "Multi-Camera: Cut to Camera 7", new[] { "7", "Num 7" }),
+        new("mc.cam8", "Multi-Camera: Cut to Camera 8", new[] { "8", "Num 8" }),
+        new("mc.cam9", "Multi-Camera: Cut to Camera 9", new[] { "9", "Num 9" }),
     };
     static readonly Dictionary<string, KeyCmd> byId = All.ToDictionary(c => c.Id);
     static Dictionary<string, string>? byGesture;

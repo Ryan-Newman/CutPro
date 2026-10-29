@@ -105,7 +105,7 @@ public static class HistoryLabels
         ["AddEdit"] = "Add Edit", ["CutClips"] = "Razor", ["DeleteSelection"] = "Delete", ["RemoveRange"] = "Remove Range", ["RippleTrim"] = "Ripple Trim",
         ["ToggleLink"] = "Link / Unlink", ["AddMedia"] = "Add Clip", ["PlaceSource"] = "Insert / Overwrite", ["AddTitle"] = "Add Title", ["AddAdjustment"] = "Add Adjustment Layer",
         ["ApplyTheme"] = "Apply Title Theme", ["SetSpeed"] = "Speed/Duration", ["SetHold"] = "Freeze Frame", ["AddMask"] = "Add Object Mask", ["RemoveMask"] = "Remove Object Mask",
-        ["NestSelection"] = "Nest", ["AddTrack"] = "Add Track", ["ApplyDefaultTransitions"] = "Apply Transitions", ["Touch"] = "Change Property",
+        ["NestSelection"] = "Nest", ["CreateMultiCam"] = "Create Multicam Sequence", ["AddTrack"] = "Add Track", ["ApplyDefaultTransitions"] = "Apply Transitions", ["Touch"] = "Change Property",
         ["OnMouseLeftButtonDown"] = "Move / Trim", ["OnDrop"] = "Drop", ["BeginKeyDrag"] = "Move Keyframe", ["BandBegin"] = "Volume Band", ["OnMouseRightButtonDown"] = "Transition",
         ["LiftExtract"] = "Lift / Extract", ["Paste"] = "Paste", ["PasteAttributes"] = "Paste Attributes", ["RemoveAttributes"] = "Remove Attributes",
         ["GroupSelection"] = "Group", ["UngroupSelection"] = "Ungroup", ["ApplyLayout"] = "Layout Preset", ["Relink"] = "Relink Media",

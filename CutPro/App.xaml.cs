@@ -32,6 +32,20 @@ public partial class App : Application
             try { rc = SelfTest.Run(a[1]); } catch (Exception ex) { File.WriteAllText(a[1], ex.ToString()); rc = 2; }
             Shutdown(rc); return;
         }
+        if (a.Length >= 3 && a[0] == "--faceprobe")
+        {
+            int rc = 0;
+            try
+            {
+                var m = MediaProbe.ProbeAsync(a[1]).GetAwaiter().GetResult()!;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int n = (int)Math.Min(m.Duration * TimeUtil.Fps, 20 * TimeUtil.Fps);
+                var tr = FaceTracks.Find(m, 0, n - 1, 0.74f, 2, null, CancellationToken.None);
+                File.WriteAllText(a[2], $"{m.Width}x{m.Height} {m.Duration:0.0}s, frames 0..{n - 1}: {tr.Count} face tracks in {sw.ElapsedMilliseconds} ms\n");
+            }
+            catch (Exception ex) { File.WriteAllText(a[2], ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
         if (a.Length >= 2 && a[0] == "--samprobe")
         {
             int rc;
@@ -102,6 +116,36 @@ public partial class App : Application
         {
             int rc;
             try { rc = await HighTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "hightest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--hdrtest")
+        {
+            int rc;
+            try { rc = await HdrTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "hdrtest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--removaltest")
+        {
+            int rc;
+            try { rc = await RemovalTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "removaltest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--smarttest")
+        {
+            int rc;
+            try { rc = await SmartTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "smarttest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--graphicstest")
+        {
+            int rc;
+            try { rc = await GraphicsTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "graphicstest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
+        if (a.Length >= 2 && a[0] == "--multicamtest")
+        {
+            int rc;
+            try { rc = await MultiCamTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "multicamtest.txt"), ex.ToString()); rc = 2; }
             Shutdown(rc); return;
         }
         if (a.Length >= 2 && a[0] == "--extratest")
@@ -200,7 +244,7 @@ public partial class App : Application
         System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
         base.OnStartup(e);
         ThemeManager.Apply(a.Length >= 3 && a[0] == "--uishot" ? a[2] : Environment.GetEnvironmentVariable("CUTPRO_THEME") ?? AppSettings.Current.Theme);   // CUTPRO_THEME: tests in another theme   // editor colour theme (default: Dark Theme)
-        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest" or "--trackui" or "--featureui" or "--highui" or "--extraui") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
+        if (a.Length >= 2 && a[0] is "--uishot" or "--objui" or "--playtest" or "--docktest" or "--srctest" or "--trackui" or "--featureui" or "--highui" or "--extraui" or "--mcui" or "--graphicsui") AppSettings.ReadOnly = true;   // automated runs leave the saved settings alone
         var w = new MainWindow(); w.Show();
         if (a.Length >= 2 && a[0] == "--uishot") w.UiShot(a[1]);
         if (a.Length >= 2 && a[0] == "--objui") w.ObjScenario(a[1], a.Length > 2 ? a[2] : null);
@@ -210,6 +254,8 @@ public partial class App : Application
         if (a.Length >= 2 && a[0] == "--featureui") w.FeatureScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--highui") w.HighScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--extraui") w.ExtraScenario(a[1]);
+        if (a.Length >= 2 && a[0] == "--mcui") w.MultiCamScenario(a[1]);
+        if (a.Length >= 2 && a[0] == "--graphicsui") w.GraphicsScenario(a[1]);
         if (a.Length >= 2 && a[0] == "--playtest") w.StartPlaytest(a[1], a.Length > 2 && a[2] != "-" ? a[2] : null, a.Length > 3 ? a[3] : "basic");
     }
 }

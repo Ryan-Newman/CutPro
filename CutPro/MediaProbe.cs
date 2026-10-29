@@ -57,7 +57,7 @@ public static class MediaProbe
             var info = await Task.Run(() => Probe(m.Path));
             if (info == null) return false;
             m.Duration = info.Value.Duration; m.Width = info.Value.W; m.Height = info.Value.H; m.HasAudio = info.Value.HasAudio;
-            m.Rotation = info.Value.Rotation; m.Codec = info.Value.Codec; m.TenBit = info.Value.TenBit; m.Fps = info.Value.Fps;
+            m.Rotation = info.Value.Rotation; m.Codec = info.Value.Codec; m.TenBit = info.Value.TenBit; m.Fps = info.Value.Fps; m.Hdr = info.Value.Hdr; m.HdrPeak = info.Value.HdrPeak; m.PixFmt = info.Value.PixFmt;
             m.Meta = info.Value.Meta; m.Timecode = info.Value.Meta.FirstOrDefault(x => x.Key == "Timecode").Value; m.Reel = info.Value.Meta.FirstOrDefault(x => x.Key == "Reel").Value;
             m.Type = info.Value.HasVideo ? ClipKind.Video : ClipKind.Audio;
             if (m.Type == ClipKind.Video) m.Thumb = await Task.Run(() => Thumb(m));
@@ -72,7 +72,7 @@ public static class MediaProbe
         catch (Exception ex) { LastError = ex.Message; return false; }
     }
 
-    readonly record struct Info(double Duration, int W, int H, bool HasVideo, bool HasAudio, int Rotation, string Codec, bool TenBit, double Fps, List<KeyValuePair<string, string>> Meta);
+    readonly record struct Info(double Duration, int W, int H, bool HasVideo, bool HasAudio, int Rotation, string Codec, bool TenBit, double Fps, List<KeyValuePair<string, string>> Meta, string? Hdr, double HdrPeak, string PixFmt);
 
     static Info? Probe(string path)
     {
@@ -84,7 +84,7 @@ public static class MediaProbe
         using var doc = JsonDocument.Parse(output);
         var root = doc.RootElement;
         double dur = Num(root, "format", "duration");
-        int w = 0, h = 0, rot = 0; bool hasV = false, hasA = false, ten = false; string codec = ""; double fps = 0;
+        int w = 0, h = 0, rot = 0; bool hasV = false, hasA = false, ten = false; string codec = ""; double fps = 0, peak = 1000; string? hdr = null; string pix = "";
         if (root.TryGetProperty("streams", out var streams))
             foreach (var s in streams.EnumerateArray())
             {
@@ -99,14 +99,30 @@ public static class MediaProbe
                     rot = Rotation(s);
                     if (Math.Abs(rot) % 180 == 90) (w, h) = (h, w);                  // phone footage: ffmpeg auto-rotates on decode
                     codec = s.TryGetProperty("codec_name", out var cn) ? cn.GetString() ?? "" : "";
-                    ten = s.TryGetProperty("pix_fmt", out var pf) && (pf.GetString() ?? "").Contains("10");
+                    pix = s.TryGetProperty("pix_fmt", out var pf) ? pf.GetString() ?? "" : "";
+                    ten = pix.Contains("10");
+                    hdr = CutPro.Hdr.Kind(s.TryGetProperty("color_transfer", out var trc) ? trc.GetString() : null);
+                    if (hdr == "pq") peak = CutPro.Hdr.Peak(s) ?? FramePeak(fp, path) ?? 1000;     // (HDR10: the stream's metadata, else the first frame's SEI)
                     fps = Rate(s, "avg_frame_rate"); if (fps <= 0 || fps > 240) fps = Rate(s, "r_frame_rate");
                     if (dur <= 0) dur = Num(s, "duration");
                 }
             }
         if (!hasV && !hasA) { LastError = "no video or audio stream"; return null; }
         if (dur <= 0) { LastError = "unknown duration (raw stream?) — remux it into MP4/MKV first"; return null; }
-        return new Info(dur, w, h, hasV, hasA, rot, codec, ten, fps, Metadata(root));
+        return new Info(dur, w, h, hasV, hasA, rot, codec, ten, fps, Metadata(root), hdr, peak, pix);
+    }
+
+    /// <summary>A PQ file's peak from its first frame's side data (HDR10 metadata in the bitstream only), null when it has none.</summary>
+    static double? FramePeak(string fp, string path)
+    {
+        try
+        {
+            var (code, output, _) = Run(fp, new[] { "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1", "-show_frames", "-show_entries", "frame=side_data_list", "-of", "json", path }, 20000);
+            if (code != 0 || output.Length == 0) return null;
+            using var doc = JsonDocument.Parse(output);
+            return doc.RootElement.TryGetProperty("frames", out var fr) && fr.GetArrayLength() > 0 ? CutPro.Hdr.Peak(fr[0]) : null;
+        }
+        catch { return null; }
     }
 
     /// <summary>What a file says about itself (Properties dialog, Project panel tooltip): container, size, bit rate, the streams, and tags —
@@ -191,7 +207,7 @@ public static class MediaProbe
         int tw = 320, th = Math.Max(2, (int)Math.Round(320.0 * m.Height / m.Width / 2) * 2);
         var at = Math.Min(1, m.Duration / 2).ToString("0.###", CultureInfo.InvariantCulture);
         var (code, px, _) = Run(ff, new[] { "-v", "error", "-nostdin", "-ss", at, "-i", m.Path, "-frames:v", "1", "-an",
-            "-vf", $"scale={tw}:{th}:force_original_aspect_ratio=decrease,pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2,format=bgr0", "-f", "rawvideo", "pipe:1" }, 20000);
+            "-vf", $"scale={tw}:{th}:force_original_aspect_ratio=decrease{Hdr.Post(m)},pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2,format=bgr0", "-f", "rawvideo", "pipe:1" }, 20000);
         if (code != 0 || px.Length < tw * th * 4) return null;
         var bmp = BitmapSource.Create(tw, th, 96, 96, PixelFormats.Bgr32, null, px, tw * 4);
         bmp.Freeze();

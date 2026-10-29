@@ -59,7 +59,7 @@ public static class Stab
         var fi = new FileInfo(m.Path);
         var (w, h) = Remap.Size(m);
         var head = Encoding.UTF8.GetBytes(FormattableString.Invariant(
-            $"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|{s?.Smooth:0.###}|{s?.Tripod}|{s?.Edges}|{s?.Shake}|{s != null}|{d?.Method}|{d?.Strength:0.###}|{ip}|{Version}|"));
+            $"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|{s?.Smooth:0.###}|{s?.Tripod}|{s?.Edges}|{s?.Shake}|{s != null}|{d?.Method}|{d?.Strength:0.###}|{ip}|{Version}|c709{Hdr.Mark(m)}|"));
         var body = new byte[idx.Length * 8]; Buffer.BlockCopy(idx, 0, body, 0, body.Length);
         var tail = src == null ? Array.Empty<byte>() : new byte[src.Length * 8];
         if (src != null) Buffer.BlockCopy(src, 0, tail, 0, tail.Length);
@@ -220,7 +220,7 @@ public static class Stab
         int n = (int)(j1 - j0 + 1);
         string seek = Math.Max(0, j0 / fpsN - 1e-4).ToString("0.######", CultureInfo.InvariantCulture);
         string trf = Path.GetFileName(file) + ".trf";                       // (bare name: ffmpeg runs in the cache folder — no drive colon to escape)
-        string grid = $"fps={rate},scale={w}:{h}:flags=bicubic,format=yuv420p";
+        string grid = $"fps={rate},scale={w}:{h}:flags=bicubic{Hdr.Post(m)},{Remap.Grid709}";   // (render colour: see Remap.Grid709)
         int smooth = st == null ? 1 : Math.Clamp((int)Math.Round(st.Smooth / 100 * fpsN), 1, 500);
         string zoom = st?.Edges switch { 2 => ":optzoom=0:crop=black", 1 => ":optzoom=2:zoomspeed=0.25", _ => ":optzoom=1" };
         string tripodD = st?.Tripod == true ? ":tripod=1" : "", tripodT = st?.Tripod == true ? ":tripod=1" : "";
@@ -246,7 +246,7 @@ public static class Stab
                 string make = ip == FrameInterp.OpticalFlow ? $"minterpolate=fps={TimeUtil.Rational(hi)}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
                                                             : $"framerate=fps={TimeUtil.Rational(hi)}:interp_start=0:interp_end=255:scene=100";
                 RunPass(ff, background, ct, p => progress?.Report(0.45 + 0.35 * p), n * mult, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
-                        "-vf", $"{chain},{make},format=yuv420p", "-frames:v", ((n - 1) * mult + 1).ToString(), "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-g", "15", "-y", iseg);
+                        "-vf", $"{chain},{make},{Remap.Grid709}", "-frames:v", ((n - 1) * mult + 1).ToString(), "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-g", "15", "-y", iseg);
                 if (!File.Exists(iseg)) throw new Exception("interpolation failed");
                 int count = (n - 1) * mult + 1;
                 var pick = src!.Select(sv => (long)Math.Clamp(Math.Round((sv - j0 / fpsN) * hi), 0, count - 1)).ToArray();
@@ -263,7 +263,7 @@ public static class Stab
             long[] order = inOrder ? idx : Enumerable.Range(0, n).Select(i => j0 + i).ToArray();
             string seg = file + ".seg.mkv", outFile = inOrder ? tmp : seg;
             var enc = Remap.Start(ff, background, "-y", "-hide_banner", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", $"{w}x{h}", "-r", inOrder ? TimeUtil.Rate : rate,
-                                  "-i", "-", "-an", "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-tune", "fastdecode", "-g", "15", "-pix_fmt", "yuv420p", outFile);
+                                  "-i", "-", "-an", "-vf", Remap.Tag709, "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-tune", "fastdecode", "-g", "15", "-pix_fmt", "yuv420p", outFile);
             var dec = StartIn(ff, background, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek, "-i", m.Path, "-an", "-sn", "-dn",
                               "-vf", chain, "-frames:v", n.ToString(), "-f", "rawvideo", "pipe:1");
             try

@@ -193,6 +193,9 @@ public partial class MainWindow
         Num(box, "Padding", 0, 200, 1, st.BoxPadding, (s, v) => s.BoxPadding = v);
         Num(box, "Corner radius", 0, 200, 1, st.BoxRadius, (s, v) => s.BoxRadius = v);
 
+        // ---- shape layers: shapes, arrows, bubbles, texts, stickers (GraphicsUi) ----
+        BuildShapeSection(c);
+
         // ---- text animation: in / out by letter, word or line; roll / crawl ----
         var fx = c.TextFx ?? new TextAnim();
         var anim = Section("Text animation", TitleAnim.Active(c.TextFx));

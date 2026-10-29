@@ -160,6 +160,20 @@ public static class Exporter
         return (t0, t1);
     }
 
+    /// <summary>Tests: false = no GPU scaling (the CPU path, for comparison).</summary>
+    public static bool GpuScale = true;
+    /// <summary>Tests: a GPU chain ffmpeg refuses (the fallback is tested with it).</summary>
+    internal static bool GpuBreak;
+
+    /// <summary>A file decoded on the GPU (NVIDIA: the input has -hwaccel_output_format cuda), scaled there to the clip's size with the CPU path's
+    /// bicubic and brought down in its own chroma layout and depth (4:2:0 / 4:4:4, 8 / 10 bits).</summary>
+    internal static string GpuChain(MediaItem m, int w, int h)
+    {
+        bool deep = m.PixFmt.Contains("10") || m.PixFmt.Contains("12") || m.PixFmt.Contains("16"), full = m.PixFmt.Contains("444");
+        string f = full ? (deep ? "yuv444p16le" : "yuv444p") : deep ? "p010le" : "yuv420p";
+        return $"scale_cuda={w}:{h}:interp_algo={(GpuBreak ? "none_such" : "bicubic")}:format={f},hwdownload,format={f}";
+    }
+
     /// <summary>Builds ffmpeg arguments + filter script for the current timeline.</summary>
     /// <param name="titles">clip id → PNG / FFV1 from <see cref="TitleVisual.PrepareExport"/> (rendered at the same scale)</param>
     /// <param name="masks">"clipId|maskId" → mask video from <see cref="MaskExport.Prepare"/> (same scale)</param>
@@ -167,7 +181,7 @@ public static class Exporter
     public static (List<string> args, string script, List<string> temps) Build(Editor ed, string output, IReadOnlyDictionary<string, string>? titles = null,
                                                                                IReadOnlyDictionary<string, string>? masks = null, ExportSettings? opts = null,
                                                                                IReadOnlyDictionary<string, string>? remaps = null,
-                                                                               IReadOnlyDictionary<string, Nest.Picture>? nests = null)
+                                                                               IReadOnlyDictionary<string, Nest.Picture>? nests = null, bool gpu = true)
     {
         var o = opts ?? ExportSettings.Default;
         double S = o.Scale;                               // output pixels per logical pixel
@@ -178,8 +192,11 @@ public static class Exporter
         bool alpha = o.Alpha || o.WantsAlpha;
         // the composite: 4:4:4 (full colour: every overlay keeps its chroma, the encoder subsamples once at the end) or 4:2:0 (faster);
         // overlays default to yuv420, so every one onto the composite names the format (OV)
-        bool full = o.Full444;
-        string P = full ? "yuv444p" : "yuv420p", PA = full ? "yuva444p" : "yuva420p", OV = full ? ":format=yuv444" : "";
+        // 10 bits (ExportSettings.Deep: HEVC Main 10, AV1, VP9 profile 2, ProRes): the same composite with 10-bit planes, overlays in their 10-bit modes;
+        // filters that work on 8-bit values (blend formulas, the adjustment layers' cube, transition masks) convert on their own and come back
+        bool full = o.Full444, deep = o.Deep;
+        string P = (full ? "yuv444p" : "yuv420p") + (deep ? "10le" : ""), PA = (full ? "yuva444p" : "yuva420p") + (deep ? "10le" : ""),
+               OV = full ? (deep ? ":format=yuv444p10" : ":format=yuv444") : deep ? ":format=yuv420p10" : "";
         string clear = alpha ? "black@0" : "black", cfmt = alpha ? PA : P;
         // a 4:2:0 overlay puts layers on even pixels ((int)x & ~1, y too) — the grid the preview places on (Editor.Placement, push offsets);
         // the 4:4:4 composite keeps it: positions truncated the same way (Ex: expressions, Ei: whole numbers)
@@ -200,9 +217,10 @@ public static class Exporter
         int inputs = 0;
         var inputIndex = new Dictionary<string, int>();
 
-        int AddInput(Clip c, MediaItem m)
+        int AddInput(Clip c, MediaItem m, bool onGpu = false)
         {
             if (inputIndex.TryGetValue(c.Id, out var i)) return i;
+            if (onGpu) { args.AddRange(new[] { "-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-i", m.Path }); inputIndex[c.Id] = inputs; return inputs++; }   // (frames stay on the GPU: GpuChain)
             if (c.Kind == ClipKind.Image) args.AddRange(new[] { "-loop", "1", "-framerate", fps, "-t", F(c.Dur) });
             if (remaps != null && c.Kind == ClipKind.Video && remaps.TryGetValue(c.Id, out var rf)) { args.AddRange(new[] { "-i", rf }); inputIndex[c.Id] = inputs; return inputs++; }   // speed / reverse / hold: its rendered frames
             if (nests != null && c.Kind == ClipKind.Video && nests.TryGetValue(c.Id, out var np)) { args.AddRange(new[] { "-i", np.File }); inputIndex[c.Id] = inputs; return inputs++; }   // nested sequence: its render
@@ -529,7 +547,6 @@ public static class Exporter
                     var m = ed.MediaOf(c); if (m == null || m.Offline) continue;
                     Nest.Picture? np = null;
                     if (m.Seq != null && (c.Kind != ClipKind.Video || nests == null || !nests.TryGetValue(c.Id, out np))) continue;   // (a nested sequence with nothing to show)
-                    int i = AddInput(c, m);
                     string v = $"v{vn++}";
                     // animated or rotated clips are composited per frame (LayerPlan); static ones keep the plain placement
                     bool pushes = plan.HeadOf(c) is { D.Fx: Transitions.Fx.Push } || plan.TailOf(c) is { D.Fx: Transitions.Fx.Push }, moves = Transitions.Moves(plan, c);
@@ -538,10 +555,17 @@ public static class Exporter
                     // a transition can show the clip past its media (handles): the first / last frame repeats there
                     bool still = c.Kind == ClipKind.Image;                 // looped picture input: starts at 0, as long as the clip
                     bool remapped = np == null && remaps != null && remaps.ContainsKey(c.Id); // rendered frames of the clip's whole range (handles included)
+                    // GPU scaling: a big file the GPU decodes (measured: MediaItem.GpuScaleOk) that the export shrinks, placed plainly, is scaled on
+                    // the GPU and comes down to memory at the clip's size — a 4K clip in a 1080p export moves a quarter of the pixels (measured
+                    // 191 → 367 fps). Everything after the scale stays as it is; a failure exports again without it (RunAsync)
+                    bool onGpu = gpu && GpuScale && np == null && !remapped && !still && c.Kind == ClipKind.Video && m.GpuScaleOk && m.Rotation % 360 == 0 && lp == null
+                                 && !BlurBackdrop(m, c) && (ow < m.Width || oh < m.Height) && !inputIndex.ContainsKey(c.Id);
+                    int i = AddInput(c, m, onGpu);
                     double cin = np != null ? c.In - np.Offset : c.In;      // (a nested sequence's render starts at its first rendered frame)
                     double pre = still || remapped ? 0 : Math.Max(0, -cin), post = c.Kind == ClipKind.Video && m.Duration > 0 && !remapped ? Math.Max(0, c.In + c.Dur - m.Duration) : 0;
                     string src = $"[{i}:v]trim=start={F(still || remapped ? 0 : Math.Max(0, cin))}:duration={F(c.Dur - pre)},setpts=PTS-STARTPTS"
                                + (pre > 0 || post > 0 ? $",tpad=start_mode=clone:start_duration={F(pre)}:stop_mode=clone:stop_duration={F(post + 1 / TimeUtil.Fps)},trim=duration={F(c.Dur)}" : "");
+                    if (onGpu) src = src.Replace($"[{i}:v]", $"[{i}:v]{GpuChain(m, ow, oh)},");   // (before the trim: tpad and the rest see ordinary frames)
                     if (np != null)   // a nested sequence: from its first frame by number, exact frame times (Nest.FrameAt: the preview shows the same frames)
                         src = $"[{i}:v]trim=start_frame={Nest.FirstFrame(c, np.Offset, m.Fps)},setpts=N/(({TimeUtil.Rational(m.Fps)})*TB),trim=duration={F(c.Dur)}"
                             + (post > 0 ? $",tpad=stop_mode=clone:stop_duration={F(post + 1 / TimeUtil.Fps)},trim=duration={F(c.Dur)}" : "");
@@ -553,7 +577,7 @@ public static class Exporter
                         int pad = 2 * (int)Math.Ceiling((3 * sigma + 2) / 2);
                         sb.AppendLine($"{src},split[src{v}][bgs{v}]");
                         src = $"[src{v}]null";
-                        var bg = new StringBuilder($"[bgs{v}]scale={W + 2 * pad}:{H + 2 * pad}:force_original_aspect_ratio=increase,crop={W + 2 * pad}:{H + 2 * pad},setsar=1,format=gbrp," +
+                        var bg = new StringBuilder($"[bgs{v}]scale={W + 2 * pad}:{H + 2 * pad}:force_original_aspect_ratio=increase,crop={W + 2 * pad}:{H + 2 * pad}{(remapped ? "" : Hdr.Post(m, deep))},setsar=1,format=gbrp," +
                                                    $"gblur=sigma={F(sigma)},crop={W}:{H}:{pad}:{pad},colorchannelmixer=rr={F(BackdropLevel)}:gg={F(BackdropLevel)}:bb={F(BackdropLevel)},format={PA}");
                         if (c.FadeIn > 0) bg.Append($",fade=t=in:st=0:d={F(c.FadeIn)}:alpha=1");
                         if (c.FadeOut > 0) bg.Append($",fade=t=out:st={F(Math.Max(0, c.Dur - c.FadeOut))}:d={F(c.FadeOut)}:alpha=1");
@@ -565,7 +589,12 @@ public static class Exporter
                     }
                     // (a nested sequence has transparent parts: scaled premultiplied, so its empty black doesn't creep into the edges — the preview's
                     // decoder does the same)
-                    var chain = new StringBuilder(np != null ? $"{src},format=gbrap,premultiply=inplace=1,scale={ow}:{oh},unpremultiply=inplace=1,setsar=1" : $"{src},scale={ow}:{oh}{(m.Width == ow && m.Height == oh ? ":flags=" + Chroma(c) : "")},setsar=1");   // (same size: only the chroma is converted — as the preview does)
+                    // (HDR footage read from its file: tone-mapped right after scaling, as the preview's decoder does; remap / stabilize renders are SDR already.
+                    // Same size: the scale only converts the chroma, the way the preview does — after the tone mapping, which then sees the same pixels)
+                    string hdr = np == null && !remapped ? Hdr.Post(m, deep) : "";
+                    bool sameSize = m.Width == ow && m.Height == oh;
+                    var chain = new StringBuilder(np != null ? $"{src},format=gbrap,premultiply=inplace=1,scale={ow}:{oh},unpremultiply=inplace=1,setsar=1"
+                                                  : sameSize ? $"{src}{hdr},scale={ow}:{oh}:flags={Chroma(c)},setsar=1" : $"{src},scale={ow}:{oh}{hdr},setsar=1");
                     bool framed = false;                      // fps= applied (exact frame timestamps)
                     // a nested sequence's own alpha: taken off like a key's matte (and multiplied with it), multiplied back once below
                     string? keyAlpha = null;
@@ -952,6 +981,8 @@ public static class Exporter
                                                ExportSettings? opts = null, IProgress<string>? status = null,
                                                IReadOnlyDictionary<string, Nest.Picture>? nests = null)
     {
+        // smart rendering: copies of unchanged stretches, the rest encoded part by part (it calls back here for those, and for a normal export)
+        if (opts != null && SmartRender.Applies(opts)) return await SmartRender.RunAsync(ffmpeg, ed, output, progress, ct, titles, masks, opts, status, nests);
         // nested sequences first: their pictures and their sound (the loudness measurement below mixes it)
         if (nests == null && ed.Clips.Any(c => !ed.TrackOff[c.Track] && ed.SeqOf(c) != null))
         {
@@ -1038,30 +1069,48 @@ public static class Exporter
             catch (OperationCanceledException) { return "Cancelled"; }
             status?.Report("");
         }
-        if (opts != null) opts.SurroundFile = surround;
-        var (args, script, temps) = Build(ed, output, titles, masks, opts, remaps, nests);
-        if (surround != null) temps.Add(surround);
-        File.WriteAllText(args[args.IndexOf("-/filter_complex") + 1], script, new UTF8Encoding(false));
-        var psi = new ProcessStartInfo(ffmpeg) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-                                             WorkingDirectory = Path.GetTempPath() };      // sendcmd files are referenced by bare name
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = new Process { StartInfo = psi };
-        var err = new StringBuilder();
-        p.ErrorDataReceived += (_, e) => { if (e.Data != null) { lock (err) { err.AppendLine(e.Data); if (err.Length > 6000) err.Remove(0, err.Length - 6000); } } };
+        if (opts != null) { opts.SurroundFile = surround; opts.GpuReport = null; }
         try
         {
-            p.Start(); p.BeginErrorReadLine();
-            if (opts?.Background == true) try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
-            using var reg = ct.Register(() => { try { if (!p.HasExited) p.Kill(true); } catch { } });
-            double total = Math.Max(0.1, double.Parse(args[args.IndexOf("-t") + 1], CultureInfo.InvariantCulture));
-            string? line;
-            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
-                if (line.StartsWith("out_time_us=") && long.TryParse(line.AsSpan(12), out var us)) progress.Report(Math.Clamp(us / 1e6 / total, 0, 1));
-            await p.WaitForExitAsync();
-            if (ct.IsCancellationRequested) return "Cancelled";
-            if (p.ExitCode != 0) { lock (err) return err.ToString(); }
-            return null;
+            var (res, onGpu) = await RunGraph(true);
+            if (res != null && res != "Cancelled" && onGpu > 0)
+            {   // GPU scaling failed (driver, memory, a file the GPU takes differently): the same export without it
+                status?.Report("GPU scaling failed — exporting without it…");
+                var first = res.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "";
+                (res, _) = await RunGraph(false);
+                if (opts != null) opts.GpuReport = $"GPU scaling failed ({first}) — exported without it";
+            }
+            else if (opts != null && res == null && onGpu > 0) opts.GpuReport = $"{onGpu} clip{(onGpu == 1 ? "" : "s")} scaled on the GPU";
+            return res;
         }
-        finally { foreach (var t in temps) try { File.Delete(t); } catch { } }
+        finally { if (surround != null) try { File.Delete(surround); } catch { } }
+
+        async Task<(string? err, int gpuClips)> RunGraph(bool gpu)
+        {
+            var (args, script, temps) = Build(ed, output, titles, masks, opts, remaps, nests, gpu);
+            int gpuClips = System.Text.RegularExpressions.Regex.Matches(script, "scale_cuda=").Count;
+            File.WriteAllText(args[args.IndexOf("-/filter_complex") + 1], script, new UTF8Encoding(false));
+            var psi = new ProcessStartInfo(ffmpeg) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+                                                 WorkingDirectory = Path.GetTempPath() };      // sendcmd files are referenced by bare name
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var p = new Process { StartInfo = psi };
+            var err = new StringBuilder();
+            p.ErrorDataReceived += (_, e) => { if (e.Data != null) { lock (err) { err.AppendLine(e.Data); if (err.Length > 6000) err.Remove(0, err.Length - 6000); } } };
+            try
+            {
+                p.Start(); p.BeginErrorReadLine();
+                if (opts?.Background == true) try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
+                using var reg = ct.Register(() => { try { if (!p.HasExited) p.Kill(true); } catch { } });
+                double total = Math.Max(0.1, double.Parse(args[args.IndexOf("-t") + 1], CultureInfo.InvariantCulture));
+                string? line;
+                while ((line = await p.StandardOutput.ReadLineAsync()) != null)
+                    if (line.StartsWith("out_time_us=") && long.TryParse(line.AsSpan(12), out var us)) progress.Report(Math.Clamp(us / 1e6 / total, 0, 1));
+                await p.WaitForExitAsync();
+                if (ct.IsCancellationRequested) return ("Cancelled", gpuClips);
+                if (p.ExitCode != 0) { lock (err) return (err.ToString(), gpuClips); }
+                return (null, gpuClips);
+            }
+            finally { foreach (var t in temps) try { File.Delete(t); } catch { } }
+        }
     }
 }

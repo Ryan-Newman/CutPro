@@ -74,6 +74,10 @@ public partial class MainWindow
         ["tl.snap"] = () => SnapChk.IsChecked = SnapChk.IsChecked != true,
         ["tl.zoomIn"] = () => Tl.ZoomAround(1.5, ed.Time), ["tl.zoomOut"] = () => Tl.ZoomAround(1 / 1.5, ed.Time),
         ["tl.zoomSeq"] = () => Tl.ZoomTo(0, Math.Max(ed.End, 1)), ["tl.zoomSel"] = ZoomToSelection,
+        ["view.multicam"] = ToggleMultiCamView, ["mc.create"] = () => _ = CreateMultiCamDialog(),
+        ["mc.cam1"] = () => McPick(0, false), ["mc.cam2"] = () => McPick(1, false), ["mc.cam3"] = () => McPick(2, false), ["mc.cam4"] = () => McPick(3, false),
+        ["mc.cam5"] = () => McPick(4, false), ["mc.cam6"] = () => McPick(5, false), ["mc.cam7"] = () => McPick(6, false), ["mc.cam8"] = () => McPick(7, false),
+        ["mc.cam9"] = () => McPick(8, false),
     };
     /// <summary>Runs a command by id (keys, palette, menus).</summary>
     void RunCommand(string id) { if (KeyActions().TryGetValue(id, out var a)) a(); }

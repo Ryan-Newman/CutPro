@@ -205,10 +205,11 @@ public partial class Editor
                 vRow = !Locked(want) ? want : Tracks.VideoRows.Where(r => !Locked(r)).Cast<int?>().FirstOrDefault();
             }
         }
-        var made = Pieces(m, t, vRow, aRow);
+        var mc = MultiCamOf(m);
+        var made = mc != null ? CamPieces(mc, t, vRow, aRow) : Pieces(m, t, vRow, aRow);   // (a multi-camera source: switchable clips, not a nested one)
         foreach (var c in made) c.In += inOffset;                               // (a recording that began between frames)
         if (made.Count == 0) return made;
-        Edit(() => Lay(made, t, insert), insert ? "Insert" : "Overwrite");
+        Edit(() => Lay(made, t, insert), mc != null ? "Add Multicam Clip" : insert ? "Insert" : "Overwrite");
         Select(made[0]);
         return made;
     }

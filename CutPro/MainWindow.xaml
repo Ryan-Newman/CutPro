@@ -171,7 +171,6 @@
                             </UniformGrid>
                             <TextBlock Text="Title theme" Foreground="{DynamicResource B.Fg.Dim}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="ThemeCombo" SelectionChanged="Theme_Changed" ToolTip="Restyles every title by its role (Ctrl+Z to undo); new titles use it too"/>
-                            <TextBlock Text="Styles — click to apply to the selected titles (or add a new title)" TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" Margin="0,12,0,0"/>
                         </StackPanel>
                         <ListBox x:Name="StyleGallery" SelectionChanged="StyleGallery_Changed" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="10,0,4,6"/>
                     </DockPanel>
@@ -323,6 +322,8 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <TextBlock x:Name="DurText" Text="00:00:00:00" FontFamily="Consolas" FontSize="13" Foreground="{DynamicResource B.Fg.Dim}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ToggleButton x:Name="MultiCamBtn" Style="{StaticResource Tool}" Content="Multi-Cam" Click="MultiCamBtn_Click" Margin="0,0,6,0" Visibility="Collapsed"
+                                          ToolTip="Multi-Camera view (Shift+0): every camera next to the program — click one or press 1–9 to switch; while playing, the switches become cuts"/>
                             <ToggleButton x:Name="ProxyBtn" Style="{StaticResource Tool}" Content="Proxies" Click="ProxyBtn_Click" Margin="0,0,6,0" ToolTip="Play proxies instead of the original files (Project panel ▸ Proxy ▸ Create Proxies). Exports always use the originals"/>
                             <ComboBox x:Name="ResCombo" Width="72" SelectedIndex="0" SelectionChanged="Res_Changed" ToolTip="Playback resolution">
                                 <ComboBoxItem Content="Full"/><ComboBoxItem Content="1/2"/><ComboBoxItem Content="1/4"/>

@@ -37,7 +37,7 @@ public static class Remap
     {
         var fi = new FileInfo(m.Path);
         var (w, h) = Size(m);
-        var head = Encoding.UTF8.GetBytes(FormattableString.Invariant($"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|v1|"));
+        var head = Encoding.UTF8.GetBytes(FormattableString.Invariant($"{m.Path.ToLowerInvariant()}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{w}x{h}|{TimeUtil.Rate}|{TimeMap.NativeFps(m):0.######}|v2{Hdr.Mark(m)}|"));   // (v2: BT.709 limited range — Grid709)
         var body = new byte[idx.Length * 8]; Buffer.BlockCopy(idx, 0, body, 0, body.Length);
         return Convert.ToHexString(SHA1.HashData(head.Concat(body).ToArray()))[..24];
     }
@@ -62,12 +62,19 @@ public static class Remap
     /// <summary>Tests: false = don't render in the background (the preview keeps its fallback).</summary>
     public static bool Background = true;
 
+    /// <summary>The colour every render file is in: BT.709, limited range. Decoding converts the source's own (an untagged one read as BT.601,
+    /// as swscale reads it in the preview and the export) — raw pipes carry no colour tags, and ffmpeg (7.1 on) converts colour spaces between
+    /// filters by their tags: an untagged render was read as BT.601 and shifted the colours of speed-changed and stabilized clips.</summary>
+    internal const string Grid709 = "format=pix_fmts=yuv420p:color_spaces=bt709:color_ranges=tv";
+    /// <summary>Labels raw frames for the lossless encoder (the tags the file then carries).</summary>
+    internal const string Tag709 = "setparams=colorspace=bt709:range=tv";
+
     internal static string Spec(Clip c, MediaItem m, double s, double e)
     {
         var sb = new StringBuilder(160).Append(m.Path).Append('|').Append(c.In.ToString("R", CultureInfo.InvariantCulture)).Append('|')
             .Append(c.Start.ToString("R", CultureInfo.InvariantCulture)).Append('|').Append(s.ToString("R", CultureInfo.InvariantCulture)).Append('|')
             .Append(e.ToString("R", CultureInfo.InvariantCulture)).Append('|').Append(c.Speed.ToString("R", CultureInfo.InvariantCulture)).Append('|')
-            .Append(c.Reverse).Append(c.Hold).Append('|').Append(TimeUtil.Fps.ToString("R", CultureInfo.InvariantCulture));
+            .Append(c.Reverse).Append(c.Hold).Append('|').Append(TimeUtil.Fps.ToString("R", CultureInfo.InvariantCulture)).Append(Hdr.Mark(m));
         if (TimeMap.Ramped(c)) foreach (var k in Anim.Track(c, AnimProp.Speed)!.Keys) sb.Append('|').Append(k.T).Append(',').Append(k.V).Append(',').Append(k.In).Append(k.Out).Append(k.InSlope).Append(k.OutSlope).Append(k.InInfl).Append(k.OutInfl);
         return sb.ToString();
     }
@@ -184,7 +191,7 @@ public static class Remap
         int chunk = (int)Math.Clamp(300_000_000L / fb, 4, 120);
         var tmp = file + ".part.mkv";
         var enc = Start(ff, background, "-y", "-hide_banner", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", $"{w}x{h}", "-r", TimeUtil.Rate,
-                        "-i", "-", "-an", "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-tune", "fastdecode", "-g", "15", "-pix_fmt", "yuv420p", tmp);
+                        "-i", "-", "-an", "-vf", Tag709, "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-tune", "fastdecode", "-g", "15", "-pix_fmt", "yuv420p", tmp);
         var cache = new SortedDictionary<long, byte[]>();
         var stdin = enc.StandardInput.BaseStream;
         byte[]? last = null;
@@ -228,7 +235,7 @@ public static class Remap
     {
         double seek = Math.Max(0, a / fpsN - 1e-4);
         var p = Start(ff, background, "-hide_banner", "-v", "error", "-nostdin", "-ss", seek.ToString("0.######", CultureInfo.InvariantCulture), "-i", m.Path,
-                      "-an", "-sn", "-dn", "-vf", $"fps={rate},scale={w}:{h}:flags=bicubic,format=yuv420p", "-frames:v", count.ToString(), "-f", "rawvideo", "pipe:1");
+                      "-an", "-sn", "-dn", "-vf", $"fps={rate},scale={w}:{h}:flags=bicubic{Hdr.Post(m)},{Grid709}", "-frames:v", count.ToString(), "-f", "rawvideo", "pipe:1");
         try
         {
             var s = p.StandardOutput.BaseStream;

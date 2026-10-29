@@ -55,6 +55,7 @@ public partial class MainWindow
         if (err == null)
         {
             lastExportPath = save.FileName;
+            if (string.Join(" · ", new[] { opts.SmartReport, opts.GpuReport }.Where(x => x != null)) is { Length: > 0 } note) SetTask(note, 9000);
             if (opts.CaptionFile && ed.Clips.Any(Captioning.IsCaption))
             {   // the captions as an .srt beside the video (times from the export's start)
                 var (t0, t1) = Exporter.Range(ed, opts);
@@ -130,7 +131,12 @@ public partial class MainWindow
                                    ToolTip = "Mono folds the stereo mix to one channel; 5.1 puts each audio track where its header's 5.1 Output says (front, centre, surround, LFE)" };
         aRow.Children.Add(chans);
         var inout = new CheckBox { Content = "In to Out only", IsEnabled = ed.MarkIn != null && ed.MarkOut != null };
+        var smart = new CheckBox { Content = "Copy unchanged stretches (smart render)",
+                                   ToolTip = "Where the picture is one plain clip of a file with this export's codec, size and frame rate, its video is copied into the file untouched (no quality loss, much faster); only cuts, titles, effects and transitions are encoded. H.264 / HEVC in MP4, MOV or MKV" };
         var full = new CheckBox { Content = "Full colour composite (4:4:4)", IsChecked = o.Full444, ToolTip = "Titles, keys and overlays keep their full colour detail until the encoder; off = 4:2:0 throughout (a little faster, softer colour edges)" };
+        var deep = new CheckBox { Content = "10-bit", Margin = new Thickness(14, 0, 0, 0),
+                                  ToolTip = "The composite and the file keep 10 bits per channel: smoother skies and shadows, above all from 10-bit or HDR footage (HEVC Main 10, AV1, VP9, ProRes). Some older phones and TVs can't play 10-bit HEVC" };
+        var colRow = new StackPanel { Orientation = Orientation.Horizontal }; colRow.Children.Add(full); colRow.Children.Add(deep);
         int nChapters = ed.ChaptersFor(0, ed.End).Count;
         var chapters = new CheckBox { Content = $"Chapters from the {nChapters} chapter marker{(nChapters == 1 ? "" : "s")}", IsChecked = o.Chapters, ToolTip = "The sequence's chapter markers become the file's chapters (players show them; MP4 / MOV / MKV / M4A)" };
         bool hasCaptions = ed.Clips.Any(Captioning.IsCaption);
@@ -147,10 +153,10 @@ public partial class MainWindow
         Row("Preset", preset); form.Children.Add(presetNote); form.Children.Add(aspectWarn);
         Row("Format", container); Row("Video codec", codec); Row("Encoder", encoder, "Hardware encoders are much faster; CPU encoders compress a little better");
         Row("Resolution", res); Row("Rate control", rcRow); var qR = Row("Quality", qRow, "Lower = better quality, bigger file"); var bR = Row("Bitrate", mbRow);
-        Row("Speed", speed, "Slower presets make smaller files at the same quality"); Row("Audio", aRow);
+        Row("Speed", speed, "Slower presets make smaller files at the same quality"); Row("Smart render", smart); Row("Audio", aRow);
         Row("Loudness", nRow, "Platforms turn loud videos down to about −14 LUFS; quieter ones stay quiet"); form.Children.Add(loudNote);
         Row("Range", inout);
-        Row("Colour", full);
+        Row("Colour", colRow);
         if (hasCaptions) Row("Captions", capRow);
         if (nChapters > 0) Row("Chapters", chapters);
         form.Children.Add(estimate);
@@ -184,6 +190,8 @@ public partial class MainWindow
             chans.SelectedIndex = p.Channels switch { "mono" => 1, "5.1" => 2, _ => 0 };
             chans.IsEnabled = p.Audio is not ("none" or "mp3");
             inout.IsChecked = p.InOutOnly && inout.IsEnabled;
+            smart.IsEnabled = !ao && p.Video is "h264" or "hevc" && p.Container is "mp4" or "mov" or "mkv"; smart.IsChecked = p.Smart && smart.IsEnabled;
+            deep.IsEnabled = !ao && p.Supports10; deep.IsChecked = p.TenBit && deep.IsEnabled;
             norm.IsChecked = p.Normalize; norm.IsEnabled = lufs.IsEnabled = p.Audio != "none";
             lufs.SelectedIndex = Math.Max(0, Array.FindIndex(Loudness.Targets, x => Math.Abs(x.lufs - p.Lufs) < 0.01));
             busy = false;
@@ -204,7 +212,9 @@ public partial class MainWindow
             if (akbps.SelectedItem is string k && int.TryParse(k, out int kb)) o.AudioKbps = kb;
             o.Channels = o.Audio == "mp3" ? (chans.SelectedIndex == 1 ? "mono" : "stereo") : chans.SelectedIndex switch { 1 => "mono", 2 => "5.1", _ => "stereo" };
             o.InOutOnly = inout.IsChecked == true;
+            o.Smart = smart.IsChecked == true;
             o.Full444 = full.IsChecked == true;
+            if (deep.IsEnabled) o.TenBit = deep.IsChecked == true;
             o.Chapters = chapters.IsChecked == true;
             o.BurnCaptions = burn.IsChecked == true; o.CaptionFile = srt.IsChecked == true;
             o.Normalize = norm.IsChecked == true && o.Audio != "none";

@@ -216,3 +216,40 @@ if (-not $p.WaitForExit(600000)) { $p.Kill(); "EXTRATEST TIMEOUT" } else { Get-C
 $xu = "$env:TEMP\cutpro_extraui.txt"; Remove-Item $xu -ErrorAction SilentlyContinue
 $p = Start-Process $exe -ArgumentList '--extraui', $xu -PassThru
 if (-not $p.WaitForExit(300000)) { $p.Kill(); "EXTRAUI TIMEOUT" } else { Get-Content $xu | ? { $_ -notmatch '^PASS' } }
+# 31. multi-camera: sync by sound (a sub-frame camera), the source sequence, switching / recorded cuts, every exported frame = camera + synced
+#     frame, preview = export, the sound unbroken through every cut, fixed sound / recorder, flatten, project round trip, timecode
+$mt = Join-Path $env:TEMP 'cutpro_mc'
+$p = Start-Process $exe -ArgumentList '--multicamtest', $mt -PassThru
+if (-not $p.WaitForExit(400000)) { $p.Kill(); "MULTICAMTEST TIMEOUT" } else { Get-Content "$mt\multicamtest.txt" | ? { $_ -notmatch '^PASS' } }
+# 32. the same through the real window: Create Multi-Camera Source Sequence, the Multi-Camera view's cells, click / keys / Ctrl+click,
+#     recording while playing (frame gaps), Shift+0, the clip menu
+$mu = "$env:TEMP\cutpro_mcui.txt"; Remove-Item $mu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--mcui', $mu -PassThru
+if (-not $p.WaitForExit(240000)) { $p.Kill(); "MCUI TIMEOUT" } else { Get-Content $mu | ? { $_ -notmatch '^PASS' } }
+# 33. motion graphics: shape layers / stickers / templates — animation states, every template + sticker draws, draw-on / progress extents,
+#     preview = export for every template coming in / complete / going out + an animated shape matte (ProRes 4444), Add Graphic, your own
+#     templates, the inspector's change-then-Touch undo
+$gt = Join-Path $env:TEMP 'cutpro_graphics'
+$p = Start-Process $exe -ArgumentList '--graphicstest', $gt -PassThru
+if (-not $p.WaitForExit(400000)) { $p.Kill(); "GRAPHICSTEST TIMEOUT" } else { Get-Content "$gt\graphicstest.txt" | ? { $_ -notmatch '^PASS' } }
+# 34. the same through the real window: the Graphics gallery, Effect Controls ▸ Shapes and stickers, a sticker + undo, the monitor's handles
+#     (move / resize), Save as Graphic Template, the palette, frame gaps while animated graphics play
+$gu = "$env:TEMP\cutpro_graphicsui.txt"; Remove-Item $gu -ErrorAction SilentlyContinue
+$p = Start-Process $exe -ArgumentList '--graphicsui', $gu -PassThru
+if (-not $p.WaitForExit(240000)) { $p.Kill(); "GRAPHICSUI TIMEOUT" } else { Get-Content $gu | ? { $_ -notmatch '^PASS' } }
+# 35. smart rendering: key frames / closed GOPs probed, whole GOPs copied (H.264, HEVC, open GOPs between clean key frames), every frame = the
+#     normal export's, copied frames = the source's bytes, clean decode, sound and chapters, files that can't be copied, 1080p speed
+$st = Join-Path $env:TEMP 'cutpro_smart'
+$p = Start-Process $exe -ArgumentList '--smarttest', $st -PassThru
+if (-not $p.WaitForExit(600000)) { $p.Kill(); "SMARTTEST TIMEOUT" } else { Get-Content "$st\smarttest.txt" | ? { $_ -notmatch '^PASS' } }
+# 36. object removal: the camera's movement measured, a moving box removed over a panning background (= the video without it inside the
+#     mask, = the original outside), a still box filled from its edges, a clean plate, the timeline swap (re-based keys / markers / masks, undo)
+$rt = Join-Path $env:TEMP 'cutpro_removal'
+$p = Start-Process $exe -ArgumentList '--removaltest', $rt -PassThru
+if (-not $p.WaitForExit(400000)) { $p.Kill(); "REMOVALTEST TIMEOUT" } else { Get-Content "$rt\removaltest.txt" | ? { $_ -notmatch '^PASS' } }
+# 37. HDR and 10 bits: HLG / PQ detected (PQ peak from HDR10 metadata), the tone curve (grey where SDR puts it, white at ~91 %, highlights graded,
+#     nothing below the knee touched), preview = export = the tone-mapped frame, speed renders / scrub cache / thumbnails tone-mapped, Show as is;
+#     10-bit exports keep a 10-bit gradient, a 10-bit composite = the 8-bit one on an effects timeline, smart render copies 10-bit HEVC
+$ht = Join-Path $env:TEMP 'cutpro_hdr'
+$p = Start-Process $exe -ArgumentList '--hdrtest', $ht -PassThru
+if (-not $p.WaitForExit(400000)) { $p.Kill(); "HDRTEST TIMEOUT" } else { Get-Content "$ht\hdrtest.txt" | ? { $_ -notmatch '^PASS' } }
