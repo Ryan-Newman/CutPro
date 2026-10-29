@@ -22,6 +22,11 @@ public partial class MainWindow
         Tl.NestOpenRequested += OpenNested;
         Tl.NestRequested += NestSelected;
         Tl.Notice += msg => Alert.Show(this, msg, "Timeline", AlertKind.Warning);
+        Previews.Changed += () => Dispatcher.BeginInvoke(() =>
+        {
+            Tl.InvalidateVisual();
+            if (Previews.Status is { Length: > 0 } s) SetTask(s, s.StartsWith("Render previews ready") ? 1500 : 0);
+        });
         Nest.StatusChanged += () => Dispatcher.BeginInvoke(() =>
         {
             if (Nest.Status is { } s) SetTask(s, 0);

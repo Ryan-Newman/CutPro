@@ -201,6 +201,12 @@ public partial class TimelineView : FrameworkElement
             double a = T2X(Ed.MarkIn ?? Ed.MarkOut!.Value), b = T2X(Ed.MarkOut ?? Ed.MarkIn!.Value);
             dc.DrawRectangle(rangeBarBrush, null, new Rect(a, RulerH - 6, Math.Max(2, b - a), 6));
         }
+        var (pvEnd, pvReady, pvPending) = Previews.Bar(Ed);
+        if (pvEnd > 0 && (pvReady || pvPending))
+        {
+            double a = T2X(0), b = T2X(pvEnd);
+            dc.DrawRectangle(pvReady ? rangeBarBrush : rangeBrush, null, new Rect(Math.Max(HeaderW, a), 1, Math.Max(2, b - a), 3));
+        }
         DrawRulerMarkers(dc);
         dc.Pop();
 

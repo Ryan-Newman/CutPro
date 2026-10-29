@@ -253,3 +253,7 @@ if (-not $p.WaitForExit(400000)) { $p.Kill(); "REMOVALTEST TIMEOUT" } else { Get
 $ht = Join-Path $env:TEMP 'cutpro_hdr'
 $p = Start-Process $exe -ArgumentList '--hdrtest', $ht -PassThru
 if (-not $p.WaitForExit(400000)) { $p.Kill(); "HDRTEST TIMEOUT" } else { Get-Content "$ht\hdrtest.txt" | ? { $_ -notmatch '^PASS' } }
+# 38. render previews: the cached FFV1 picture of the sequence equals a normal export with the same settings, and an edit stops playback using it
+$pv = Join-Path $env:TEMP 'cutpro_preview'
+$p = Start-Process $exe -ArgumentList '--previewtest', $pv -PassThru
+if (-not $p.WaitForExit(300000)) { $p.Kill(); "PREVIEWTEST TIMEOUT" } else { Get-Content "$pv\previewtest.txt" | ? { $_ -notmatch '^PASS' } }

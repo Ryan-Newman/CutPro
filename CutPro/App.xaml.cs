@@ -118,6 +118,12 @@ public partial class App : Application
             try { rc = await HighTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "hightest.txt"), ex.ToString()); rc = 2; }
             Shutdown(rc); return;
         }
+        if (a.Length >= 2 && a[0] == "--previewtest")
+        {
+            int rc;
+            try { rc = await PreviewTest.Run(a[1]); } catch (Exception ex) { Directory.CreateDirectory(a[1]); File.WriteAllText(Path.Combine(a[1], "previewtest.txt"), ex.ToString()); rc = 2; }
+            Shutdown(rc); return;
+        }
         if (a.Length >= 2 && a[0] == "--hdrtest")
         {
             int rc;

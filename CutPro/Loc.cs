@@ -85,6 +85,8 @@ public static class Loc
         "Add Tracks…|Spuren hinzufügen…|Añadir pistas…|Ajouter des pistes…", "Delete Empty Tracks|Leere Spuren löschen|Eliminar pistas vacías|Supprimer les pistes vides",
         "Add Adjustment Layer|Einstellungsebene hinzufügen|Añadir capa de ajuste|Ajouter un calque de réglage", "Nest…|Verschachteln…|Anidar…|Imbriquer…",
         "Open Nested Sequence|Verschachtelte Sequenz öffnen|Abrir secuencia anidada|Ouvrir la séquence imbriquée", "Sequence Settings…|Sequenzeinstellungen…|Ajustes de secuencia…|Paramètres de séquence…",
+        "Render Previews|Vorschau rendern|Renderizar vistas previas|Rendre les prévisualisations",
+        "Playback Uses Render Previews|Wiedergabe nutzt gerenderte Vorschau|La reproducción usa las vistas previas|La lecture utilise les prévisualisations",
         "Auto Reframe|Automatisch neu framen|Reencuadre automático|Recadrage automatique", "Speed/Duration…|Geschwindigkeit/Dauer…|Velocidad/duración…|Vitesse/durée…",
         "Add Frame Hold|Standbild hinzufügen|Añadir fotograma congelado|Ajouter un arrêt sur image", "Insert Frame Hold Segment|Standbildsegment einfügen|Insertar segmento de fotograma congelado|Insérer un segment d'arrêt sur image",
         "Remove Frame Hold|Standbild entfernen|Quitar fotograma congelado|Supprimer l'arrêt sur image", "Audio Track Mixer…|Audiospurmischer…|Mezclador de pistas de audio…|Mixeur de pistes audio…",

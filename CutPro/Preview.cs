@@ -61,6 +61,14 @@ public class Preview : Canvas
     readonly Dictionary<string, Layer> layers = new();
     readonly List<VLayer> vpool = new();
     readonly string? ffmpeg = Exporter.FindFfmpeg();
+    Image? cacheImg;
+    FrameStream? cacheFs;
+    WriteableBitmap? cacheWb;
+    string? cachePath;
+    int cacheW, cacheH;
+    long cacheShown = -1;
+    long cacheRestart;
+    bool cacheOn;
     public Editor Ed = null!;
     public AudioOut? Audio;
     /// <summary>Playback resolution divisor (1 = full 1280x720, 2 = half, 4 = quarter), like Premiere's 1/2, 1/4.</summary>
@@ -205,10 +213,73 @@ public class Preview : Canvas
     }
     static double RateOf(Need n) => n.Rate > 0 ? n.Rate : TimeUtil.Fps;
 
+    /// <summary>A render preview covers t: one decoded frame of that file, full frame, and the live clips hidden. False = composite as usual.</summary>
+    bool ShowCache(double t, bool playing, long now)
+    {
+        if (Previews.Picture(Ed, t) is not { } hit) { if (cacheOn) LeaveCache(); return false; }
+        if (!cacheOn) HideLive();
+        cacheOn = true;
+        int w = Math.Max(2, Editor.W & ~1), h = Math.Max(2, Editor.H & ~1);
+        if (cacheImg == null)
+        {
+            cacheImg = new Image { Stretch = Stretch.Fill, IsHitTestVisible = false, Width = Editor.W, Height = Editor.H };
+            SetZIndex(cacheImg, 80);
+            Children.Add(cacheImg);
+        }
+        else { Set(cacheImg, WidthProperty, Editor.W); Set(cacheImg, HeightProperty, Editor.H); }
+        Vis(cacheImg, Visibility.Visible);
+        var fs = cacheFs;
+        bool same = fs != null && cachePath == hit.File && cacheW == w && cacheH == h;
+        bool restart = !same || !fs!.CanServe(hit.T);
+        if (restart && (fs == null || now - cacheRestart >= 80))
+        {
+            fs?.Dispose();
+            double offset = playing && ClockRunning ? Math.Min(0.4, startupMs * 1.3 / 1000) : 0;
+            cacheFs = fs = new FrameStream(ffmpeg!, hit.File, hit.T, w, h, playing ? DepthPlaying : DepthPaused, playing ? 0 : KeepPaused, offset, Decoder.SwFrame, TimeUtil.Fps);
+            cachePath = hit.File; cacheW = w; cacheH = h; cacheRestart = now; cacheShown = -1;
+            same = true;
+        }
+        if (fs == null) return true;
+        fs.Depth = playing ? DepthPlaying : DepthPaused; fs.KeepBehind = playing ? 0 : KeepPaused;
+        var (idx, buf) = same ? fs.Take(hit.T) : (-1, null);
+        if (buf != null && idx != cacheShown)
+        {
+            if (cacheWb == null || cacheWb.PixelWidth != fs.W || cacheWb.PixelHeight != fs.H)
+                cacheWb = new WriteableBitmap(fs.W, fs.H, 96, 96, PixelFormats.Bgr32, null);
+            cacheWb.WritePixels(new Int32Rect(0, 0, fs.W, fs.H), buf, fs.W * 4, 0);
+            if (cacheImg.Source != cacheWb) cacheImg.Source = cacheWb;
+            cacheShown = idx;
+        }
+        return true;
+    }
+
+    void HideLive()
+    {
+        foreach (var L in vpool) { L.Fs?.Dispose(); L.Fs = null; L.ClipId = null; Vis(L.Host, Visibility.Collapsed); if (L.Bg != null) Vis(L.Bg, Visibility.Collapsed); }
+        foreach (var bh in blendHosts.Values) Vis(bh.Host, Visibility.Collapsed);
+        foreach (var L in layers.Values) { Vis(L.El, Visibility.Collapsed); if (L.Bg != null) Vis(L.Bg, Visibility.Collapsed); }
+        for (int k = 0; k < below.Length; k++)
+        {
+            if (below[k].Effect != null) { below[k].Effect = null; below[k].ClearValue(RenderOptions.BitmapScalingModeProperty); }
+            if (adjIn[k].Effect != null) adjIn[k].Effect = null;
+            if (adjVig[k].Visibility != Visibility.Collapsed) adjVig[k].Visibility = Visibility.Collapsed;
+        }
+        for (int k = 0; k < dipRect.Length; k++) if (dipRect[k] != null) Vis(dipRect[k]!, Visibility.Collapsed);
+    }
+
+    void LeaveCache()
+    {
+        cacheOn = false;
+        if (cacheImg != null) Vis(cacheImg, Visibility.Collapsed);
+        cacheFs?.Dispose(); cacheFs = null; cachePath = null; cacheShown = -1;
+        foreach (var bh in blendHosts.Values) Vis(bh.Host, Visibility.Visible);
+    }
+
     public void Sync(double t, bool playing)
     {
         long now = Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;   // ms, high resolution (TickCount is ~16 ms coarse)
         EnsureTracks();                                                     // (the layout may have changed: tracks added / removed)
+        if (ffmpeg != null && ShowCache(t, playing, now)) { SyncAudio(); return; }
         plan = Transitions.Compute(Ed);
         SyncLayers(t);
         SyncAdjust(t);

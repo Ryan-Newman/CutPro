@@ -19,7 +19,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 
 ## Suggested order (most value for the effort first)
 1. AI voice isolation / upscaling / interpolation models, sync lock and track targeting, VST3 hosting. (Every "extra high" item is done, face blur included: trim tools, shuttle, scrubbing, sample edits, proxies, opacity bands, distort, generators, denoise, frame interpolation, animated text, follow an object, HSL secondary / power windows, channel maps / 5.1, alpha exports, render queue, XML / OTIO / EDL import.)
-2. **Max-effort items**: GPU export compositing, render previews (multicam, motion graphics, smart rendering, object removal, HDR / 10-bit: done).
+2. **Max-effort items**: GPU export compositing (render previews, multicam, motion graphics, smart rendering, object removal, HDR / 10-bit: done).
 3. **Live keyframes for distort**, keyboard trimming, a Markers list panel.
 
 ## 1. Project, media and sequences
@@ -126,7 +126,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Alpha-channel export (ProRes 4444, QT-RLE, PNG sequence, WebM VP9 alpha) | P R F A V | done: presets ProRes 4444 with alpha, WebM VP9 with alpha, QuickTime Animation, PNG sequence — transparent where nothing is drawn | S |
 | Captions: SRT / VTT sidecar, burn-in, embedded 608/708 | all | done: burn-in + .srt beside the export, SRT / VTT export / import; embedded 608/708 not yet | S |
 | Render queue / batch export, background export while editing | P R F A V | done: export dialog ▸ Add to Queue… renders a snapshot of the sequence in the background while editing goes on (Render Queue panel: progress, cancel, pause, render again, show the file) | M |
-| Render previews / timeline render cache, smart rendering (no re-encode of unchanged parts) | P R F A V | smart rendering done: export dialog ▸ Smart render copies whole GOPs of H.264 / HEVC files where one plain clip shows and encodes only the rest (frame-exact, verified, falls back to a normal export); render previews not yet (heavy work already renders in the background: speed changes, stabilization, nested sequences) | L |
+| Render previews / timeline render cache, smart rendering (no re-encode of unchanged parts) | P R F A V | both done. Smart render: export dialog ▸ Smart render copies whole GOPs of H.264 / HEVC where one plain clip shows. Render previews: Sequence ▸ Render Previews writes a lossless FFV1 picture of the sequence; Playback Uses Render Previews plays that file (sound stays the live mixer) until an edit, then the live composite until the new one is ready. A bar on the ruler is solid when the preview is ready | L |
 | Upload: resumable after a network drop, upload queue in the background, post analytics | P R F C | done: direct upload to YouTube, TikTok, Instagram, Facebook, X, LinkedIn, Pinterest, Vimeo (+ Threads share), auto-upload after export | M |
 
 ## 8. Workspace, collaboration and platform
