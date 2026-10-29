@@ -171,7 +171,7 @@ public static class GpuTest
             Exporter.GpuBreak = false;
             bool same = ef == null && ec == null && new[] { 0.5, 4.5, 6.5 }.All(t => Psnr(Frame(fb, t, W, H), Frame(fCpu, t, W, H)) >= 99);
             Check(same && o.GpuReport?.StartsWith("GPU scaling failed (") == true && o.GpuReport.EndsWith("exported without it"),
-                  $"a GPU chain ffmpeg refuses: exported again without it — frames = the CPU export's; “{o.GpuReport}”" + (ef is { } x ? ": " + x : ""));
+                  $"a GPU chain ffmpeg refuses: exported again without it — frames = the CPU export's; “{o.GpuReport}”" + (ef is { } err ? ": " + err : ""));
         }
 
         // ---------- the speed-up ----------
@@ -186,7 +186,7 @@ public static class GpuTest
             var (e2, s2) = await Export(el, Path.Combine(dir, "out_long_cpu.mp4"), os, Path.Combine(dir, "t_l2"), false);
             double gain = s2 / Math.Max(0.01, s1);
             Check(e1 == null && e2 == null && (nvenc ? gain >= 1.25 : gain >= 0.9),
-                  $"20 s of 4K into 1080p ({(nvenc ? "NVENC" : "x264 ultrafast — the encoder limits it")}): {600 / s1:0} fps with GPU scaling, {600 / s2:0} fps without ({gain:0.00}×)" + ((e1 ?? e2) is { } x ? ": " + x : ""));
+                  $"20 s of 4K into 1080p ({(nvenc ? "NVENC" : "x264 ultrafast — the encoder limits it")}): {600 / s1:0} fps with GPU scaling, {600 / s2:0} fps without ({gain:0.00}×)" + ((e1 ?? e2) is { } err ? ": " + err : ""));
         }
     }
 }

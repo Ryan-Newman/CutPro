@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Linux and macOS agents compile this Windows WPF project (NETSDK1100). Harmless on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>
