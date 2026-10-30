@@ -312,7 +312,18 @@ public static class SelfTest
             ta5.AudioFx = AudioDsp.VoicePreset();
         });
         var np = Transitions.Compute(en);
-        Check("shape transition resolved (mask merge) and Move transitions known", np.Wins.Any(w => w.D.Fx == Transitions.Fx.Mask) && Transitions.Get("Spin In").Fx == Transitions.Fx.Move && Transitions.VideoDefs.Length == 34);
+        Check("shape transition resolved (mask merge) and Move transitions known", np.Wins.Any(w => w.D.Fx == Transitions.Fx.Mask) && Transitions.Get("Spin In").Fx == Transitions.Fx.Move && Transitions.VideoDefs.Length == 42);
+        Check("cinematic library has transitions with sound", Library.All.Length >= 250 && Library.All.Count(i => i.Kind == LibKind.Transition && i.Sfx != SfxKind.None) >= 80
+              && Library.All.All(i => i.Kind != LibKind.Transition || Transitions.Get(i.TransKind!).Name == i.TransKind)
+              && Transitions.Get("Heart Iris").Fx == Transitions.Fx.Mask && Transitions.Get("Zoom Punch").Fx == Transitions.Fx.Move
+              && Transitions.Get("Film Burn").Fx == Transitions.Fx.Dip && Transitions.Shape(Transitions.Get("Star Iris"), 0.5, 1280, 720).Bounds.Width > 80);
+        {
+            string wav = Sfx.Ensure(SfxKind.Whoosh, 0.4);
+            Check("whoosh WAV is a real file of the right length", File.Exists(wav) && new FileInfo(wav).Length > 1000);
+            var edS = Fresh(out _);
+            var sfx = Library.PlaceSfx(edS, SfxKind.Hit, 1, 0.3);
+            Check("transition SFX lands as an audio clip", sfx is { Kind: ClipKind.Audio } && sfx.Start >= 0 && edS.Media.Any(m => m.Bin == "Library"));
+        }
         Check("Film Dissolve / Morph Cut / Cube Spin / Page Peel / Bible Page Turn",
               Transitions.Get("Film Dissolve").Fx == Transitions.Fx.Mask && Transitions.Get("Morph Cut").Fx == Transitions.Fx.Move
               && Transitions.Get("Cube Spin").Fx == Transitions.Fx.Move && Transitions.Get("Page Peel").Fx == Transitions.Fx.Mask
@@ -362,6 +373,17 @@ public static class SelfTest
         Check("export graph: shape transition (alphamerge through a mask video), look effects, drop shadow, corner pin, audio effects file",
               ng.Contains("concat=n=") && ng.Contains("unsharp=") && ng.Contains("lutrgb=r=0:g=0:b=0") && ng.Contains("perspective=") && ngTemps.Any(t => t.Contains("cutpro_tmask_")));
         Check("VHS / glitch look graphs", Looks.Graph(new LookFx { Vhs = 60 }, 720).Contains("geq=lum=") && Looks.Graph(new LookFx { Glitch = 50 }, 720).Contains("rgbashift="));
+        Check("product name is VEdiT", AppInfo.Name == "VEdiT");
+        var glass = ThemeManager.All.First(t => t.Name == "Frosted Glass");
+        Check("Frosted Glass is Apple-style light glass over sky", !glass.Dark && glass.P["Surf.Win"] == "img:sky" && glass.Radius >= 20);
+        Check("theme animations off by default", !new AppSettings().ThemeEffects);
+        {
+            var lf = new LookFx { Sharpen = 50, Grain = 40, Order = new() { "grain", "sharpen", "glow", "vhs", "glitch" } };
+            string lg = Looks.Graph(lf, 720);
+            Check("look order: grain before sharpen", lg.Contains("noise=") && lg.Contains("unsharp=") && lg.IndexOf("noise=") < lg.IndexOf("unsharp="));
+            Looks.Move(lf, "grain", 1);
+            Check("look Move swaps neighbours", Looks.OrderOf(lf)[0] == "sharpen" && Looks.OrderOf(lf)[1] == "grain");
+        }
         var nm = new Clip { Kind = ClipKind.Video, Mask = MaskMode.Reveal };
         Check("a track matte takes no transitions and a pinned clip covers the frame layer",
               !Transitions.Compute(new[] { new Clip { Kind = ClipKind.Video, Start = 0, Dur = 2 }, new Clip { Kind = ClipKind.Video, Start = 2, Dur = 2, Mask = MaskMode.Reveal, TransIn = new Transition() } }).Wins.Any()

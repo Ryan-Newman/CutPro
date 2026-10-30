@@ -84,6 +84,7 @@ public static class Alert
         }
         public string Text { set => w.Message.Text = value; }
         public double Value { set => bar.Value = value; }
+        public bool IsIndeterminate { set => bar.IsIndeterminate = value; }
         public void Close() { w.AllowClose = true; w.Close(); dim.Dispose(); }
     }
 

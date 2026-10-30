@@ -332,6 +332,21 @@ public partial class MainWindow
         Slider("Film grain", 0, 100, 1, l.Grain, v => Later(x => x.Grain = v), body);
         Slider("VHS", 0, 100, 1, l.Vhs, v => Later(x => x.Vhs = v), body);
         Slider("Glitch", 0, 100, 1, l.Glitch, v => Later(x => x.Glitch = v), body);
+        var order = Looks.OrderOf(l);
+        body.Children.Add(new TextBlock { Text = "Order (top first)", FontSize = 11, Foreground = Dim, Margin = new Thickness(0, 8, 0, 2) });
+        for (int i = 0; i < order.Count; i++)
+        {
+            string name = order[i]; int idx = i;
+            var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+            var up = new Button { Content = "↑", Width = 26, Padding = new Thickness(0), Margin = new Thickness(2, 0, 0, 0), IsEnabled = idx > 0, ToolTip = "Move up" };
+            var down = new Button { Content = "↓", Width = 26, Padding = new Thickness(0), IsEnabled = idx < order.Count - 1, ToolTip = "Move down" };
+            up.Click += (_, _) => { ed.Edit(() => { foreach (var x in targets) { x.Looks ??= new LookFx(); Looks.Move(x.Looks, name, -1); } }, "Look order"); BuildInspector(); };
+            down.Click += (_, _) => { ed.Edit(() => { foreach (var x in targets) { x.Looks ??= new LookFx(); Looks.Move(x.Looks, name, 1); } }, "Look order"); BuildInspector(); };
+            DockPanel.SetDock(down, Dock.Right); DockPanel.SetDock(up, Dock.Right);
+            row.Children.Add(down); row.Children.Add(up);
+            row.Children.Add(new TextBlock { Text = name[0].ToString().ToUpper() + name[1..], VerticalAlignment = VerticalAlignment.Center });
+            body.Children.Add(row);
+        }
     }
 
     /// <summary>Drop shadow under the clip's picture (its outline: crop, key and masks included).</summary>

@@ -73,13 +73,12 @@ public static class ThemeArt
             dc.DrawGeometry(L(0, 0, 0, 1, ("#55FFFFFF", 0), ("#00FFFFFF", 1)), null, G("M 7,5.5 C 15,6 23,9.5 30,15 C 22,11.5 14,9.5 7,9.5 Z"));
             dc.DrawGeometry(null, P("#6B4A2A", 1.6), G("M 0.8,19.5 C 2.5,18.5 4,17 6,16"));
         }),
-        // a glass orb with a frosted triangle and a bright reflection
+        // iPhone-style glass disc: milky pane, dark ink triangle, a bright top specular
         "glass" => Img(34, 34, dc =>
         {
-            dc.DrawEllipse(R(0.5, 0.55, 0.6, ("#1AFFFFFF", 0), ("#33B8E8FF", 0.75), ("#80FFFFFF", 1)), new Pen(L(0, 0, 0, 1, ("#E6FFFFFF", 0), ("#40FFFFFF", 1)), 1.2), new Point(17, 17), 15.5, 15.5);
-            dc.DrawGeometry(L(0, 0, 1, 1, ("#F2FFFFFF", 0), ("#C8E6F5FF", 1)), P("#59FFFFFF", 0.8), G("M 13,9.5 L 24.5,17 L 13,24.5 Z"));
-            dc.DrawEllipse(L(0, 0, 0, 1, ("#CCFFFFFF", 0), ("#00FFFFFF", 1)), null, new Point(13, 8.5), 8, 4.5);
-            dc.DrawEllipse(R(0.5, 0.5, 0.5, ("#5900E5FF", 0), ("#0000E5FF", 1)), null, new Point(19, 27), 9, 3.5);
+            dc.DrawEllipse(R(0.5, 0.32, 0.72, ("#F2FFFFFF", 0), ("#C8FFFFFF", 0.45), ("#8AE8EEF4", 1)), new Pen(L(0, 0, 0, 1, ("#FFFFFFFF", 0), ("#59FFFFFF", 1)), 1.15), new Point(17, 17), 15.5, 15.5);
+            dc.DrawGeometry(S("#1C1C1E"), null, G("M 13,10 L 24,17 L 13,24 Z"));
+            dc.DrawEllipse(L(0, 0, 0, 1, ("#E6FFFFFF", 0), ("#00FFFFFF", 1)), null, new Point(12, 8.5), 8, 4.2);
         }),
         // a faceted sapphire cut as a triangle
         "stone" => Img(36, 32, dc =>

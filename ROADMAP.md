@@ -20,7 +20,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 ## Suggested order (most value for the effort first)
 1. AI voice isolation / upscaling / interpolation models (ask first), VST3 hosting. (Every "extra high" item is done, face blur included. Sync lock, track targeting, live distort keyframes, the Markers list, HDR output, DNxHR, glitch / VHS and 4-point fit-to-fill are done.)
 2. **Max-effort items**: GPU export compositing, HDR output and DNxHR are done.
-3. Remaining S/M items (extra blend modes, effect reorder, ACES, split panels, screen/webcam, stock browser, …).
+3. Remaining S/M items (extra HSL blend modes, ACES, split panels). Screen/webcam, look-effect reorder and the Library (stock / templates browser with cinematic transitions + sound) are done.
 
 ## 1. Project, media and sequences
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -36,8 +36,8 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Multicam (sync angles by audio/timecode, live angle switching) | P R F A V | done: Create Multi-Camera Source Sequence (sound / timecode / In points / starts; sound follows the camera or a fixed one, recorders included), the Program monitor's Multi-Camera view (Shift+0), click / 1–9 to switch, switches while playing become cuts, Clip ▸ Multi-Camera (Camera n, Flatten); multicam clips are plain clips (no render) | L |
 | Sync / merge clips by audio waveform (external recorder) | P R F A | done: Clip ▸ Synchronize (GCC-PHAT on the conformed PCM, 4 kHz then 48 kHz; ±0.03 ms on the test), start on a frame + sub-frame In | M |
 | Timecode, reel names, metadata display | P R F A | done: timecode / reel / camera / streams from the file's tags (Properties…, Project panel tooltip and info line), the source monitor shows the media's timecode (drop-frame aware) | S |
-| Screen / webcam / voice-over recording | P F V C | partial: voice-over done (File ▸ Record Voice-over…: waveIn, plays the sequence, lands on the track where spoken); screen / webcam later | M |
-| Stock media / templates browser | C (P) | | L |
+| Screen / webcam / voice-over recording | P F V C | done: voice-over (File ▸ Record Voice-over…: waveIn, plays the sequence, lands on the track where spoken); File ▸ Record Screen… (`gdigrab` whole desktop) and Record Webcam… (`dshow`) write H.264 into a Capture bin | M |
+| Stock media / templates browser | C (P) | done: Library side view (replaces Effects): cinematic transitions with built-in whoosh/hit/flash sounds (synthesised WAV on an audio track, preview = export), graphics, looks and SFX. Drag onto a cut or double-click at the playhead. Not licensed stock footage | M |
 
 ## 2. Timeline editing
 | Feature | Who has it | Notes for CutPro | Effort |
@@ -70,7 +70,7 @@ captions/hashtags suggested from speech (Whisper) + scenes (CLIP) + titles + Bib
 | Track matte key from any clip (video as matte) | P R F V | done: any video / picture as a brightness or alpha matte, reveal or cut-out, for everything below it (plus text and object masks) | M |
 | Stabilization (warp stabilizer), rolling-shutter repair | P R F V K C | done: Effect Controls → Stabilize (smooth motion / tripod, smoothness, shakiness, zoom in / zoom as needed / show edges) — vid.stab in two passes, rendered in the background like speed changes, speed-changed and reversed clips too; preview and export read the same file. Rolling shutter: Distort → Rolling shutter (scan-axis shear, preview shader = export geq) | M |
 | Attach titles / graphics / effects to a tracked object (point / planar tracking) | P R F V C | done: Effect Controls ▸ Motion ▸ Attach to object… (position, or position and size) — the object's path baked into keys, Update after re-tracking, Detach; effects follow objects through object masks | M |
-| Effect stack: reorder, enable/disable, presets, copy between clips | all | partial: effect presets (Save Preset…, built-ins, Effects panel, drag onto clips), copy between clips (Paste Attributes), audio effects move up / down, on / off; the video chain keeps its fixed (parity) order | M |
+| Effect stack: reorder, enable/disable, presets, copy between clips | all | partial: effect presets (Save Preset…, built-ins, Effects panel, drag onto clips), copy between clips (Paste Attributes), audio effects move up / down, on / off; look effects (sharpen / glow / grain / VHS / glitch) reorder with ↑↓ (`LookFx.Order`, same graph in preview and export); the rest of the video chain (key, toon, grade, warp) still has a fixed parity order | M |
 | Generators: colour matte, solid, gradient, noise, bars & tone, countdown | all | done: File ▸ New Item ▸ Colour Matte, Gradient (linear / radial), Bars and Tone (SMPTE HD bars + reference tone), Counting Leader (8 … 2, beep at 2) — rendered once to media files, editable | S |
 | Look effects: sharpen, vignette, film grain, glow, drop shadow on clips, lens distortion, glitch, VHS | P R F V K C | done: sharpen, glow, film grain, VHS (chroma smear + scanlines), glitch (RGB split + slice) — ffmpeg in the decoder and the export; drop shadow (composited from the clip's alpha), vignette (Lumetri), lens distortion | M |
 | Noise reduction (spatial / temporal) | R P V | done: Effect Controls ▸ Noise reduction (fast hqdn3d / high quality nlmeans / temporal atadenoise), rendered in the background with the stabilizer's machinery so preview and export show the same frames | M |

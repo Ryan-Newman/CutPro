@@ -70,6 +70,14 @@ public static class Transitions
         new("Cube Spin", Fx.Move, null, 1, 0, "The shots turn like two faces of a cube"),
         new("Page Peel", Fx.Mask, null, 1, 1, "The current shot peels away from the bottom right, like a page"),
         new("Bible Page Turn", Fx.Mask, null, 1, 1, "A parchment page with Scripture turns over, revealing the next shot"),
+        new("Zoom Punch", Fx.Move, null, 0, 0, "A smash zoom through the cut"),
+        new("Shake Cut", Fx.Move, null, 0, 0, "The outgoing shot shakes, then the next one hits"),
+        new("Heart Iris", Fx.Mask, null, 0, 0, "A heart opens from the centre"),
+        new("Star Iris", Fx.Mask, null, 0, 0, "A star opens from the centre"),
+        new("Block Glitch", Fx.Mask, null, 0, 0, "Blocks of the next shot slam in"),
+        new("Paint Stroke", Fx.Mask, null, 1, 1, "A diagonal brush stroke reveals the next shot"),
+        new("Film Burn", Fx.Dip, null, 0, 0, "A warm film-burn dip between shots", "#E85A20"),
+        new("Light Leak", Fx.Dip, null, 0, 0, "A gold light-leak dip between shots", "#FFC078"),
     };
     /// <summary>Effects panel group of a transition.</summary>
     public static string GroupOf(Def d) => d.Fx switch
@@ -77,9 +85,11 @@ public static class Transitions
         Fx.Dissolve or Fx.Dip => "Dissolve",
         Fx.Wipe => "Wipe",
         Fx.Push => "Slide",
-        Fx.Mask => d.Name is "Clock Wipe" or "Diagonal Wipe" or "Venetian Blinds" or "Inset" ? "Wipe"
-                 : d.Name is "Page Peel" or "Bible Page Turn" ? "3D" : d.Name == "Film Dissolve" ? "Dissolve" : "Iris",
-        Fx.Move => d.Name.StartsWith("Slide") ? "Slide" : d.Name == "Morph Cut" ? "Dissolve" : d.Name == "Cube Spin" ? "3D" : "Zoom",
+        Fx.Mask => d.Name is "Clock Wipe" or "Diagonal Wipe" or "Venetian Blinds" or "Inset" or "Block Glitch" or "Paint Stroke" ? "Wipe"
+                 : d.Name is "Page Peel" or "Bible Page Turn" ? "3D" : d.Name == "Film Dissolve" ? "Dissolve"
+                 : d.Name is "Heart Iris" or "Star Iris" ? "Iris" : "Iris",
+        Fx.Move => d.Name.StartsWith("Slide") ? "Slide" : d.Name == "Morph Cut" ? "Dissolve" : d.Name == "Cube Spin" ? "3D"
+                 : d.Name == "Shake Cut" ? "Zoom" : "Zoom",
         _ => "Iris",
     };
     public static readonly Def[] AudioDefs =
@@ -247,11 +257,17 @@ public static class Transitions
     {
         double W = Editor.W, H = Editor.H;
         var d = w.D;
-        if (d.Name == "Cross Zoom")
+        if (d.Name == "Cross Zoom" || d.Name == "Zoom Punch")
         {
-            // the outgoing shot zooms in, the incoming one zooms out from close up and blends in over it in the middle
-            if (!isB) return new(0, 0, 1 + 3 * Ease(q / 0.6), 0, w.B == null ? 1 - q : 1, false);
-            return new(0, 0, 1 + 3 * (1 - Ease((q - 0.4) / 0.6)), 0, w.A == null ? q : Math.Clamp((q - 0.4) / 0.2, 0, 1), true);
+            double punch = d.Name == "Zoom Punch" ? 5 : 3, blend = d.Name == "Zoom Punch" ? 0.28 : 0.4;
+            if (!isB) return new(0, 0, 1 + punch * Ease(q / 0.6), 0, w.B == null ? 1 - q : 1, false);
+            return new(0, 0, 1 + punch * (1 - Ease((q - blend) / (1 - blend))), 0, w.A == null ? q : Math.Clamp((q - blend) / 0.18, 0, 1), true);
+        }
+        if (d.Name == "Shake Cut")
+        {
+            double shake = (1 - q) * 22 * Math.Sin(q * 51);
+            if (!isB) return new(shake, shake * 0.35, 1, 0, 1, false);
+            return new(0, 0, 1, 0, w.A == null ? q : Ease(q), true);
         }
         if (d.Name == "Morph Cut")
         {
@@ -328,6 +344,64 @@ public static class Transitions
                 g = sg; break;
             }
             case "Barn Doors": g = new RectangleGeometry(new Rect(cx - cx * q, 0, W * q, H)); break;
+            case "Heart Iris":
+            {
+                double s = q * Math.Min(W, H) * 0.055;
+                var sg = new StreamGeometry();
+                using (var sc = sg.Open())
+                {
+                    bool first = true;
+                    for (int i = 0; i <= 48; i++)
+                    {
+                        double a = i / 48.0 * Math.PI * 2;
+                        double x = cx + s * 16 * Math.Pow(Math.Sin(a), 3);
+                        double y = cy - s * (13 * Math.Cos(a) - 5 * Math.Cos(2 * a) - 2 * Math.Cos(3 * a) - Math.Cos(4 * a));
+                        if (first) { sc.BeginFigure(new Point(x, y), true, true); first = false; }
+                        else sc.LineTo(new Point(x, y), true, false);
+                    }
+                }
+                g = sg; break;
+            }
+            case "Star Iris":
+            {
+                double r = q * Math.Sqrt(W * W + H * H) * 0.55, inner = r * 0.42;
+                var sg = new StreamGeometry();
+                using (var sc = sg.Open())
+                {
+                    for (int i = 0; i < 10; i++)
+                    {
+                        double a = -Math.PI / 2 + i * Math.PI / 5, rr = (i & 1) == 0 ? r : inner;
+                        var p = new Point(cx + rr * Math.Cos(a), cy + rr * Math.Sin(a));
+                        if (i == 0) sc.BeginFigure(p, true, true); else sc.LineTo(p, true, false);
+                    }
+                }
+                g = sg; break;
+            }
+            case "Block Glitch":
+            {
+                var gg = new GeometryGroup(); const int cols = 8, rows = 5;
+                double cw = W / cols, ch = H / rows;
+                for (int y = 0; y < rows; y++)
+                    for (int x = 0; x < cols; x++)
+                    {
+                        double h = ((x * 17 + y * 31) % 10) / 10.0;
+                        if (q >= h * 0.85) gg.Children.Add(new RectangleGeometry(new Rect(x * cw, y * ch, cw + 0.5, ch + 0.5)));
+                    }
+                g = gg; break;
+            }
+            case "Paint Stroke":
+            {
+                double t = q * 1.4;
+                var sg = new StreamGeometry();
+                using (var s = sg.Open())
+                {
+                    s.BeginFigure(new Point(-W * 0.1, -H * 0.2), true, true);
+                    s.LineTo(new Point(W * t, -H * 0.15), true, false);
+                    s.LineTo(new Point(W * t + W * 0.18, H * 1.15), true, false);
+                    s.LineTo(new Point(-W * 0.05, H * 1.1), true, false);
+                }
+                g = sg; break;
+            }
             case "Film Dissolve":
                 // preview / export use WriteFilmMask bytes (a 1 px Clip geometry antialiases into a dissolve on RenderTargetBitmap)
                 g = q >= 1 ? new RectangleGeometry(new Rect(-W, -H, 3 * W, 3 * H)) : Geometry.Empty;

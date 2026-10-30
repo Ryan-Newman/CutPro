@@ -13,13 +13,13 @@ namespace CutPro;
 /// </summary>
 public static class Materials
 {
-    const int Size = 512, Version = 5;
+    const int Size = 512, Version = 6;
     static readonly Dictionary<string, BitmapSource> cache = new();
     static readonly object gate = new();
 
     public static readonly string[] Names =
     {
-        "frost", "frost2", "aurora",
+        "frost", "frost2", "aurora", "sky",
         "marble", "graphite", "obsidian", "sapphire", "lapis", "rosequartz", "slate", "basalt",
         "gold", "silver", "platinum", "copper", "bronze", "gunmetal",
         "grass", "bark", "dirt", "moss", "leaves", "sand", "water", "forest",
@@ -93,7 +93,7 @@ public static class Materials
             for (int i = 0; i < Names.Length; i++)
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                var b = Brush((Names[i] == "aurora" ? "img:" : "tex:") + Names[i]);
+                var b = Brush((Names[i] is "aurora" or "sky" ? "img:" : "tex:") + Names[i]);
                 long ms = sw.ElapsedMilliseconds;
                 var r = new Rect(i % cols * cell + 6, i / cols * cell + 6, cell - 12, cell - 12);
                 dc.DrawRoundedRectangle(b, new Pen(Brushes.Black, 1), r, 12, 12);
@@ -111,7 +111,7 @@ public static class Materials
     static BitmapSource Make(string name) => name switch
     {
         // glass
-        "frost" => Frost(0.10f), "frost2" => Frost(0.16f), "aurora" => Aurora(),
+        "frost" => Frost(0.56f), "frost2" => Frost(0.68f), "aurora" => Aurora(), "sky" => Sky(),
         // stone
         "marble" => Marble(), "graphite" => Graphite(), "obsidian" => Obsidian(), "sapphire" => Sapphire(), "lapis" => Lapis(),
         "rosequartz" => RoseQuartz(), "slate" => Slate(), "basalt" => Basalt(),
@@ -235,14 +235,44 @@ public static class Materials
     }
 
     // ======================= glass =======================
-    /// <summary>Lightly frosted glass: translucent white with a fine, uneven frost grain.</summary>
+    /// <summary>iPhone-style milky glass: a translucent white pane, brighter at the top, with a fine frost grain.</summary>
     static BitmapSource Frost(float level) => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        float a = level + 0.03f * Fbm(u, v, 6, 6, 4, 5) + 0.02f * (Rand(x, y, 9) - 0.5f);
-        if (Rand(x, y, 3) > 0.9965f) a += 0.10f;
-        return new C4(1, 1, 1, a);
+        float grain = 0.045f * Fbm(u, v, 16, 16, 4, 5) + 0.025f * (Rand(x, y, 9) - 0.5f);
+        float lift = (1 - v) * 0.05f;
+        float a = Clamp01(level + grain);
+        return new C4(0.97f + lift, 0.985f + lift, 1f, a);
     }, Size, Size, true);
+
+    /// <summary>Pale iPhone lock-screen sky: cool daylight, soft clouds, a hint of sun (1600 × 1000, stretched).</summary>
+    static BitmapSource Sky()
+    {
+        const int W = 1600, H = 1000;
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(186, 214, 240), Color.FromRgb(244, 247, 252), 90), null, new Rect(0, 0, W, H));
+            void Glow(double cx, double cy, double r, Color c, byte a)
+            {
+                var g = new RadialGradientBrush(Color.FromArgb(a, c.R, c.G, c.B), Color.FromArgb(0, c.R, c.G, c.B));
+                g.GradientStops.Insert(1, new GradientStop(Color.FromArgb((byte)(a * 0.5), c.R, c.G, c.B), 0.45));
+                dc.DrawEllipse(g, null, new Point(cx * W, cy * H), r * W, r * W * 0.62);
+            }
+            Glow(0.82, 0.10, 0.38, Color.FromRgb(255, 248, 230), 200);   // sun
+            Glow(0.18, 0.28, 0.55, Color.FromRgb(255, 255, 255), 150);
+            Glow(0.55, 0.22, 0.48, Color.FromRgb(236, 244, 255), 140);
+            Glow(0.40, 0.72, 0.42, Color.FromRgb(210, 228, 246), 90);
+            Glow(0.90, 0.80, 0.30, Color.FromRgb(196, 220, 242), 80);
+        }
+        var rtb = new RenderTargetBitmap(W, H, 96, 96, PixelFormats.Pbgra32); rtb.Render(dv);
+        var src = new byte[W * H * 4]; rtb.CopyPixels(src, W * 4, 0);
+        return Pixels((x, y) =>
+        {
+            int i = (y * W + x) * 4; float n = (Rand(x, y, 21) - 0.5f) * 0.012f;
+            return new C4(src[i + 2] / 255f + n, src[i + 1] / 255f + n, src[i] / 255f + n);
+        }, W, H, true);
+    }
 
     /// <summary>The coloured light behind the glass panels: soft aurora glows on deep navy (1600 × 1000, stretched).</summary>
     static BitmapSource Aurora()
@@ -277,22 +307,26 @@ public static class Materials
     // ======================= stone =======================
     static BitmapSource Marble() => Pixels((u, v) =>
     {
-        float t = Fbm(u, v, 2, 2, 5, 11, turb: true, gain: 0.45f);
-        float vein = MathF.Abs(MathF.Sin(MathF.PI * 2 * (u * 2 + v * 1 + t * 2.2f)));
-        float vein2 = MathF.Abs(MathF.Sin(MathF.PI * 2 * (-u * 1 + v * 3 + Fbm(u, v, 3, 3, 4, 23, turb: true, gain: 0.45f) * 1.6f)));
-        float line = MathF.Pow(1 - vein, 9), line2 = MathF.Pow(1 - vein2, 28) * 0.55f;
-        var bas = Mix(Hex(0xF5F3EF), Hex(0xE3DFD8), Fbm(u, v, 3, 3, 4, 31) * 0.9f + 0.45f);
-        bas = Add(bas, 0.012f * Fbm(u, v, 32, 32, 2, 37));
-        return Mix(bas, Hex(0x8E9298), line * 0.5f + line2 * 0.3f + Smooth(0.7f, 1, 1 - vein) * 0.12f);   // soft enough to read text on
+        float t = Fbm(u, v, 2, 2, 6, 11, turb: true, gain: 0.48f);
+        float vein = MathF.Abs(MathF.Sin(MathF.PI * 2 * (u * 2.4f + v * 0.9f + t * 2.6f)));
+        float vein2 = MathF.Abs(MathF.Sin(MathF.PI * 2 * (-u * 1.1f + v * 3.2f + Fbm(u, v, 3, 3, 5, 23, turb: true, gain: 0.45f) * 1.8f)));
+        float vein3 = MathF.Abs(MathF.Sin(MathF.PI * 2 * (u * 5 + v * 0.4f + Fbm(u, v, 5, 2, 3, 29, turb: true) * 1.1f)));
+        float line = MathF.Pow(1 - vein, 8), line2 = MathF.Pow(1 - vein2, 22) * 0.7f, line3 = MathF.Pow(1 - vein3, 36) * 0.35f;
+        var bas = Mix(Hex(0xF7F4EE), Hex(0xD8D2C8), Fbm(u, v, 3, 3, 5, 31) * 0.9f + 0.45f);
+        bas = Mix(bas, Hex(0xC9C2B6), Smooth(0.2f, 0.7f, Fbm(u, v, 2, 2, 3, 33)) * 0.35f);
+        bas = Add(bas, 0.016f * Fbm(u, v, 40, 40, 2, 37));
+        return Mix(bas, Mix(Hex(0x6A6E74), Hex(0xA8A49C), line2), line * 0.58f + line2 * 0.38f + line3 + Smooth(0.65f, 1, 1 - vein) * 0.14f);
     });
 
     static BitmapSource Graphite() => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        float mott = Fbm(u, v, 3, 3, 4, 41) * 0.05f, grain = Perlin(u * 96, v * 96, 96, 96, 43) * 0.025f;
-        float sheen = MathF.Sin(MathF.PI * 2 * (u + v + Fbm(u, v, 2, 2, 3, 47) * 0.6f)) * 0.035f;
-        var c = Add(Hex(0x2C2E33), mott + grain + sheen + (Rand(x, y, 49) - 0.5f) * 0.02f);
-        if (Rand(x, y, 51) > 0.9975f) c = Add(c, 0.12f);
+        float flake = Fbm(u, v, 18, 18, 3, 41);
+        float mott = Fbm(u, v, 3, 3, 5, 42) * 0.07f, grain = Perlin(u * 140, v * 140, 140, 140, 43) * 0.04f;
+        float sheen = MathF.Sin(MathF.PI * 2 * (u * 1.4f + v + Fbm(u, v, 2, 2, 3, 47) * 0.7f)) * 0.05f;
+        var c = Mix(Hex(0x1E2024), Hex(0x3A3E46), flake * 0.6f + 0.4f);
+        c = Add(c, mott + grain + sheen + (Rand(x, y, 49) - 0.5f) * 0.035f);
+        if (Rand(x, y, 51) > 0.9965f) c = Mix(c, Hex(0x8A909A), 0.55f);
         return c;
     }, Size, Size, true);
 
@@ -353,21 +387,29 @@ public static class Materials
     static BitmapSource Basalt() => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        var c = Add(Hex(0x111215), Fbm(u, v, 4, 4, 5, 111) * 0.025f + (Rand(x, y, 113) - 0.5f) * 0.02f);
-        if (Rand(x, y, 115) > 0.996f) c = Add(c, 0.08f);
+        var w = Worley(u, v, 7, 111);
+        float edge = MathF.Exp(-(w.f2 - w.f1) * 18);
+        var c = Mix(Hex(0x0C0D10), Hex(0x23262C), Fbm(u, v, 4, 4, 5, 112) * 0.9f + 0.5f);
+        c = Mix(c, Hex(0x3A3E46), edge * 0.35f);
+        c = Mul(c, 1 + (w.dx + w.dy) * 0.04f);
+        c = Add(c, (Rand(x, y, 113) - 0.5f) * 0.03f);
+        if (Rand(x, y, 115) > 0.995f) c = Mix(c, Hex(0x6A6E76), 0.4f);
         return c;
     }, Size, Size, true);
 
     // ======================= metals =======================
-    /// <summary>Brushed metal: long horizontal streaks, broad anisotropic sheen, fine grain.</summary>
+    /// <summary>Brushed metal: anisotropic hairlines, occasional deep scratches, a rolling sheen.</summary>
     static BitmapSource Brushed(int baseRgb, int lightRgb, int seed) => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        float streak = 0.55f * Perlin(u * 3, v * 160, 3, 160, seed) + 0.30f * Perlin(u * 6, v * 320, 6, 320, seed + 1) + 0.15f * Perlin(u * 12, v * 48, 12, 48, seed + 2);
-        float sheen = Fbm(u, v, 1, 2, 3, seed + 3) * 0.9f + 0.35f * MathF.Sin(MathF.PI * 2 * (v * 1 + u * 1 + 0.3f * Fbm(u, v, 2, 2, 2, seed + 4)));
-        var c = Mul(Hex(baseRgb), 1 + 0.085f * streak + (Rand(x, y, seed + 5) - 0.5f) * 0.05f);
-        c = Mix(c, Hex(lightRgb), Clamp01(sheen) * 0.38f);
-        c = Mul(c, 1 - Clamp01(-sheen) * 0.18f);
+        float streak = 0.45f * Perlin(u * 2, v * 220, 2, 220, seed) + 0.30f * Perlin(u * 5, v * 480, 5, 480, seed + 1) + 0.15f * Perlin(u * 14, v * 90, 14, 90, seed + 2)
+                     + 0.10f * Perlin(u * 1.5f, v * 900, 2, 900, seed + 8);
+        float scratch = MathF.Pow(1 - MathF.Abs(Perlin(u * 3, v * 70, 3, 70, seed + 9)), 28) * Smooth(0.35f, 0.7f, Fbm(u, v, 2, 1, 2, seed + 10));
+        float sheen = Fbm(u, v, 1, 2, 3, seed + 3) * 0.95f + 0.4f * MathF.Sin(MathF.PI * 2 * (v * 0.8f + u * 1.2f + 0.35f * Fbm(u, v, 2, 2, 2, seed + 4)));
+        var c = Mul(Hex(baseRgb), 1 + 0.12f * streak + (Rand(x, y, seed + 5) - 0.5f) * 0.06f);
+        c = Mix(c, Hex(lightRgb), Clamp01(sheen) * 0.46f);
+        c = Mul(c, 1 - Clamp01(-sheen) * 0.22f);
+        c = Mix(c, Hex(0x0A0A0A), scratch * 0.45f);
         return c;
     }, Size, Size, true);
 
@@ -449,10 +491,13 @@ public static class Materials
     static BitmapSource Moss() => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        float n = Fbm(u, v, 20, 20, 4, 161), m = Fbm(u, v, 3, 3, 4, 163);
-        var c = Mix(Hex(0x1E3214), Hex(0x5E8234), Smooth(-0.35f, 0.55f, n + m * 0.5f));
-        c = Mix(c, Hex(0x8BA64A), Smooth(0.45f, 0.75f, n) * 0.4f);
-        return Add(c, (Rand(x, y, 165) - 0.5f) * 0.03f);
+        float n = Fbm(u, v, 22, 22, 5, 161), m = Fbm(u, v, 3, 3, 4, 163);
+        var w = Worley(u, v, 14, 164);
+        var c = Mix(Hex(0x162410), Hex(0x4E7028), Smooth(-0.35f, 0.55f, n + m * 0.5f));
+        c = Mix(c, Hex(0x8BA64A), Smooth(0.4f, 0.8f, n) * 0.5f);
+        c = Mix(c, Hex(0x2A4018), Smooth(0.22f, 0.08f, w.f1) * 0.35f);          // clump shadows
+        c = Mix(c, Hex(0xA4C45C), MathF.Exp(-w.f1 * 10) * 0.22f);               // sunlit tips
+        return Add(c, (Rand(x, y, 165) - 0.5f) * 0.04f);
     }, Size, Size, true);
 
     static BitmapSource Leaves()
@@ -502,17 +547,25 @@ public static class Materials
 
     static BitmapSource Water() => Pixels((u, v) =>
     {
-        float wu = u + 0.06f * Fbm(u, v, 3, 3, 3, 191), wv = v + 0.06f * Fbm(u, v, 3, 3, 3, 193);
-        var w = Worley(wu - MathF.Floor(wu), wv - MathF.Floor(wv), 6, 195);
-        float caustic = MathF.Exp(-(w.f2 - w.f1) * 9);
-        var c = Mix(Hex(0x0C3644), Hex(0x125466), Fbm(u, v, 2, 2, 4, 197) * 0.9f + 0.5f);
-        return Mix(c, Hex(0x58C8D8), caustic * 0.32f);
+        float wu = u + 0.08f * Fbm(u, v, 3, 3, 3, 191), wv = v + 0.08f * Fbm(u, v, 3, 3, 3, 193);
+        var w = Worley(wu - MathF.Floor(wu), wv - MathF.Floor(wv), 7, 195);
+        var w2 = Worley(wu * 1.7f - MathF.Floor(wu * 1.7f), wv * 1.7f - MathF.Floor(wv * 1.7f), 11, 196);
+        float caustic = MathF.Exp(-(w.f2 - w.f1) * 8) + 0.45f * MathF.Exp(-(w2.f2 - w2.f1) * 14);
+        var c = Mix(Hex(0x082830), Hex(0x1A6A78), Fbm(u, v, 2, 2, 4, 197) * 0.9f + 0.5f);
+        c = Mix(c, Hex(0x0A4050), Smooth(0.2f, 0.8f, v) * 0.25f);
+        return Mix(c, Hex(0x7EE8F0), Clamp01(caustic) * 0.42f);
     });
 
     static BitmapSource Forest() => Pixels((x, y) =>
     {
         float u = (x + 0.5f) / Size, v = (y + 0.5f) / Size;
-        var c = Mix(Hex(0x0A120A), Hex(0x16261A), Fbm(u, v, 3, 3, 5, 201) * 0.9f + 0.5f);
-        return Add(c, (Rand(x, y, 203) - 0.5f) * 0.02f);
+        float canopy = Fbm(u, v, 4, 3, 5, 201);
+        var leaf = Worley(u, v, 9, 202);
+        var c = Mix(Hex(0x061008), Hex(0x1A2E18), canopy * 0.9f + 0.5f);
+        c = Mix(c, Hex(0x2E4A22), Smooth(0.15f, 0.55f, canopy) * 0.55f);
+        c = Mix(c, Hex(0x142214), MathF.Exp(-leaf.f1 * 6) * 0.25f);
+        float shaft = MathF.Pow(Clamp01(0.55f + 0.5f * MathF.Sin(MathF.PI * 2 * (u * 2.2f - v * 0.8f + Fbm(u, v, 2, 2, 2, 204) * 0.4f))), 10) * (1 - v);
+        c = Mix(c, Hex(0xC8E89A), shaft * 0.35f);
+        return Add(c, (Rand(x, y, 203) - 0.5f) * 0.025f);
     }, Size, Size, true);
 }

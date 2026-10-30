@@ -10,6 +10,8 @@
     <AssemblyTitle>VEdiT</AssemblyTitle>
     <Title>VEdiT</Title>
     <Product>VEdiT</Product>
+    <Description>VEdiT</Description>
+    <FileDescription>VEdiT</FileDescription>
     <ApplicationIcon>Assets/CutPro.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>

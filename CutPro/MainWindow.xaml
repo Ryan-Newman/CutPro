@@ -77,7 +77,7 @@
                 <StackPanel>
                     <RadioButton x:Name="ActProject" Style="{StaticResource Activity}" GroupName="act" Tag="Project" Content="&#xE8B7;" Click="Activity_Click" ToolTip="Project (Ctrl+B toggles the side bar)" IsChecked="True"/>
                     <RadioButton x:Name="ActTitles" Style="{StaticResource Activity}" GroupName="act" Tag="Titles" Content="&#xE8D2;" Click="Activity_Click" ToolTip="Titles · styles &amp; title themes"/>
-                    <RadioButton x:Name="ActEffects" Style="{StaticResource Activity}" GroupName="act" Tag="Effects" Content="&#xE8AB;" Click="Activity_Click" ToolTip="Effects · video and audio transitions (drag onto a cut)"/>
+                    <RadioButton x:Name="ActEffects" Style="{StaticResource Activity}" GroupName="act" Tag="Effects" Content="&#xE8AB;" Click="Activity_Click" ToolTip="Library · cinematic transitions with sound, graphics, looks"/>
                     <RadioButton x:Name="ActMixer" Style="{StaticResource Activity}" GroupName="act" Tag="Mixer" Content="&#xE9E9;" Click="Activity_Click" ToolTip="Audio Track Mixer · volume, pan, mute, solo, meters, loudness"/>
                     <RadioButton x:Name="ActScopes" Style="{StaticResource Activity}" GroupName="act" Tag="Scopes" Content="&#xE9D2;" Click="Activity_Click" ToolTip="Lumetri Scopes · waveform, RGB parade, vectorscope, histogram"/>
                     <RadioButton x:Name="ActCaptions" Style="{StaticResource Activity}" GroupName="act" Tag="Captions" Content="&#xE7F0;" Click="Activity_Click" ToolTip="Captions · from speech, edit, SRT / VTT"/>
@@ -197,12 +197,15 @@
                         </ListBox>
                     </DockPanel>
 
-                    <!-- EFFECTS: transitions -->
+                    <!-- LIBRARY (was Effects): cinematic transitions with sound, graphics, looks -->
                     <DockPanel x:Name="EffectsView" Visibility="Collapsed">
-                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="EFFECTS" Style="{StaticResource PaneHeader}"/></Grid>
-                        <TextBlock DockPanel.Dock="Top" Text="Drag a transition onto a cut (or a clip's start / end). Double-click: apply at the cut nearest the playhead. Ctrl+D video · Ctrl+Shift+D audio · Shift+D both." TextWrapping="Wrap" Foreground="{DynamicResource B.Fg.Dim}" FontSize="11" Margin="20,0,14,8"/>
+                        <Grid DockPanel.Dock="Top" Height="35"><TextBlock Text="LIBRARY" Style="{StaticResource PaneHeader}"/></Grid>
+                        <StackPanel DockPanel.Dock="Top" Margin="12,0,10,6">
+                            <TextBox x:Name="LibrarySearch" Margin="0,0,0,6" Padding="6,4" TextChanged="LibraryFilter_Changed" ToolTip="Search the library"/>
+                            <ComboBox x:Name="LibraryCat" Margin="0,0,0,4"/>
+                        </StackPanel>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel x:Name="EffectsList" Margin="12,0,10,12"/>
+                            <StackPanel x:Name="EffectsList" Margin="8,0,6,12"/>
                         </ScrollViewer>
                     </DockPanel>
 

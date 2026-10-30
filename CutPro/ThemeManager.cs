@@ -137,20 +137,33 @@ public static class ThemeManager
         ["Tl.RulerText"] = dim, ["Tl.HeaderText"] = fg, ["Tl.BtnText"] = fg, ["Tl.Btn"] = "#26000000", ["Tl.Tick"] = "#4D000000",
     };
 
-    // ---- Frosted Glass: rounded, lightly frosted glass panels over soft coloured light ----
-    static readonly Dictionary<string, string> GlassP = Merge(MaterialBase("#2F8CFF", "#7FD8FF"), new()
+    // ---- Frosted Glass: Apple-style light glass panes over a pale iPhone sky wallpaper ----
+    static readonly Dictionary<string, string> GlassP = Merge(Merge(LightP, new()
     {
-        ["Win.Bg"] = "#141A33", ["Surf.Win"] = "img:aurora",
+        ["Divider"] = "#00000000", ["Strip"] = "#14FFFFFF", ["Heading"] = "#007AFF",
+        ["Tab.Active"] = "#33FFFFFF", ["Tab.Border"] = "#007AFF",
+        ["Hover"] = "#14000000", ["Selected"] = "#29007AFF",
+        ["Input.Bg"] = "#B8FFFFFF", ["Input.Border"] = "#2E000000",
+        ["Button.Bg"] = "#73FFFFFF", ["Button.Fg"] = "#1C1C1E", ["Button.Border"] = "#28000000",
+        ["Popup.Bg"] = "#F2F5F5F7", ["Popup.Border"] = "#33000000",
+        ["Tl.Bg"] = "#00000000", ["Tl.LaneV"] = "#14007AFF", ["Tl.LaneA"] = "#1434C759",
+        ["Tl.RowLine"] = "#14000000", ["Tl.Ruler"] = "#18000000", ["Tl.Header"] = "#12000000",
+        ["Tl.RulerText"] = "#636366", ["Tl.Tick"] = "#4D000000", ["Tl.HeaderText"] = "#1C1C1E",
+        ["Tl.Btn"] = "#26FFFFFF", ["Tl.BtnText"] = "#1C1C1E",
+        ["Scroll.Thumb"] = "#55000000", ["Scroll.ThumbHover"] = "#8C000000",
+        ["Slider.Track"] = "#40000000", ["Slider.Thumb"] = "#FFFFFF",
+        ["Thumb.Bg"] = "#26000000", ["Menu.Selected"] = "#007AFF", ["Menu.Selected.Fg"] = "#FFFFFF",
+    }), new()
+    {
+        ["Win.Bg"] = "#C5D4E8", ["Surf.Win"] = "img:sky",
         ["Surf.Title"] = "tex:frost2", ["Surf.Activity"] = "tex:frost", ["Surf.Side"] = "tex:frost", ["Surf.Editor"] = "tex:frost",
         ["Surf.Panel"] = "tex:frost", ["Surf.Insp"] = "tex:frost", ["Surf.Status"] = "tex:frost2",
-        ["Card.Edge"] = "v:#99FFFFFF>#26FFFFFF>#14FFFFFF", ["Card.Sheen"] = "v:#29FFFFFF>#00FFFFFF>#00FFFFFF>#0AFFFFFF",
-        ["Strip"] = "#0DFFFFFF", ["Tab.Active"] = "#1FFFFFFF",
-        ["Fg"] = "#F6F8FF", ["Fg.Dim"] = "#C3CCE4", ["Header.Fg"] = "#E2E8F8",
-        ["Input.Bg"] = "#33FFFFFF", ["Input.Border"] = "#4DFFFFFF", ["Button.Bg"] = "#2EFFFFFF", ["Button.Border"] = "#4DFFFFFF",
-        ["Popup.Bg"] = "#F21C2444", ["Popup.Border"] = "#59FFFFFF", ["StatusBar.Bg"] = "#2F8CFF",
-        ["Tl.LaneV"] = "#147FB2FF", ["Tl.LaneA"] = "#147FFFC8", ["Tl.RowLine"] = "#14FFFFFF", ["Tl.Ruler"] = "#14FFFFFF", ["Tl.Header"] = "#0FFFFFFF",
-        ["Tl.RulerText"] = "#D6E2FF", ["Tl.Tick"] = "#4DFFFFFF", ["Thumb.Bg"] = "#26000000",
-        ["Glass.Tint"] = "#A61A2244", ["Glass.Footer"] = "#1F000000", ["Glass.Edge"] = "v:#99FFFFFF>#1FFFFFFF", ["Glass.Sheen"] = "v:#29FFFFFF>#00FFFFFF", ["Scrim"] = "#59050816",
+        ["Card.Edge"] = "v:#E8FFFFFF>#48FFFFFF>#1AFFFFFF", ["Card.Sheen"] = "v:#66FFFFFF>#10FFFFFF>#00FFFFFF>#12FFFFFF",
+        ["Fg"] = "#1C1C1E", ["Fg.Dim"] = "#636366", ["Header.Fg"] = "#1C1C1E", ["TitleBar.Fg"] = "#1C1C1E",
+        ["ActivityBar.Fg"] = "#636366", ["ActivityBar.Active"] = "#1C1C1E", ["ActivityBar.Indicator"] = "#007AFF",
+        ["Accent"] = "#007AFF", ["Accent.Fg"] = "#FFFFFF", ["Accent2"] = "#5AC8FA",
+        ["StatusBar.Bg"] = "#007AFF", ["StatusBar.Fg"] = "#FFFFFF", ["Timecode"] = "#007AFF",
+        ["Glass.Tint"] = "#C8F5F5F7", ["Glass.Footer"] = "#0D000000", ["Glass.Edge"] = "v:#F2FFFFFF>#40FFFFFF", ["Glass.Sheen"] = "v:#99FFFFFF>#00FFFFFF", ["Scrim"] = "#33000000",
     });
 
     // ---- Stone: obsidian, sapphire, white marble, graphite, slate, rose quartz, lapis lazuli ----
@@ -196,17 +209,19 @@ public static class ThemeManager
         new() { Name = "Dark Theme", Dark = true, P = Flat(DarkP), Description = "VS Code dark" },
         new() { Name = "Light Theme", Dark = false, P = Flat(LightP), Description = "VS Code light" },
         new() { Name = "Colorful Theme", Dark = true, P = Flat(ColorfulP), Description = "Synthwave gradients" },
-        new() { Name = "Frosted Glass", Dark = true, P = GlassP, Radius = 14, Gap = 10, Edge = 1, Shadow = 12,
-                Description = "Rounded, lightly frosted glass panels over soft coloured light" },
-        new() { Name = "Stone", Dark = true, P = StoneP, Radius = 12, Gap = 8, Edge = 1, Shadow = 10, LightCards = new() { "Side", "Insp" },
+        new() { Name = "Frosted Glass", Dark = false, P = GlassP, Radius = 22, Gap = 12, Edge = 0.85, Shadow = 22,
+                LightCards = new() { "Title", "Activity", "Side", "Editor", "Panel", "Insp", "Status" },
+                OnLight = Ink("#1C1C1E", "#636366", "#007AFF"),
+                Description = "Apple-style frosted glass: translucent panes over a pale iPhone sky" },
+        new() { Name = "Stone", Dark = true, P = StoneP, Radius = 12, Gap = 8, Edge = 1.1, Shadow = 14, LightCards = new() { "Side", "Insp" },
                 OnLight = Ink("#24211E", "#5C5751", "#2F6FE8"),
-                Description = "Obsidian, sapphire, marble, graphite, slate, rose quartz and lapis lazuli" },
-        new() { Name = "Metals", Dark = true, P = MetalP, Radius = 7, Gap = 7, Edge = 1.5, Shadow = 10, LightCards = new() { "Title", "Side", "Panel", "Status" },
+                Description = "Photographed stone: obsidian, sapphire, marble, graphite, slate, rose quartz, lapis" },
+        new() { Name = "Metals", Dark = true, P = MetalP, Radius = 6, Gap = 7, Edge = 1.6, Shadow = 12, LightCards = new() { "Title", "Side", "Panel", "Status" },
                 OnLight = Ink("#1F1A10", "#4F4636", "#A87410"),
-                Description = "Brushed gold, bronze, silver, platinum and copper plates" },
-        new() { Name = "Nature", Dark = true, P = NatureP, Radius = 16, Gap = 9, Edge = 1, Shadow = 12, LightCards = new() { "Insp" },
+                Description = "Brushed gold, bronze, silver, platinum and copper with anisotropic grain" },
+        new() { Name = "Nature", Dark = true, P = NatureP, Radius = 16, Gap = 9, Edge = 1, Shadow = 14, LightCards = new() { "Insp" },
                 OnLight = Ink("#2A2114", "#5E5240", "#3E8E2A"),
-                Description = "Moss, tree bark, leaves, soil, grass, sand and a stream" },
+                Description = "Photographed moss, bark, leaves, soil, grass, sand and water" },
     };
 
     /// <summary>A card's own palette (local resources) — dark ink on light surfaces; null = the theme's main colours.</summary>
@@ -290,7 +305,7 @@ public class AppSettings
     public string DefaultVideoTransition { get; set; } = "Cross Dissolve";
     public string DefaultAudioTransition { get; set; } = "Constant Power";
     public double DefaultTransitionDur { get; set; } = 1.0;
-    public bool ThemeEffects { get; set; } = true;
+    public bool ThemeEffects { get; set; }
     /// <summary>Where the panels are (DockUi) — null: the Editing workspace with the sizes above.</summary>
     public DockLayout? Layout { get; set; }
     /// <summary>Saved workspaces by name; the last one chosen.</summary>

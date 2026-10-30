@@ -76,8 +76,9 @@ public partial class MainWindow
             if (ed.Time != ambT) { ambT = ed.Time; ambMoved = Environment.TickCount64; }
             return playing || Environment.TickCount64 - ambMoved < 600 || System.Windows.Input.Mouse.LeftButton == System.Windows.Input.MouseButtonState.Pressed;
         };
-        AmbienceChk.IsChecked = S.ThemeEffects;
-        if (Environment.GetEnvironmentVariable("CUTPRO_AMBIENCE") == "0") S.ThemeEffects = false;      // test runs: measure without
+        AmbienceChk.IsChecked = false;
+        AmbienceChk.Visibility = Visibility.Collapsed;
+        S.ThemeEffects = Environment.GetEnvironmentVariable("CUTPRO_AMBIENCE") == "1";   // off unless a measurement run asks for it
         Loaded += (_, _) => amb.Apply(ThemeManager.Current.Name, S.ThemeEffects);
     }
     void Ambience_Click(object s, RoutedEventArgs e)
@@ -129,6 +130,8 @@ public partial class MainWindow
                     MI("New Bin", K("bin.new"), () => RunCommand("bin.new")), NewItemMenu(),
                     MI("Relink Offline Media…", "", () => RelinkOffline(), enabled: ed.Media.Any(m => m.Offline)),
                     MI("Collect Files…", K("file.collect"), () => _ = CollectFilesAsync(), enabled: ed.Media.Count > 0), "-",
+                    MI("Record Screen…", K("media.screen"), RecordScreen),
+                    MI("Record Webcam…", K("media.webcam"), RecordWebcam),
                     MI("Record Voice-over…", K("audio.voiceover"), () => VoiceOverDialog()), "-",
                     MI("Export…", K("file.export"), () => Export_Click(this, e)), MI("Render Queue", "", () => ShowDock("Queue")),
                     MI("Export EDL…", K("file.exportEdl"), () => ExportInterchange(false), enabled: ed.Clips.Count > 0),
@@ -175,7 +178,7 @@ public partial class MainWindow
                     MI($"Apply Video Transition ({Transitions.DefaultVideo})", "Ctrl+D", () => ApplyTransitions(true, false)),
                     MI($"Apply Audio Transition ({Transitions.DefaultAudio})", "Ctrl+Shift+D", () => ApplyTransitions(false, true)),
                     MI("Apply Default Transitions to Selection", "Shift+D", () => ApplyTransitions(true, true)),
-                    MI("Effects (transitions)…", "", () => ShowSideView("Effects")), "-",
+                    MI("Library…", "", () => ShowSideView("Effects")), "-",
                     MI("Speed/Duration…", "Ctrl+R", () => SpeedDialog(), enabled: ed.Sel.Count > 0),
                     MI("Add Frame Hold", "", () => FrameHold(false), enabled: HoldTarget() != null),
                     MI("Insert Frame Hold Segment", "", () => FrameHold(true), enabled: HoldTarget() != null), "-",
@@ -255,7 +258,7 @@ public partial class MainWindow
                 Add(MI("Command Palette…", "Ctrl+Shift+P", () => OpenPalette()), "-",
                     MI("Project", "", () => ShowSideView("Project"), Showing("Project")),
                     MI("Titles", "", () => ShowSideView("Titles"), Showing("Titles")),
-                    MI("Effects", "", () => ShowSideView("Effects"), Showing("Effects")),
+                    MI("Library", "", () => ShowSideView("Effects"), Showing("Effects")),
                     MI("Audio Track Mixer", "", () => ShowSideView("Mixer"), Showing("Mixer")),
                     MI("Lumetri Scopes", "", () => ShowSideView("Scopes"), Showing("Scopes")),
                     MI("Captions", "", () => ShowSideView("Captions"), Showing("Captions")),
@@ -538,7 +541,7 @@ public partial class MainWindow
             new("View: Toggle Effect Controls", "Ctrl+Alt+B", () => SetInspector(!inspVisible)),
             new("View: Show Project", "", () => ShowSideView("Project")), new("View: Show Titles", "", () => ShowSideView("Titles")),
             new("View: Show Settings", "", () => ShowSideView("Settings")),
-            new("View: Show Effects", "", () => ShowSideView("Effects")), new("View: Show Audio Track Mixer", "", () => ShowSideView("Mixer")),
+            new("View: Show Library", "", () => ShowSideView("Effects")), new("View: Show Audio Track Mixer", "", () => ShowSideView("Mixer")),
             new("View: Show Lumetri Scopes", "", () => ShowSideView("Scopes")),
             new("View: Full-Screen Playback", "F11", ToggleFullScreen), new("View: Maximize Panel Under the Mouse", "`", () => ToggleMaximizePanel()),
             new("Window: Program Monitor in a New Window", "", () => MoveDock("Program", "Float")), new("Window: Timeline in a New Window", "", () => MoveDock("Timeline", "Float")),

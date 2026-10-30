@@ -82,6 +82,8 @@ public static class Keymap
         new("audio.beats", "Audio: Detect Beats (markers)…", Array.Empty<string>()),
         new("audio.ducking", "Audio: Auto Ducking…", Array.Empty<string>()),
         new("audio.voiceover", "Audio: Record Voice-over…", Array.Empty<string>()),
+        new("media.screen", "File: Record Screen…", Array.Empty<string>()),
+        new("media.webcam", "File: Record Webcam…", Array.Empty<string>()),
         new("seq.reframeZoom", "Sequence: Auto Reframe with Push-in…", Array.Empty<string>()),
         new("trans.video", "Sequence: Apply Video Transition", new[] { "Ctrl+D" }),
         new("trans.audio", "Sequence: Apply Audio Transition", new[] { "Ctrl+Shift+D" }),

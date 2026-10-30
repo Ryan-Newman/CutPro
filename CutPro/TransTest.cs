@@ -32,7 +32,8 @@ public static class TransTest
             string[] kinds = { "Cross Dissolve", "Wipe Left", "Push Left", "Iris Round", "Dip to Black", "Wipe Up", "Push Down", "Dip to White", "Wipe Right", "Push Up",
                                "Clock Wipe", "Diagonal Wipe", "Venetian Blinds", "Inset", "Iris Box", "Iris Diamond", "Barn Doors", "Barn Doors Horizontal",
                                "Slide Left", "Slide Right", "Slide Up", "Slide Down", "Cross Zoom", "Zoom In", "Zoom Out", "Spin In", "Spin Away",
-                               "Film Dissolve", "Morph Cut", "Cube Spin", "Page Peel", "Bible Page Turn" };
+                               "Film Dissolve", "Morph Cut", "Cube Spin", "Page Peel", "Bible Page Turn",
+                               "Zoom Punch", "Shake Cut", "Heart Iris", "Star Iris", "Block Glitch", "Paint Stroke", "Film Burn", "Light Leak" };
             // V1: alternating pictures, 2 s each, a transition at every cut (centre, 1 s); a fade in from nothing at the start
             var v1 = new List<Clip>();
             for (int i = 0; i <= kinds.Length; i++)
@@ -79,7 +80,7 @@ public static class TransTest
                         var (sx, sy) = SeqTest.Shift(pa, pb, W, H);
                         // (spins turn the 1 px grid pattern: WPF and ffmpeg resample it differently — 23 dB, like rotated layers in --animtest;
                         //  near-identical frames (> 45 dB) can't show a shift, e.g. a mostly black iris to nothing)
-                        double min = w.D.Name.StartsWith("Spin") || w.D.Name is "Cube Spin" or "Morph Cut" ? 22 : 28;
+                        double min = w.D.Name.StartsWith("Spin") || w.D.Name is "Cube Spin" or "Morph Cut" or "Zoom Punch" or "Shake Cut" ? 22 : 28;
                         Check(psnr >= min && worst <= 40 && (psnr > 45 || Math.Abs(sx) <= 1 && Math.Abs(sy) <= 1), $"{where} {w.T.Kind}{(w.A == null ? " (from nothing)" : w.B == null ? " (to nothing)" : "")} at {q:0.##}: PSNR {psnr:0.0} dB (≥ {min}), worst block {worst:0.0}/255, shift ({sx},{sy})");
                         FxTest.Save(FxTest.SideBySide(pa, pb), Path.Combine(dir, $"trans_{f}.png"));
                     }

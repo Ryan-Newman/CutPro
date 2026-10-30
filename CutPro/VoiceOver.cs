@@ -9,7 +9,7 @@ namespace CutPro;
 /// <summary>A 16-bit PCM WAV file written as it grows (the header is finished on Close).</summary>
 public sealed class WavWriter : IDisposable
 {
-    readonly FileStream fs; readonly int rate, ch; long bytes;
+    readonly FileStream fs; readonly int rate, ch; long bytes; bool closed;
     public WavWriter(string path, int rate, int channels)
     {
         this.rate = rate; ch = channels;
@@ -21,6 +21,8 @@ public sealed class WavWriter : IDisposable
     public void Write(ReadOnlySpan<byte> pcm) { fs.Write(pcm); bytes += pcm.Length; }
     public void Dispose()
     {
+        if (closed) return;
+        closed = true;
         fs.Position = 0;
         var w = new BinaryWriter(fs, System.Text.Encoding.ASCII, true);
         w.Write("RIFF"u8); w.Write((int)(36 + bytes)); w.Write("WAVE"u8);

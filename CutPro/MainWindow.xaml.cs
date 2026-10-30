@@ -51,6 +51,7 @@ public partial class MainWindow : Window
         online.Start();
         Loaded += (_, _) =>
         {
+            if (!AppSettings.ReadOnly) DesktopLink.Ensure();
             if (Exporter.FindFfmpeg() == null)
                 Alert.Show(this, $"{AppInfo.Name} needs ffmpeg for playback and export, but ffmpeg.exe was not found.\n\nInstall it with:  winget install Gyan.FFmpeg\nthen restart {AppInfo.Name}.",
                     "ffmpeg required", AlertKind.Warning);

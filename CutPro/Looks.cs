@@ -20,7 +20,14 @@ public sealed class LookFx
     public double Vhs { get; set; }
     /// <summary>Glitch: RGB split and a sliding slice, 0…100.</summary>
     public double Glitch { get; set; }
-    public LookFx Clone() => (LookFx)MemberwiseClone();
+    /// <summary>Stage names in the order they run (sharpen, glow, grain, vhs, glitch). Null = the default chain.</summary>
+    public List<string>? Order { get; set; }
+    public LookFx Clone()
+    {
+        var c = (LookFx)MemberwiseClone();
+        if (Order != null) c.Order = new List<string>(Order);
+        return c;
+    }
 }
 
 /// <summary>A clip's drop shadow (null = none): cast by its picture's outline (crop, key, masks, fades included) onto what is below it.</summary>
@@ -46,34 +53,60 @@ public sealed class DropShadow
 public static class Looks
 {
     static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+    public static readonly string[] Stages = { "sharpen", "glow", "grain", "vhs", "glitch" };
     public static bool Active(LookFx? l) => l != null && (l.Sharpen > 0.5 || l.Glow > 0.5 || l.Grain > 0.5 || l.Vhs > 0.5 || l.Glitch > 0.5);
-    public static string Sig(LookFx? l) => !Active(l) ? "" : FormattableString.Invariant($"{l!.Sharpen}|{l.Glow}|{l.GlowRadius}|{l.GlowThreshold}|{l.Grain}|{l.Vhs}|{l.Glitch}");
+    public static string Sig(LookFx? l) => !Active(l) ? "" : FormattableString.Invariant($"{l!.Sharpen}|{l.Glow}|{l.GlowRadius}|{l.GlowThreshold}|{l.Grain}|{l.Vhs}|{l.Glitch}|{string.Join(",", OrderOf(l))}");
+
+    /// <summary>The stages in the order they run (unknown names dropped, missing ones appended in the default order).</summary>
+    public static List<string> OrderOf(LookFx l)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var r = new List<string>();
+        if (l.Order != null)
+            foreach (var s in l.Order)
+                if (Stages.Contains(s, StringComparer.OrdinalIgnoreCase) && seen.Add(s.ToLowerInvariant())) r.Add(s.ToLowerInvariant());
+        foreach (var s in Stages) if (seen.Add(s)) r.Add(s);
+        return r;
+    }
+
+    public static void Move(LookFx l, string name, int dir)
+    {
+        var s = OrderOf(l);
+        int i = s.IndexOf(name);
+        int j = i + dir;
+        if (i < 0 || j < 0 || j >= s.Count) return;
+        (s[i], s[j]) = (s[j], s[i]);
+        l.Order = s;
+    }
 
     public static string Graph(LookFx l, int height, string tag = "")
     {
         double k = Math.Max(0.25, height / 720.0);
         var g = new List<string>();
-        if (l.Sharpen > 0.5)
+        foreach (var stage in OrderOf(l))
         {
-            int m = Math.Clamp((int)Math.Round(5 * k) | 1, 3, 23);
-            g.Add($"format=yuv444p,unsharp=luma_msize_x={m}:luma_msize_y={m}:luma_amount={F(l.Sharpen / 100 * 2.5)}:chroma_amount=0");
-        }
-        if (l.Glow > 0.5)
-        {
-            double thr = Math.Clamp(l.GlowThreshold, 0, 99) / 100 * 255, gain = 255 / (255 - thr), sigma = Math.Max(0.5, l.GlowRadius * k / 2);
-            string lift = $"'clip((val-{F(thr)})*{F(gain)},0,255)'";
-            g.Add($"format=gbrp,split[lg0{tag}][lg1{tag}];[lg1{tag}]lutrgb=r={lift}:g={lift}:b={lift},gblur=sigma={F(sigma)}[lg2{tag}];[lg0{tag}][lg2{tag}]blend=all_mode=screen:all_opacity={F(l.Glow / 100)}");
-        }
-        if (l.Grain > 0.5) g.Add($"format=yuv444p,noise=c0s={F(l.Grain / 100 * 40)}:c0f=t+u");
-        if (l.Vhs > 0.5)
-        {
-            double a = l.Vhs / 100, sat = 1 - a * 0.28, con = 1 + a * 0.08; int smear = Math.Max(1, (int)Math.Round(a * 8 * k));
-            g.Add($"format=yuv444p,eq=saturation={F(sat)}:contrast={F(con)},geq=lum='lum(X,Y)*(1-{F(a * 0.16)}*mod(Y,2))':cb='cb(X+{smear},Y)':cr='cr(X-{smear},Y)'");
-        }
-        if (l.Glitch > 0.5)
-        {
-            double a = l.Glitch / 100; int split = Math.Max(1, (int)Math.Round(a * 10 * k)), slice = Math.Max(4, (int)Math.Round(a * 18 * k));
-            g.Add($"format=gbrp,rgbashift=rh={split}:bh=-{split},format=yuv444p,geq=lum='lum(X+if(between(Y,H/3,H/3+H/10),{slice},0),Y)':cb='cb(X,Y)':cr='cr(X,Y)'");
+            if (stage == "sharpen" && l.Sharpen > 0.5)
+            {
+                int m = Math.Clamp((int)Math.Round(5 * k) | 1, 3, 23);
+                g.Add($"format=yuv444p,unsharp=luma_msize_x={m}:luma_msize_y={m}:luma_amount={F(l.Sharpen / 100 * 2.5)}:chroma_amount=0");
+            }
+            else if (stage == "glow" && l.Glow > 0.5)
+            {
+                double thr = Math.Clamp(l.GlowThreshold, 0, 99) / 100 * 255, gain = 255 / (255 - thr), sigma = Math.Max(0.5, l.GlowRadius * k / 2);
+                string lift = $"'clip((val-{F(thr)})*{F(gain)},0,255)'";
+                g.Add($"format=gbrp,split[lg0{tag}][lg1{tag}];[lg1{tag}]lutrgb=r={lift}:g={lift}:b={lift},gblur=sigma={F(sigma)}[lg2{tag}];[lg0{tag}][lg2{tag}]blend=all_mode=screen:all_opacity={F(l.Glow / 100)}");
+            }
+            else if (stage == "grain" && l.Grain > 0.5) g.Add($"format=yuv444p,noise=c0s={F(l.Grain / 100 * 40)}:c0f=t+u");
+            else if (stage == "vhs" && l.Vhs > 0.5)
+            {
+                double a = l.Vhs / 100, sat = 1 - a * 0.28, con = 1 + a * 0.08; int smear = Math.Max(1, (int)Math.Round(a * 8 * k));
+                g.Add($"format=yuv444p,eq=saturation={F(sat)}:contrast={F(con)},geq=lum='lum(X,Y)*(1-{F(a * 0.16)}*mod(Y,2))':cb='cb(X+{smear},Y)':cr='cr(X-{smear},Y)'");
+            }
+            else if (stage == "glitch" && l.Glitch > 0.5)
+            {
+                double a = l.Glitch / 100; int split = Math.Max(1, (int)Math.Round(a * 10 * k)), slice = Math.Max(4, (int)Math.Round(a * 18 * k));
+                g.Add($"format=gbrp,rgbashift=rh={split}:bh=-{split},format=yuv444p,geq=lum='lum(X+if(between(Y,H/3,H/3+H/10),{slice},0),Y)':cb='cb(X,Y)':cr='cr(X,Y)'");
+            }
         }
         return string.Join(",", g);
     }

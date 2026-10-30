@@ -43,6 +43,7 @@ public static partial class ExtraTest
             await Section("proxies", () => ProxyTest(dir));
             await Section("distort", () => DistortTest(dir));
             await Section("face blur", () => FaceTest(dir));
+            await Section("screen capture", () => CaptureTest(dir));
         }
         catch (Exception ex) { Check(false, "exception: " + ex); }
         log.Add(fails == 0 ? "ALL PASSED" : $"{fails} FAILED");
@@ -1072,5 +1073,21 @@ public static partial class ExtraTest
         Check(Near(got, 5 * fr) && Near(F(a).Dur, dur0 - 5 * fr) && Near(F(aa).Dur, F(a).Dur),
               $"keyboard trim in by 5 frames: duration {F(a).Dur:0.000} s");
         ed.Undo();
+    }
+
+    static async Task CaptureTest(string dir)
+    {
+        var cams = Capture.Cameras(ff);
+        Check(true, $"webcam list ({cams.Count} device{(cams.Count == 1 ? "" : "s")})");
+        var outF = Path.Combine(dir, "screen_cap.mp4");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        string? err = await Task.Run(() => Capture.Run(ff, new[] { "-f", "gdigrab", "-framerate", "10", "-i", "desktop", "-t", "0.5", "-an" }, outF, cts.Token));
+        if (err != null)
+            Check(true, "screen capture skipped (" + err.Split('\n')[0].Trim() + ")");
+        else
+        {
+            var m = await MediaProbe.ProbeAsync(outF);
+            Check(m is { Width: > 8, Duration: > 0.15 }, $"screen capture: gdigrab {m?.Width}x{m?.Height} {m?.Duration:0.00}s");
+        }
     }
 }

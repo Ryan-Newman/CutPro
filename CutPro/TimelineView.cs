@@ -1003,11 +1003,15 @@ public partial class TimelineView : FrameworkElement
     {
         if (e.Data.GetDataPresent("CutPro.Transition"))
         {
-            // a transition from the Effects panel: show which edit point it would land on
+            // a transition from the Library: show which edit point it would land on
             var d = Transitions.Get((string)e.Data.GetData("CutPro.Transition")!);
             var at = EditPointAt(e.GetPosition(this), d.Fx == Transitions.Fx.Audio);
             if (!Equals(at, dropAt)) { dropAt = at; InvalidateVisual(); }
             e.Effects = at != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; return;
+        }
+        if (e.Data.GetDataPresent("CutPro.Library"))
+        {
+            e.Effects = DragDropEffects.Copy; e.Handled = true; return;
         }
         e.Effects = e.Data.GetDataPresent("CutPro.Media") || e.Data.GetDataPresent("CutPro.Preset") && HitClip(e.GetPosition(this)) != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true;
     }
@@ -1015,16 +1019,28 @@ public partial class TimelineView : FrameworkElement
 
     protected override void OnDrop(DragEventArgs e)
     {
-        if (e.Data.GetDataPresent("CutPro.Transition"))
+        if (e.Data.GetDataPresent("CutPro.Transition") || e.Data.GetDataPresent("CutPro.Library"))
         {
-            var kind = (string)e.Data.GetData("CutPro.Transition")!;
+            LibItem? lib = e.Data.GetDataPresent("CutPro.Library") ? Library.Of((string)e.Data.GetData("CutPro.Library")!) : null;
+            var kind = lib?.TransKind ?? (e.Data.GetDataPresent("CutPro.Transition") ? (string)e.Data.GetData("CutPro.Transition")! : null);
             dropAt = null;
-            if (EditPointAt(e.GetPosition(this), Transitions.Get(kind).Fx == Transitions.Fx.Audio) is { } at)
+            if (kind != null && EditPointAt(e.GetPosition(this), Transitions.Get(kind).Fx == Transitions.Fx.Audio) is { } at)
             {
-                (Clip c, bool head) placed = default;
-                Ed.Edit(() => placed = Ed.PlaceTransition(at.c, at.head, kind), "Add Transition");
-                Ed.SelectTransition(placed.c!, placed.head);
+                Clip? owner = null; bool head = false;
+                Ed.Edit(() => { var p = Ed.PlaceTransition(at.c, at.head, kind, lib?.Dur); owner = p.clip; head = p.head; }, "Add Transition");
+                if (owner != null)
+                {
+                    Ed.SelectTransition(owner, head);
+                    if (lib is { Sfx: not SfxKind.None } && Library.WindowOf(Ed, owner, head) is { } win)
+                        Library.PlaceSfx(Ed, lib.Sfx, win.t0, win.dur);
+                }
             }
+            else if (lib?.Kind == LibKind.Sound)
+                Library.PlaceSfx(Ed, lib.Sfx, Snap(X2T(e.GetPosition(this).X), null, 0), lib.Dur);
+            else if (lib?.Kind == LibKind.Graphic && GraphicLibrary.All.FirstOrDefault(g => g.Name == lib.Graphic) is { } g)
+                Ed.AddGraphic(g);
+            else if (lib?.Kind == LibKind.Look && HitClip(e.GetPosition(this)) is { } lc && lc.Kind is ClipKind.Video or ClipKind.Image)
+                Ed.Edit(() => lc.Looks = lib.Look!.Clone(), "Look");
             InvalidateVisual(); e.Handled = true; return;
         }
         if (e.Data.GetDataPresent("CutPro.Preset"))

@@ -10,7 +10,7 @@ namespace CutPro;
 /// of a selected transition (type, duration, alignment, what it needs from the media).</summary>
 public partial class MainWindow
 {
-    void InitEffects() => BuildEffectsList();
+    void InitEffects() { FillLibraryCats(); BuildEffectsList(); }
 
     /// <summary>An adjustment layer at the playhead (V3, else V2), selected so its Lumetri / blur sections show.</summary>
     void AddAdjustment() => AddAdjustmentClip();
@@ -22,43 +22,7 @@ public partial class MainWindow
         return c;
     }
 
-    void BuildEffectsList()
-    {
-        EffectsList.Children.Clear();
-        void Header(string text)
-        {
-            var t = new TextBlock { Text = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 10, 0, 4) };
-            EffectsList.Children.Add(t);
-        }
-        void Group(string text)
-        {
-            var t = new TextBlock { Text = text, FontSize = 11, Margin = new Thickness(8, 6, 0, 2) };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
-            EffectsList.Children.Add(t);
-        }
-        Header("Adjustment layer");
-        {
-            var note = new TextBlock { Text = "Colour and blur for every track below it, while it is on screen.", FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 0, 8, 4) };
-            note.SetResourceReference(TextBlock.ForegroundProperty, "B.Fg.Dim");
-            EffectsList.Children.Add(note);
-            var add = new Button { Content = "Add adjustment layer at the playhead", Margin = new Thickness(8, 0, 8, 6), Padding = new Thickness(8, 4, 8, 4), HorizontalAlignment = HorizontalAlignment.Left };
-            add.Click += (_, _) => AddAdjustment();
-            EffectsList.Children.Add(add);
-        }
-        Header("Video Transitions");
-        string? last = null;
-        foreach (var d in Transitions.VideoDefs)
-        {
-            string g = Transitions.GroupOf(d);
-            if (g != last) { Group(g); last = g; }
-            EffectsList.Children.Add(EffectItem(d, d.Name == Transitions.DefaultVideo));
-        }
-        Header("Audio Transitions");
-        Group("Crossfade");
-        foreach (var d in Transitions.AudioDefs) EffectsList.Children.Add(EffectItem(d, d.Name == Transitions.DefaultAudio));
-        BuildTransPresetList();
-        BuildPresetList();
-    }
+    // BuildEffectsList lives in LibraryUi.cs (the Library replaces the old flat Effects list).
 
     /// <summary>One draggable transition row: icon, name, "default" badge.</summary>
     FrameworkElement EffectItem(Transitions.Def d, bool isDefault)
